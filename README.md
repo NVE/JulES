@@ -28,7 +28,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - src/util.jl - Various useful functions
 
 #### See also demos:
-- demos/Demo 1 - Prototype JulES
+- demos/Prototype JulES v1
 
 #### Possible improvements to JulES:
 See file "Possible improvements to JulES"
