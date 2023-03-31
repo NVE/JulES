@@ -1,6 +1,6 @@
 ## JulES
 
-JulES is a power market simulation model that uses [TuLiPa](https://github.com/NVE/TuLiPa/) as building blocks. JulES clears the power market in small steps with some of the bids generated from deterministic price prognosis models, and stochastic subsystem models for storage valuation. JulES is designed for fast parallel calculations of water values in each reservoir (or battery storage values), without the need for advanced end values.
+JulES is a energy market simulation model that uses [TuLiPa](https://github.com/NVE/TuLiPa/) as building blocks. JulES clears the power market in small steps with some of the bids generated from deterministic price prognosis models, and stochastic subsystem models for storage valuation. JulES is designed for fast parallel calculations of water values in each reservoir (or battery storage values), without the need for advanced end values.
 
 This is a prototype to test out ideas and inspire the field. Feedback, ideas and contributions are welcome.
 
