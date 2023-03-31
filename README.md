@@ -1,6 +1,6 @@
 ## JulES
 
-JulES is a power market simulation model that uses [TuLiPa](https://github.com/NVE/TuLiPa/) as building blocks. JulES clears the power market in small steps with some of the bids generated from deterministic price prognosis models, and stochastic subsystem models for storage valuation. Each subsystem (e.g. battery or watercourse) can have its own storage valuation model that is adapted to the storage system they represent, and can calculate storage values for each individual storage without the need for advanced end values. This should scale well when we want to solve a complex and detailed power market problem since the smaller subsystems can be solved fast and in parallel. 
+JulES is a power market simulation model that uses [TuLiPa](https://github.com/NVE/TuLiPa/) as building blocks. JulES clears the power market in small steps with some of the bids generated from deterministic price prognosis models, and stochastic subsystem models for storage valuation. JulES is designed for fast parallel calculations of water values in each reservoir (or battery storage values), without the need for advanced end values.
 
 This is a prototype to test out ideas and inspire the field. Feedback, ideas and contributions are welcome.
 
@@ -10,10 +10,16 @@ With the transition towards a renewable-based power system, we need models that 
 ### JulES
 
 #### Simulation concept
+
+JulES clears the power market in small steps with some of the bids generated from deterministic price prognosis models, and stochastic subsystem models for storage valuation. Each subsystem (e.g. battery or watercourse) can have its own storage valuation model that is adapted to the storage system they represent, and can calculate storage values for each individual storage without the need for advanced end values. This should scale well when we want to solve a complex and detailed power market problem since the smaller subsystems can be solved fast and in parallel. 
+
 The simulation model uses a rolling horizon approach where the underlying models are solved for each time step:
 1.	Price prognosis models with different degrees of details (e.g. long-term deterministic aggregated power market model)
 2.	Models for valuating storage capacity (e.g. medium- or short-term stochastic hydropower scheduling of individual watercourses based on prices from 1)
 3.	Market clearing model (e.g. deterministic bid optimization, with part of the bids from 2)
+
+#### TuLiPa
+TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 
 #### Get an overview of JulES:
 - src/prognosis.jl – Code for price prognosis models
