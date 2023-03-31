@@ -19,7 +19,6 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
     set_silent(model)
     clearing = JuMP_Prob(modelobjects, model)
     # clearing = HiGHS_Prob(modelobjects)
-    unsetsilent!(clearing)
 
     shorttermstorages = getshorttermstorages(getobjects(clearing), Hour(10))
     clearingstorages = getstorages(getobjects(clearing))
