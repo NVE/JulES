@@ -72,7 +72,7 @@ function clearing!(clearing, clearingstorages, startstates, cutslocal, clearinge
 
     update!(clearing, tnormal)
 
-    @time solve!(clearing)
+    solve!(clearing)
 
     startstates = getstartstates(clearing, detailedrescopl, enekvglobaldict)
     
