@@ -1,17 +1,17 @@
 # Read json files into dataelements
-function json_to_elements(path, filename)
+function json_to_elements(path::String, filename::String)
     parsed = JSON.parsefile(joinpath(path, filename))
     return getelements(parsed, path)
 end
 
 # Add element for scenariotimeperiod
-function addscenariotimeperiod!(elements, start, stop)
+function addscenariotimeperiod!(elements::Vector{DataElement}, start::Int, stop::Int)
     push!(elements, getelement(TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
             ("Start", getisoyearstart(start)), ("Stop", getisoyearstart(stop))))
 end
 
 # Insert horizons into commodities. E.g. all batteries will have the power horizon, since they interact with the power market
-function set_horizon!(elements, commodity, horizon)
+function set_horizon!(elements::Vector{DataElement}, commodity::String, horizon::Horizon)
     # If element already exist, replace horizon with new
     for element in elements
         if element.typename == "BaseCommodity"
@@ -29,7 +29,7 @@ function set_horizon!(elements, commodity, horizon)
 end
 
 # The hydropower storages in the dataset needs boundary conditions for the state variables
-function addStartEqualStopAllStorages!(modelobjects)
+function addStartEqualStopAllStorages!(modelobjects::Dict)
     for obj in values(modelobjects)
         if obj isa BaseStorage
             trait = StartEqualStop(obj)
@@ -39,7 +39,7 @@ function addStartEqualStopAllStorages!(modelobjects)
 end
 
 # Power balances needs slack variable for when the inelastic supply (wind, solar, RoR) is higher than the inelastic demand
-function addPowerUpperSlack!(modelobjects) # add after object manipulation
+function addPowerUpperSlack!(modelobjects::Dict) # add after object manipulation
     for obj in values(modelobjects)
         if obj isa BaseBalance
             if getid(getcommodity(obj)) == Id("Commodity", "Power")
@@ -64,7 +64,7 @@ function addPowerUpperSlack!(modelobjects) # add after object manipulation
 end
 
 # Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution
-function remove_startupcosts!(modelobjects)
+function remove_startupcosts!(modelobjects::Dict)
     for (id,obj) in modelobjects
         if obj isa StartUpCost
             delete!(modelobjects, id)
@@ -72,8 +72,8 @@ function remove_startupcosts!(modelobjects)
     end
 end
 
-# Set start reservoir as a percentage of capacity
-function setstartstoragepercentage!(prob, storages, start, percentage)
+# Set start and end reservoir as a percentage of capacity
+function setstartstoragepercentage!(prob::Prob, storages::Vector, start::ProbTime, percentage::Int)
     for obj in storages
 
         dummydelta = MsTimeDelta(Millisecond(0))
@@ -88,7 +88,7 @@ function setstartstoragepercentage!(prob, storages, start, percentage)
     end
 end
 
-function setendstoragepercentage!(prob, storages, endtime, percentage)
+function setendstoragepercentage!(prob::Prob, storages::Vector, endtime::ProbTime, percentage::Int)
     for obj in storages
 
         dummydelta = MsTimeDelta(Millisecond(0))
@@ -103,30 +103,7 @@ function setendstoragepercentage!(prob, storages, endtime, percentage)
     end
 end
 
-function setstartstates!(prob, storages, startstates)
-    for obj in storages
-
-        states = Dict{StateVariableInfo, Float64}()
-        for statevariable in getstatevariables(obj)
-            states[statevariable] = startstates[getinstancename(first(getvarout(statevariable)))]
-        end
-        
-        setingoingstates!(prob, states)
-    end
-end
-
-function setendstates!(prob, storages, startstates)
-    for obj in storages
-
-        states = Dict{StateVariableInfo, Float64}()
-        for statevariable in getstatevariables(obj)
-            states[statevariable] = startstates[getinstancename(first(getvarout(statevariable)))]
-        end
-        
-        setoutgoingstates!(prob, states)
-    end
-end
-
+# Initialize dict of statevariables from list of modelobjects
 function getstatevariables(modelobjects::Vector)
     states = Dict{StateVariableInfo, Float64}()
     
@@ -142,6 +119,32 @@ function getstatevariables(modelobjects::Vector)
     return states
 end
 
+# Set start and end states for objects with statevariables
+function setstartstates!(prob::Prob, objects::Vector, startstates::Dict)
+    for obj in objects
+
+        states = Dict{StateVariableInfo, Float64}()
+        for statevariable in getstatevariables(obj)
+            states[statevariable] = startstates[getinstancename(first(getvarout(statevariable)))]
+        end
+        
+        setingoingstates!(prob, states)
+    end
+end
+
+function setendstates!(prob::Prob, objects::Vector, startstates::Dict)
+    for obj in objects
+
+        states = Dict{StateVariableInfo, Float64}()
+        for statevariable in getstatevariables(obj)
+            states[statevariable] = startstates[getinstancename(first(getvarout(statevariable)))]
+        end
+        
+        setoutgoingstates!(prob, states)
+    end
+end
+
+# Initialize dict of statevariables that are not storages from list of modelobjects
 function getnonstoragestatevariables(modelobjects::Vector)
     states = Dict{StateVariableInfo, Float64}()
     
@@ -159,6 +162,7 @@ function getnonstoragestatevariables(modelobjects::Vector)
     return states
 end
 
+# Get dual value of a storage at a specific time period
 function getinsideduals(p::Prob, storages::Vector, t::Int)
     endvalues = zeros(Float64,length(storages))
     for (i, storage) in enumerate(storages)
@@ -167,41 +171,3 @@ function getinsideduals(p::Prob, storages::Vector, t::Int)
     end
     return endvalues
 end
-
-# Distribute subsystems after number of objects in subsystem
-function distribute_subsystems(ustoragesystemobjects::Vector, ushorts::Vector)
-    objectcount = [length(first(objs)) for objs in ustoragesystemobjects]
-    sortedindex = sortperm(objectcount, rev=true)
-    testsort = distribute(collect(1:length(ustoragesystemobjects)))
-    storagesystemobjects = Vector(undef,length(objectcount))
-    shorts = Vector(undef,length(ushorts))
-    direction = 1
-    rangeix = 1
-    localix = 1
-    for i in 1:length(objectcount)
-        (range,) = testsort.indices[rangeix]
-        if localix > length(range) # possible for last localix
-            rangeix = 1
-            direction = 1
-            (range,) = testsort.indices[rangeix]
-        end
-
-        storagesystemobjects[collect(range)[localix]] = ustoragesystemobjects[sortedindex][i]
-        shorts[collect(range)[localix]] = ushorts[sortedindex][i]
-        rangeix += direction
-
-        if rangeix > length(testsort.indices)
-            direction = -1
-            rangeix += direction
-            localix += 1
-        elseif rangeix == 0
-            direction = 1
-            rangeix += direction
-            localix += 1
-        end
-    end
-    storagesystemobjects = distribute(storagesystemobjects)
-    shorts = distribute(shorts, storagesystemobjects)
-    return storagesystemobjects, shorts
-end
-
