@@ -1,6 +1,8 @@
 # Add TuLiPa when it is published as a package: /src/TuLiPa.jl"
 
-include("util.jl")
-include("prognosis.jl")
-include("stochastic.jl")
-include("clearing.jl")
+using DistributedArrays
+
+include("util.jl") # Various useful functions
+include("prognosis.jl") # Code for price prognosis problems
+include("stochastic.jl") # Code for stochastic subsystem problems
+include("clearing.jl") # Code for market clearing problems
