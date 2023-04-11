@@ -38,6 +38,9 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 #### See also demos:
 - demos/Prototype JulES v1
 
+#### Results:
+TODO:
+
 #### Possible improvements to JulES:
 See file "Possible improvements to JulES"
 
