@@ -72,6 +72,15 @@ function remove_startupcosts!(modelobjects::Dict)
     end
 end
 
+# Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution
+function remove_transmissionramping!(modelobjects::Dict)
+    for (id,obj) in modelobjects
+        if obj isa TransmissionRamping
+            delete!(modelobjects, id)
+        end
+    end
+end
+
 # Set start and end reservoir as a percentage of capacity
 function setstartstoragepercentage!(prob::Prob, storages::Vector, start::ProbTime, percentage::Int)
     for obj in storages

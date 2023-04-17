@@ -39,7 +39,7 @@ function _make_prob(elements::Vector{DataElement}, hydro_horizon::Horizon, power
 end
 
 # Simplify modelobjects
-function simplify!(modelobjects::Dict; aggzone::Bool=true, removestartup::Bool=true, aggsupplyn::Int=0, removestoragehours::Int=0, residualarealist::Vector=[])
+function simplify!(modelobjects::Dict; aggzone::Bool=true, removestartup::Bool=true, removetransmissionramping::Bool=true, aggsupplyn::Int=0, removestoragehours::Int=0, residualarealist::Vector=[])
     # Aggregate price areas and add power balance slack variables
     # For the new area FRACHE, the transmission line FRA-CHE is transformed into a demand based on the loss and utilization of the line
     if aggzone
@@ -62,6 +62,9 @@ function simplify!(modelobjects::Dict; aggzone::Bool=true, removestartup::Bool=t
 
     # Start-up-costs are not compatible with aggregatesupplycurve! or AdaptiveHorizon
     removestartup && remove_startupcosts!(modelobjects)
+
+    # Transmissionramping is not compatible with aggregatesupplycurve! or AdaptiveHorizon and slows down short problem
+    removetransmissionramping && remove_transmissionramping!(modelobjects)
 
     # Aggregate all simple plants (only connected to power market, mostly thermal) for each area into 4 equivalent plants
     aggsupplyn > 0 && aggregatesupplycurve!(modelobjects, aggsupplyn)
