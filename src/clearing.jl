@@ -4,7 +4,7 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
 
     # Add horizon to dataelements
     battery_horizon = SequentialHorizon(clearingdays*12, Hour(2)) # TODO: Replace with user settings
-    hydro_horizon = SequentialHorizon(clearingdays, Hour(24)) # TODO: Higher time resolution for small PHS
+    hydro_horizon = SequentialHorizon(clearingdays*12, Hour(2)) # TODO: Higher time resolution for small PHS
     power_horizon = SequentialHorizon(clearingdays*12, Hour(2))
 
     push!(elements1, getelement(COMMODITY_CONCEPT, "BaseCommodity", "Power", 
@@ -17,6 +17,21 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
     # Make modelobjects and add upper slack variable for power production
     modelobjects = getmodelobjects(elements1)
     addPowerUpperSlack!(modelobjects)
+
+    # Initialize cuts
+    varendperiod = Dict()
+    for cuts in cutslocal
+        # Replace local stochastic object with version from clearing, also store numperiods
+        for (i,obj) in enumerate(cuts.objects)
+            objid = getid(obj)
+            clearingobj = modelobjects[objid]
+            cuts.objects[i] = clearingobj
+            varendperiod[objid] = getnumperiods(gethorizon(clearingobj))
+        end
+
+        cutid = getid(cuts)
+        modelobjects[cutid] = cuts
+    end
 
     # Build problem from modelobjects and optimizer
     # model = Model(HiGHS.Optimizer)
@@ -32,16 +47,21 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
 
     # Set end values from cuts generated in stochastic subsystem problems
     clearingendvaluesdict = Dict()
+    # for cuts in cutslocal
+    #     for (state, value) in cuts.slopes[cuts.cutix] # slopes of last cut
+    #         clearingendvaluesdict[first(getvarout(state))] = value
+    #     end
+    # end
+    # endvalues = [-clearingendvaluesdict[getid(obj)] for obj in clearingstorages]
+    # clearingendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
+    # clearingendvaluesobj = EndValues(clearingendvaluesid, clearingstorages)
+    # push!(clearing.objects, clearingendvaluesobj)
+    # updateendvalues!(clearing, clearingendvaluesobj, endvalues)
+
+    # Update cuts
     for cuts in cutslocal
-        for (state, value) in cuts.slopes[cuts.cutix] # slopes of last cut
-            clearingendvaluesdict[first(getvarout(state))] = value
-        end
+        updatecuts!(clearing, cuts, varendperiod)
     end
-    endvalues = [-clearingendvaluesdict[getid(obj)] for obj in clearingstorages]
-    clearingendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
-    clearingendvaluesobj = EndValues(clearingendvaluesid, clearingstorages)
-    push!(clearing.objects, clearingendvaluesobj)
-    updateendvalues!(clearing, clearingendvaluesobj, endvalues)
 
     # Set outgoing states for non-storage variables
     nonstoragestatesmean = Dict{StateVariableInfo, Float64}()
@@ -57,27 +77,35 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
     update!(clearing, t)
     solve!(clearing)
     
-    return clearing, clearingstorages, nonstoragestatesmean, clearingendvaluesdict
+    return clearing, clearingstorages, nonstoragestatesmean, clearingendvaluesdict, varendperiod
 end
 
 # Run market clearing for new time step
-function clearing!(clearing, clearingstorages, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict)
+function clearing!(clearing, clearingstorages, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
         
     # Update startstates for all state variables, equals end state of last market clearing
     setstartstates!(clearing, clearingstorages, startstates)
         
     # Update storage end values from cuts
+    # for cuts in cutslocal
+    #     for (state, value) in cuts.slopes[cuts.cutix] # slopes of last cut
+    #         clearingendvaluesdict[first(getvarout(state))] = value
+    #     end
+    # end
+    # clearingendvaluesobj = clearing.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), clearing.objects)]
+    # endvalues = [-clearingendvaluesdict[getid(obj)] for obj in clearingstorages]
+    # updateendvalues!(clearing, clearingendvaluesobj, endvalues)
+
+    # Update cuts in problem
     for cuts in cutslocal
-        for (state, value) in cuts.slopes[cuts.cutix] # slopes of last cut
-            clearingendvaluesdict[first(getvarout(state))] = value
-        end
+        updatecuts!(clearing, cuts, varendperiod)
     end
-    clearingendvaluesobj = clearing.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), clearing.objects)]
-    endvalues = [-clearingendvaluesdict[getid(obj)] for obj in clearingstorages]
-    updateendvalues!(clearing, clearingendvaluesobj, endvalues)
 
     # Update end states for non storage variables
     for nonstoragestate in keys(nonstoragestateslocal[1])
+        # (id, ix) = getvarout(nonstoragestate)
+        # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
+        # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
         nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
     end
     setoutgoingstates!(clearing, nonstoragestatesmean)
