@@ -1,5 +1,5 @@
 # Make modelobjects for stochastic subsystems, group into subsystems
-function makestochasticobjects(elements, days::Int, offset::Union{Offset,Nothing}, scenario::Int, prices::DArray, short::Bool, master::Bool)
+function makestochasticobjects(elements, days::Int, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool)
     
     # Add horizons to elements
     if short
@@ -163,7 +163,8 @@ end
 # Initialize cuts
 function initialize_cuts!(modelobjects, cutobjects, maxcuts, lb, numscen)
     # Make a cutid
-    cutid = Id(BOUNDARYCONDITION_CONCEPT,"StorageCuts")
+    cutname = getinstancename(getid(modelobjects[1]))
+    cutid = Id(BOUNDARYCONDITION_CONCEPT,"StorageCuts" * cutname)
     
     # Probability of each subproblem / second stage scenario
     probabilities = [1/numscen for i in 1:numscen]
