@@ -10,7 +10,7 @@ JulES
 - (Read time-series data more efficinetly with TuLiPa. See github.com/NVE/TuLiPa/Possible improvements to TuLiPa)
 
 NVE test improvements:
-- Smarter restriction of run-of-river hydro that does not cost too much compute time, ramping/balancing/delays
+- Smarter restriction of run-of-river hydro that does not cost too much compute time, ramping/balancing/delays (maybe ramping that restricts several flows)
 - Tune cost of hydropower restrictions
 - Only use the detailed hydropower dataset, also in the price prognosis models (but aggregate it). Now the aggregation is done outside of the model.
 - Test JulES on faster processor cores. At the moment only 2.2 GHz
