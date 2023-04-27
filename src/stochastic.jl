@@ -139,6 +139,10 @@ function removeelements!(elements, short) # TODO: Replace with user settings
                 elements[i] = DataElement(element.conceptname, element.typename, element.instancename, value)
             end
         end
+
+        if element.typename == "HydroRampingWithout"
+            push!(delix,i)
+        end
     end
     deleteat!(elements, delix)
     
