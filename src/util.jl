@@ -81,6 +81,22 @@ function remove_transmissionramping!(modelobjects::Dict)
     end
 end
 
+# Remove hydroramping. Does not make sense to have them when the horizon does not have a fine time-resolution
+function remove_hydrorampingwithout!(modelobjects::Dict)
+    for (id,obj) in modelobjects
+        if obj isa HydroRampingWithout
+            delete!(modelobjects, id)
+        end
+    end
+end
+function remove_hydroramping!(modelobjects::Dict)
+    for (id,obj) in modelobjects
+        if obj isa HydroRamping
+            delete!(modelobjects, id)
+        end
+    end
+end
+
 # Set start and end reservoir as a percentage of capacity
 function setstartstoragepercentage!(prob::Prob, storages::Vector, start::ProbTime, percentage::Int)
     for obj in storages
@@ -151,6 +167,20 @@ function setendstates!(prob::Prob, objects::Vector, startstates::Dict)
         
         setoutgoingstates!(prob, states)
     end
+end
+
+function getnonstorageobjects(modelobjects::Vector)
+    nonstorageobjects = []
+    for obj in modelobjects
+        if getconceptname(getid(obj)) != "Storage"
+            if length(getstatevariables(obj)) > 1
+                error("Not supported")
+            elseif length(getstatevariables(obj)) == 1
+                push!(nonstorageobjects, obj)
+            end
+        end
+    end
+    return nonstorageobjects
 end
 
 # Initialize dict of statevariables that are not storages from list of modelobjects

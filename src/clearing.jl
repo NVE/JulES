@@ -77,14 +77,14 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
     update!(clearing, t)
     solve!(clearing)
     
-    return clearing, clearingstorages, nonstoragestatesmean, clearingendvaluesdict, varendperiod
+    return clearing, nonstoragestatesmean, clearingendvaluesdict, varendperiod
 end
 
 # Run market clearing for new time step
-function clearing!(clearing, clearingstorages, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
+function clearing!(clearing, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
         
     # Update startstates for all state variables, equals end state of last market clearing
-    setstartstates!(clearing, clearingstorages, startstates)
+    setstartstates!(clearing, clearing.objects, startstates) # TODO: Also store actual statevariables to update more efficiently?
         
     # Update storage end values from cuts
     # for cuts in cutslocal

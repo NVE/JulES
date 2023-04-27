@@ -227,10 +227,12 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
     shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
     allstorages = getstorages(getobjects(shortprob))
     longtermstorages = setdiff(allstorages, shorttermstorages)
+    nonstorageobjects = getnonstorageobjects(getobjects(shortprob))
     
     setstartstates!(shortprob, shorttermstorages, startstates)
     setendstates!(shortprob, shorttermstorages, startstates)
     setstartstates!(shortprob, longtermstorages, startstates)
+    setstartstates!(shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
     
     medperiod = getendperiodfromduration(mhh, getduration(shh))
     shortendvalues = getinsideduals(medprob, longtermstorages, medperiod)
