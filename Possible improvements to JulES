@@ -1,0 +1,17 @@
+JulES
+- Replace DistributedArrays with more lowlevel code for running subsystems in parallel. Eases task of smarter distribution of subproblems and dynamic readjustments
+- Adapt problems for different technologies and systems. 
+-- All hydro has the same horizon in market clearing and short price prognosis problem. Short-term PHS should have more detailed time resolution. Short-term PHS is already treated like batteries in the storage valuation model 
+-- Most hydro has the same horizon in the storage valuation models. Watercourses with low regulation possibilities can have lower horizons than watercourses with multi-year reservoirs.
+- Experiment more with warm-start, garbage collection, degree of detail
+- Account for head in hydropower production calculation and in algorithm
+- Scenario generation and weighting for better reservoir operation. Use kmeans to reduce amount of scenarios. Can have different scenario generation for different systems.
+- Detailed transmission modelling in clearing
+- (Read time-series data more efficinetly with TuLiPa. See github.com/NVE/TuLiPa/Possible improvements to TuLiPa)
+
+NVE test improvements:
+- Smarter restriction of run-of-river hydro that does not cost too much compute time, ramping/balancing/delays (maybe ramping that restricts several flows)
+- Tune cost of hydropower restrictions
+- Only use the detailed hydropower dataset, also in the price prognosis models (but aggregate it). Now the aggregation is done outside of the model.
+- Test JulES on faster processor cores. At the moment only 2.2 GHz
+- Water values for different reservoir segments to get more price volatility and avoid the possibility of emptying the whole reservoir at the same price (only for smaller reservoirs?)
