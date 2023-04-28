@@ -206,7 +206,7 @@ function getinsideduals(p::Prob, storages::Vector, t::Int)
     endvalues = zeros(Float64,length(storages))
     for (i, storage) in enumerate(storages)
         bid = getid(getbalance(storage))
-        endvalues[i] = getcondual(p, bid, t)
+        endvalues[i] = -getcondual(p, bid, t)
     end
     return endvalues
 end

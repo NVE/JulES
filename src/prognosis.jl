@@ -287,7 +287,7 @@ function getareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTime)
     price["matrix"] = zeros(Float64, length(price["steprange"]), length(price["names"]))
 
     for (i, id) in enumerate(ids)
-        price["matrix"][:,i] = getconduals(prob, horizon, id)
+        price["matrix"][:,i] = -getconduals(prob, horizon, id)
     end
 end
 
@@ -296,7 +296,7 @@ function updateareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTim
 
     for (i, name) in enumerate(price["names"])
         id = Id("Balance", "PowerBalance_" * name)
-        price["matrix"][:,i] = getconduals(prob, horizon, id)
+        price["matrix"][:,i] = -getconduals(prob, horizon, id)
     end
 end
 
