@@ -4,7 +4,7 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
 
     # Add horizon to dataelements
     battery_horizon = SequentialHorizon(clearingdays*12, Hour(2)) # TODO: Replace with user settings
-    hydro_horizon = SequentialHorizon(clearingdays*12, Hour(2)) # TODO: Higher time resolution for small PHS
+    hydro_horizon = SequentialHorizon(clearingdays*4, Hour(6)) # TODO: Higher time resolution for small PHS
     power_horizon = SequentialHorizon(clearingdays*12, Hour(2))
 
     push!(elements1, getelement(COMMODITY_CONCEPT, "BaseCommodity", "Power", 
