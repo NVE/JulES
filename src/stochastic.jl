@@ -256,7 +256,7 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, numscen
                 solve!(master)
             catch
                 println("Restarting iterations without cuts")
-                cutreuse && clearcuts!(master, cuts)
+                clearcuts!(master, cuts)
                 solve!(master)
                 cutreuse = false
             end
