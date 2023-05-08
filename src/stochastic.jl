@@ -242,20 +242,12 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, numscen
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
 
-        if (cutreuse && count == 0) # try to reuse cuts from last iteration
+        if cutreuse # try to reuse cuts from last iteration
             try
                 solve!(master)
             catch
-                println("Retrying first iteration without cuts")
-                clearcuts!(master, cuts)
-                solve!(master)
-                cutreuse = false
-            end
-        elseif cutreuse
-            try
-                solve!(master)
-            catch
-                println("Restarting iterations without cuts")
+                count == 0 && println("Retrying first iteration without cuts from last time step")
+                count > 0 && println("Restarting iterations without cuts from last time step")
                 clearcuts!(master, cuts)
                 solve!(master)
                 cutreuse = false
