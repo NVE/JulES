@@ -242,7 +242,7 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, numscen
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
 
-        if cutreuse # try to reuse cuts from last iteration
+        if cutreuse # try to reuse cuts from last time step
             try
                 solve!(master)
             catch
