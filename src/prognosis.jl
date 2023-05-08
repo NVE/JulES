@@ -272,21 +272,19 @@ end
 function getareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTime)
     price["steprange"] = getscenariosteprange(horizon, t)
     price["names"] = []
-    ids = Id[]
 
     for obj in getobjects(prob)
         if obj isa BaseBalance
             if getinstancename(getid(getcommodity(obj))) == "Power"
-                id = getid(obj)
-                push!(ids, id)
-                push!(price["names"], split(getinstancename(id),"PowerBalance_")[2])
+                push!(price["names"], split(getinstancename(getid(obj)),"PowerBalance_")[2])
             end
         end
     end
 
     price["matrix"] = zeros(Float64, length(price["steprange"]), length(price["names"]))
 
-    for (i, id) in enumerate(ids)
+    for (i, name) in enumerate(price["names"])
+        id = Id("Balance", "PowerBalance_" * name)
         price["matrix"][:,i] = -getconduals(prob, horizon, id)
     end
 end
