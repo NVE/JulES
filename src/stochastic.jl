@@ -3,14 +3,14 @@ function makestochasticobjects(elements, days::Int, offset::Union{Offset,Nothing
     
     # Add horizons to elements
     if short
-        battery_horizon = SequentialHorizon(days*24, Hour(1); offset) # replace with user settings
-        hydro_horizon = SequentialHorizon(days*24, Hour(1); offset)
-        power_horizon = SequentialHorizon(days*24, Hour(1); offset)
+        battery_horizon = SequentialHorizon(days*12, Hour(2); offset) # replace with user settings
+        hydro_horizon = SequentialHorizon(days*12, Hour(2); offset)
+        power_horizon = SequentialHorizon(days*12, Hour(2); offset)
     else
         if days < 7
-            battery_horizon = SequentialHorizon(days, Hour(24*days); offset)
-            hydro_horizon = SequentialHorizon(days, Hour(24*days); offset)
-            power_horizon = SequentialHorizon(days, Hour(24*days); offset)
+            battery_horizon = SequentialHorizon(days, Hour(24); offset)
+            hydro_horizon = SequentialHorizon(days, Hour(24); offset)
+            power_horizon = SequentialHorizon(days, Hour(24); offset)
         else
             battery_horizon = SequentialHorizon(ceil(Int64, days/7), Hour(168); offset) # TODO: Quickfix
             hydro_horizon = SequentialHorizon(ceil(Int64, days/7), Hour(168); offset)
