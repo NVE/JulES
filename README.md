@@ -39,8 +39,21 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - demos/Prototype JulES v1
 
 #### Results:
+- We have tested JulES on a simplified (most importantly simple transmission modelling) version of the Nortwestern European dataset NVE uses for its analyses . This dataset contains:
+  - 32 price areas (9 exogen)
+  - 73 transmission lines (19 with ramping)
+  - 162 demands
+  - 88 batteries (normal, and representing demand response and V2G)
+  - 294 thermal plants (228 with start up costs)
+  - 100 wind and solar plants (aggregated)
+  - 1482 hydropower modules
+    - 965 with production
+    - 43 with pumps (includes PHS)
+    - 998 with reservoirs
+    - 788 restrictions (environmental, reservoir curves and ramping)
+    - 90 PQ-curves (mostly Sweden)
 - Throughout the testing we have achieved the wanted price volatility in the thermal dominated part of the dataset (Western Europe). On the other hand, the Nordics have had very flat prices due to too much flexibility in the hydropower system. In this demo we have therefore added hydropower production ramping restrictions in an attempt to reduce the flexibility of the run-of-river hydropower plants. This results in much more price volatiliy, but at a big computational cost. 
-- Ramping restrictions on transmission lines has the same effect. With ramping restrictions (hydro and transmission) the computational time in the demo is around 10 seconds per simulated day. Without ramping in the market clearing it is down to around 4.5 seconds per day. This is promising considering the big dataset, and the list of possible optimization we have in mind. It is also always possible to clear the market for 24 hours instead of 48 hours like now, which would reduce the computational time substantially. It is also interesting what these computational times would be with a commercial solver.
+- Ramping restrictions on transmission lines has the same effect. With ramping restrictions (hydro and transmission) the computational time in the demo is around 10 seconds per simulated day. Without ramping in the market clearing it is down to around 4.5 seconds per day. This is promising considering the big dataset, and the list of possible optimization we have in mind. It is also always possible to clear the market for 24 hours instead of 48 hours like now, which would reduce the computational time substantially. It is also interesting what these computational times would be with a commercial solver (now we use HiGHS).
 - We will try different configurations of ramping restrictions, and also test if time delays can achieve the same effects at a lower computation cost. Considering unavailability of hydropower or reserve market obligations, should also decrease the flexibility of the hydropower system.
 
 #### Possible improvements to JulES:
