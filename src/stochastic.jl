@@ -74,7 +74,7 @@ function makemastersubobjects!(inputs, mastersubobjects, shorts)
     elements1 = copy(elements)
     removeelements!(elements1, short)
 
-    masterobjects = makestochasticobjects(copy(elements1), phaseinoffsetdays, nothing, 1, prices, short, true) # TODO: what scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+    masterobjects = makestochasticobjects(copy(elements1), phaseinoffsetdays, nothing, 1, prices, short, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
     for scenario in 1:numscen
@@ -322,7 +322,7 @@ end
     # Update master
     masterstorages = getstorages(master.objects)
     setstartstates!(master, masterstorages, startstates)
-    short && updatestochasticprices!(master, shortprices, 1)
+    short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
     !short && updatestochasticprices!(master, medprices, 1)
 
     update!(master, t)
