@@ -81,7 +81,7 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
 end
 
 # Run market clearing for new time step
-function clearing!(clearing, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
+function clearing!(clearing, t, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
         
     # Update startstates for all state variables, equals end state of last market clearing
     setstartstates!(clearing, clearing.objects, startstates) # TODO: Also store actual statevariables to update more efficiently?
@@ -111,7 +111,7 @@ function clearing!(clearing, startstates, cutslocal, clearingendvaluesdict, nons
     setoutgoingstates!(clearing, nonstoragestatesmean)
 
     # Update and solve
-    update!(clearing, tnormal)
+    update!(clearing, t)
     solve!(clearing)
 
     # Get start states for next iteration
@@ -121,9 +121,7 @@ function clearing!(clearing, startstates, cutslocal, clearingendvaluesdict, nons
 end
 
 # Collect startstates for next iteration. Also calculate for aggregated reservoirs
-function startstates_init(clearing, detailedrescopl, prob, t)
-
-    enekvglobaldict = JSON.parsefile("data_fra_dynmodell/magasin_enekvglobal.json") # TODO: only 2021 values, add global enekv as metadata for storages
+function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
 
     startstates_ = getstatevariables(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
@@ -156,7 +154,7 @@ function startstates_init(clearing, detailedrescopl, prob, t)
         end
     end
     
-    return startstates, enekvglobaldict
+    return startstates
 end
 
 function getstartstates(clearing, detailedrescopl, enekvglobaldict)
