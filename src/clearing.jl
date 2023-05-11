@@ -21,11 +21,10 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
     # Initialize cuts
     varendperiod = Dict()
     for cuts in cutslocal
-        # Replace local stochastic object with version from clearing, also store numperiods
+        # Replace local stochastic object with version from clearing, also store numperiods of clearingobject
         for (i,obj) in enumerate(cuts.objects)
             objid = getid(obj)
             clearingobj = modelobjects[objid]
-            cuts.objects[i] = clearingobj
             varendperiod[objid] = getnumperiods(gethorizon(clearingobj))
         end
 
