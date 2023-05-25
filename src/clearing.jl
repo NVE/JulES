@@ -114,9 +114,7 @@ function clearing!(clearing, t, startstates, cutslocal, clearingendvaluesdict, n
     solve!(clearing)
 
     # Get start states for next iteration
-    startstates = getstartstates(clearing, detailedrescopl, enekvglobaldict)
-    
-    return startstates
+    getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
 end
 
 # Collect startstates for next iteration. Also calculate for aggregated reservoirs
@@ -156,7 +154,7 @@ function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
     return startstates
 end
 
-function getstartstates(clearing, detailedrescopl, enekvglobaldict)
+function getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
     startstates_ = getstatevariables(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
     
@@ -181,6 +179,4 @@ function getstartstates(clearing, detailedrescopl, enekvglobaldict)
             startstates[resname] = startstates[resname * "_max"]
         end
     end
-    
-    return startstates
 end
