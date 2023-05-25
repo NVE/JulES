@@ -79,7 +79,7 @@ function makemastersubobjects!(inputs, mastersubobjects, shorts)
     subscenarioobjects = []
     for scenario in 1:numscen
         offset = TimeDeltaOffset(MsTimeDelta(getisoyearstart(horizonstart + scenario - 1) - getisoyearstart(horizonstart)))
-        push!(subscenarioobjects, makestochasticobjects(copy(elements1), totaldays*7 - phaseinoffsetdays, offset, scenario, prices, short, false))
+        push!(subscenarioobjects, makestochasticobjects(copy(elements1), totaldays - phaseinoffsetdays, offset, scenario, prices, short, false))
     end
 
     for (i, masterobject) in enumerate(masterobjects)
