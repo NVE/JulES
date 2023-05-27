@@ -188,52 +188,50 @@ end
 
 # Initialize stochastic subsystem problems and solve for first time step
 function stochastic_init(masterobjects, subobjects, short, storageinfo, numscen, lb, maxcuts, reltol, t)
-    @time begin
-        shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
-        if short
-            startstorage = shortstartstorage
-        else
-            startstorage = medstartstorage
-        end
-
-        cutobjects = getcutobjects(masterobjects)
-        cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, numscen);
-        states = getstatevariables(cutobjects) # state variables in master and subs for boundary reservoirs
-
-        # master = JuMP_Prob(masterobjects, Model(HiGHS.Optimizer))
-        # subs = [JuMP_Prob(subobject, Model(HiGHS.Optimizer)) for subobject in subobjects] # initialize subproblems
-        master = HiGHS_Prob(masterobjects)
-        subs = [HiGHS_Prob(subobject) for subobject in subobjects] # initialize subproblems
-
-        # Init cutparameters
-        cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
-
-        # Update master
-        update!(master, t)
-        setstartstoragepercentage!(master, getstorages(getobjects(master)), t, startstorage)
-
-        # Update subs
-        for (i,sub) in enumerate(subs)
-            update!(sub, t) # update parameters given problem start time of scenario
-
-            storages = getstorages(getobjects(sub))
-            if short
-                setendstoragepercentage!(sub, storages, t, startstorage) # set end reservoir
-            else
-                subendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
-                subendvaluesobj = EndValues(subendvaluesid, storages)
-                push!(sub.objects, subendvaluesobj)
-                subendvalues = [medendvaluesdicts[i][getinstancename(getid(obj))] for obj in storages]
-                updateendvalues!(sub, subendvaluesobj, subendvalues)
-            end
-        end
-
-        ub = 0
-        cutreuse = false
-        iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
-
-        return (master, subs, states, cuts)
+    shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
+    if short
+        startstorage = shortstartstorage
+    else
+        startstorage = medstartstorage
     end
+
+    cutobjects = getcutobjects(masterobjects)
+    cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, numscen);
+    states = getstatevariables(cutobjects) # state variables in master and subs for boundary reservoirs
+
+    # master = JuMP_Prob(masterobjects, Model(HiGHS.Optimizer))
+    # subs = [JuMP_Prob(subobject, Model(HiGHS.Optimizer)) for subobject in subobjects] # initialize subproblems
+    master = HiGHS_Prob(masterobjects)
+    subs = [HiGHS_Prob(subobject) for subobject in subobjects] # initialize subproblems
+
+    # Init cutparameters
+    cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
+
+    # Update master
+    update!(master, t)
+    setstartstoragepercentage!(master, getstorages(getobjects(master)), t, startstorage)
+
+    # Update subs
+    for (i,sub) in enumerate(subs)
+        update!(sub, t) # update parameters given problem start time of scenario
+
+        storages = getstorages(getobjects(sub))
+        if short
+            setendstoragepercentage!(sub, storages, t, startstorage) # set end reservoir
+        else
+            subendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
+            subendvaluesobj = EndValues(subendvaluesid, storages)
+            push!(sub.objects, subendvaluesobj)
+            subendvalues = [medendvaluesdicts[i][getinstancename(getid(obj))] for obj in storages]
+            updateendvalues!(sub, subendvaluesobj, subendvalues)
+        end
+    end
+
+    ub = 0
+    cutreuse = false
+    iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
+
+    return (master, subs, states, cuts)
 end
 
 # Iterate until convergence between master and subproblems
