@@ -74,6 +74,8 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
 
     # Update and solve problem
     update!(clearing, t)
+    setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
+
     solve!(clearing)
     
     return clearing, nonstoragestatesmean, clearingendvaluesdict, varendperiod
@@ -111,6 +113,8 @@ function clearing!(clearing, t, startstates, cutslocal, clearingendvaluesdict, n
 
     # Update and solve
     update!(clearing, t)
+    setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
+
     solve!(clearing)
 
     # Get start states for next iteration
@@ -179,4 +183,30 @@ function getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates
             startstates[resname] = startstates[resname * "_max"]
         end
     end
+end
+
+function minstoragevaluerule(storage::Storage)
+    minstoragevalues = Dict{String, Float64}()
+    minstoragevalues["Battery"] = 0.0
+    minstoragevalues["Hydro"] = 0.001
+    commodity = getinstancename(getid(getcommodity(getbalance(storage))))
+    return get(minstoragevalues, commodity, 0.0)
+end
+
+function setminstoragevalue!(problem::Prob, costrule::Function)
+    for modelobject in getobjects(problem)
+        if modelobject isa Storage
+            id = getid(modelobject)
+            balance = getbalance(modelobject)
+            horizon = gethorizon(balance)
+            T = getnumperiods(horizon)
+            coeff = getobjcoeff(problem, id, T)
+            cost = costrule(modelobject)
+            newcoeff = min(-cost, coeff)
+            if !(coeff ≈ newcoeff)
+                setobjcoeff!(problem, id, T, newcoeff)
+            end
+        end
+    end
+    return
 end
