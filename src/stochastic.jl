@@ -231,6 +231,15 @@ function stochastic_init(masterobjects, subobjects, short, storageinfo, numscen,
     cutreuse = false
     iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
 
+    # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
+    # HiGHS API cannot be used when master is moved to local process.
+    # We use the dual values of the master problem to calculate the headloss costs
+    # Possible TODO
+    if master isa HiGHS_Prob
+        _setconduals!(master)
+        master.iscondualsupdated = true
+    end
+
     return (master, subs, states, cuts)
 end
 
@@ -347,6 +356,15 @@ end
     ub = 0
     cutreuse = true
     iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
+
+    # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
+    # HiGHS API cannot be used when master is moved to local process.
+    # We use the dual values of the master problem to calculate the headloss costs
+    # Possible TODO
+    if master isa HiGHS_Prob
+        _setconduals!(master)
+        master.iscondualsupdated = true
+    end
 end
 
 # Run stochastic subsystem problems in parallel
