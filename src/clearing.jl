@@ -44,19 +44,6 @@ function clearing_init(elements, t, clearingdays, masterslocal, cutslocal, nonst
     setstartstoragepercentage!(clearing, shorttermstorages, t, 50)
     setstartstoragepercentage!(clearing, longtermstorages, t, 65)
 
-    # Set end values from cuts generated in stochastic subsystem problems
-    clearingendvaluesdict = Dict()
-    # for cuts in cutslocal
-    #     for (state, value) in cuts.slopes[cuts.cutix] # slopes of last cut
-    #         clearingendvaluesdict[first(getvarout(state))] = value
-    #     end
-    # end
-    # endvalues = [-clearingendvaluesdict[getid(obj)] for obj in clearingstorages]
-    # clearingendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
-    # clearingendvaluesobj = EndValues(clearingendvaluesid, clearingstorages)
-    # push!(clearing.objects, clearingendvaluesobj)
-    # updateendvalues!(clearing, clearingendvaluesobj, endvalues)
-
     # Update cuts
     for cuts in cutslocal
         updatecuts!(clearing, cuts, varendperiod)
@@ -83,24 +70,14 @@ function clearing_init(elements, t, clearingdays, masterslocal, cutslocal, nonst
 
     solve!(clearing)
     
-    return clearing, nonstoragestatesmean, clearingendvaluesdict, varendperiod
+    return clearing, nonstoragestatesmean, varendperiod
 end
 
 # Run market clearing for new time step
-function clearing!(clearing, t, startstates, masterslocal, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
+function clearing!(clearing, t, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
         
     # Update startstates for all state variables, equals end state of last market clearing
     setstartstates!(clearing, clearing.objects, startstates) # TODO: Also store actual statevariables to update more efficiently?
-        
-    # Update storage end values from cuts
-    # for cuts in cutslocal
-    #     for (state, value) in cuts.slopes[cuts.cutix] # slopes of last cut
-    #         clearingendvaluesdict[first(getvarout(state))] = value
-    #     end
-    # end
-    # clearingendvaluesobj = clearing.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), clearing.objects)]
-    # endvalues = [-clearingendvaluesdict[getid(obj)] for obj in clearingstorages]
-    # updateendvalues!(clearing, clearingendvaluesobj, endvalues)
 
     # Update cuts in problem
     for cuts in cutslocal
