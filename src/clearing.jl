@@ -1,5 +1,5 @@
 # Initialize market clearing problem and solve for first time step
-function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestateslocal)
+function clearing_init(elements, t, clearingdays, masterslocal, cutslocal, nonstoragestateslocal)
     elements1 = copy(elements)
 
     # Add horizon to dataelements
@@ -72,8 +72,13 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
     end
     setoutgoingstates!(clearing, nonstoragestatesmean)
 
-    # Update and solve problem
+    # State dependent hydropower production and pumping.
+    statedependentprod_init!(clearing, 65, t)
+    statedependentpump_init!(clearing, 65, t)
+
+    # Update and solve
     update!(clearing, t)
+    updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
     setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
 
     solve!(clearing)
@@ -82,7 +87,7 @@ function clearing_init(elements, t, clearingdays, cutslocal, nonstoragestatesloc
 end
 
 # Run market clearing for new time step
-function clearing!(clearing, t, startstates, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
+function clearing!(clearing, t, startstates, masterslocal, cutslocal, clearingendvaluesdict, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
         
     # Update startstates for all state variables, equals end state of last market clearing
     setstartstates!(clearing, clearing.objects, startstates) # TODO: Also store actual statevariables to update more efficiently?
@@ -111,8 +116,13 @@ function clearing!(clearing, t, startstates, cutslocal, clearingendvaluesdict, n
     end
     setoutgoingstates!(clearing, nonstoragestatesmean)
 
+    # Statedependent hydropower production
+    statedependentprod!(clearing, startstates)
+    statedependentpump!(clearing, startstates)
+
     # Update and solve
     update!(clearing, t)
+    updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
     setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
 
     solve!(clearing)
@@ -126,7 +136,8 @@ function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
 
     startstates_ = getstatevariables(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
-    startstates = Dict()
+    startstates = Dict{String, Float64}()
+
     for var in keys(startstates_)
         startstates[getinstancename(first(getvarout(var)))] = startstates_[var]
     end
