@@ -102,12 +102,6 @@ function prognosis_init!(elements::Vector{DataElement}, horizonstart::Int, longi
     push!(medprob.objects, medendvaluesobj) # push end values object to med problem objects
     updateendvalues!(medprob, medendvaluesobj, medendvalues) # update end values in problem object and in problem formulation
 
-    # # Alternative with transfering end storage instead of end storage value (might give non-optimal solution)
-    # medstates = getstatevariables(medstorages)
-    # longperiod = getendperiodfromduration(lhh, getduration(mhh))
-    # getinsidestates!(longprob, medstates, longperiod)
-    # setoutgoingstates!(medprob, medstates)
-
     update!(medprob, tphasein)
     solve!(medprob)
 
@@ -131,12 +125,6 @@ function prognosis_init!(elements::Vector{DataElement}, horizonstart::Int, longi
     shortendvaluesobj = EndValues(shortendvaluesid, longtermstorages)
     push!(shortprob.objects, shortendvaluesobj)
     updateendvalues!(shortprob, shortendvaluesobj, shortendvalues)
-
-    # # Alternative with transfering end storage instead of end storage value (might give non-optimal solution)
-    # shortstates = getstatevariables(longtermstorages)
-    # medperiod = getendperiodfromduration(mhh, getduration(shh))
-    # getinsidestates!(medprob, shortstates, medperiod)
-    # setoutgoingstates!(shortprob, shortstates)
 
     update!(shortprob, tphasein)
     solve!(shortprob)
