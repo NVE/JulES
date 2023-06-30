@@ -19,13 +19,14 @@ function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, 
     addPowerUpperSlack!(modelobjects)
     remove_hydrorampingwithout!(modelobjects)
 
-    # Initialize cuts
+    # Initialize cuts (has to be added to modelobjects so that all the variables are built at the same time)
     varendperiod = Dict()
     for cuts in cutslocal
         # Replace local stochastic object with version from clearing, also store numperiods of clearingobject
         for (i,obj) in enumerate(cuts.objects)
             objid = getid(obj)
             clearingobj = modelobjects[objid]
+            cuts.objects[i] = clearingobj # needed for setconstants!
             varendperiod[objid] = getnumperiods(gethorizon(clearingobj))
         end
 
