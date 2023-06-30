@@ -1,22 +1,10 @@
 # Make modelobjects for stochastic subsystems, group into subsystems
-function makestochasticobjects(elements, days::Int, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool)
-    
+function makestochasticobjects(elements, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool)
     # Add horizons to elements
-    if short
-        battery_horizon = SequentialHorizon(days*12, Hour(2); offset) # replace with user settings
-        hydro_horizon = SequentialHorizon(days*12, Hour(2); offset)
-        power_horizon = SequentialHorizon(days*12, Hour(2); offset)
-    else
-        if days < 7
-            battery_horizon = SequentialHorizon(days, Hour(24); offset)
-            hydro_horizon = SequentialHorizon(days, Hour(24); offset)
-            power_horizon = SequentialHorizon(days, Hour(24); offset)
-        else
-            battery_horizon = SequentialHorizon(ceil(Int64, days/7), Hour(168); offset) # TODO: Quickfix
-            hydro_horizon = SequentialHorizon(ceil(Int64, days/7), Hour(168); offset)
-            power_horizon = SequentialHorizon(ceil(Int64, days/7), Hour(168); offset)
-        end
-    end
+    battery_horizon = SequentialHorizon(ceil(Int64, problemduration/pdp), pdp; offset) # TODO: Quickfix
+    hydro_horizon = SequentialHorizon(ceil(Int64, problemduration/pdh), pdh; offset)
+    power_horizon = SequentialHorizon(ceil(Int64, problemduration/pdp), pdp; offset)
+
     push!(elements, getelement(COMMODITY_CONCEPT, "BaseCommodity", "Power", 
             (HORIZON_CONCEPT, power_horizon)))
     push!(elements, getelement(COMMODITY_CONCEPT, "BaseCommodity", "Hydro", 
@@ -69,17 +57,17 @@ end
 
 # Make master and subproblem objects for each subsystem
 function makemastersubobjects!(inputs, mastersubobjects, shorts)
-    (elements, totaldays, numscen, horizonstart, phaseinoffsetdays, prices, short) = inputs
+    (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
     elements1 = copy(elements)
     removeelements!(elements1, short)
 
-    masterobjects = makestochasticobjects(copy(elements1), phaseinoffsetdays, nothing, 1, prices, short, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+    masterobjects = makestochasticobjects(copy(elements1), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
-    for scenario in 1:numscen
-        offset = ScenarioOffset(MsTimeDelta(Day(phaseinoffsetdays)), MsTimeDelta(getisoyearstart(horizonstart + scenario - 1) - getisoyearstart(horizonstart)))
-        push!(subscenarioobjects, makestochasticobjects(copy(elements1), totaldays - phaseinoffsetdays, offset, scenario, prices, short, false))
+    for (tnormal, tphasein, scenario) in scenarios
+        offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
+        push!(subscenarioobjects, makestochasticobjects(copy(elements1), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false))
     end
 
     for (i, masterobject) in enumerate(masterobjects)
@@ -187,7 +175,7 @@ function transferboundarystates!(master, sub, states)
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(masterobjects, subobjects, short, storageinfo, numscen, lb, maxcuts, reltol, t)
+function stochastic_init(masterobjects, subobjects, short, storageinfo, lb, maxcuts, reltol, scenarios)
     shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
     if short
         startstorage = shortstartstorage
@@ -196,7 +184,7 @@ function stochastic_init(masterobjects, subobjects, short, storageinfo, numscen,
     end
 
     cutobjects = getcutobjects(masterobjects)
-    cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, numscen);
+    cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, length(scenarios));
     states = getstatevariables(cutobjects) # state variables in master and subs for boundary reservoirs
 
     # master = JuMP_Prob(masterobjects, Model(HiGHS.Optimizer))
@@ -208,28 +196,30 @@ function stochastic_init(masterobjects, subobjects, short, storageinfo, numscen,
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
 
     # Update master
-    update!(master, t)
-    setstartstoragepercentage!(master, getstorages(getobjects(master)), t, startstorage)
+    (tnormalmaster, tphaseinmaster, scenario) = scenarios[1] # tphasein is the same for all scenarios before phasein
+    update!(master, tphaseinmaster) 
+    setstartstoragepercentage!(master, getstorages(getobjects(master)), tphaseinmaster, startstorage)
 
     # Update subs
     for (i,sub) in enumerate(subs)
-        update!(sub, t) # update parameters given problem start time of scenario
+        (tnormalsub, tphaseinsub, scenario) = scenarios[i]
+        update!(sub, tphaseinsub) # update parameters given problem start time of scenario
 
         storages = getstorages(getobjects(sub))
         if short
-            setendstoragepercentage!(sub, storages, t, startstorage) # set end reservoir
+            setendstoragepercentage!(sub, storages, tphaseinsub, startstorage) # set end reservoir
         else
             subendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
             subendvaluesobj = EndValues(subendvaluesid, storages)
             push!(sub.objects, subendvaluesobj)
-            subendvalues = [medendvaluesdicts[i][getinstancename(getid(obj))] for obj in storages]
+            subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in storages]
             updateendvalues!(sub, subendvaluesobj, subendvalues)
         end
     end
 
     ub = 0
     cutreuse = false
-    iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
+    iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
 
     # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
     # HiGHS API cannot be used when master is moved to local process.
@@ -244,7 +234,7 @@ function stochastic_init(masterobjects, subobjects, short, storageinfo, numscen,
 end
 
 # Iterate until convergence between master and subproblems
-function iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
+function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
     count = 0
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
@@ -275,7 +265,7 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, numscen
             ub += getobjectivevalue(sub)
             cutparameters[i] = getcutparameters(sub, states)
         end
-        ub /= numscen
+        ub /= length(subs)
 
         count += 1
         (count == 1 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
@@ -287,7 +277,7 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, numscen
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(numcores, storagesystemobjects, shorts, masters_, subs_, states_, cuts_, storageinfo, numscen, lb, maxcuts, reltol, t)
+function pl_stochastic_init!(numcores, storagesystemobjects, shorts, masters_, subs_, states_, cuts_, storageinfo, lb, maxcuts, reltol, scenarios)
     @sync @distributed for core in 1:(numcores-1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
@@ -301,7 +291,7 @@ function pl_stochastic_init!(numcores, storagesystemobjects, shorts, masters_, s
             for ix in range
                 localix += 1
                 masterobjects, subobjects = storagesystemobject[localix]
-                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(masterobjects, subobjects, short[localix], storageinfo, numscen, lb, maxcuts, reltol, t)
+                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, scenarios)
             end
         end
     end
@@ -321,7 +311,7 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-@everywhere function stochastic!(master, subs, states, cuts, startstates, medprices, shortprices, medendvaluesdicts, short, numscen, reltol, t)
+@everywhere function stochastic!(master, subs, states, cuts, startstates, medprices, shortprices, medendvaluesdicts, short, reltol, scenarios)
         
     # Init cutparameters
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
@@ -332,30 +322,31 @@ end
     short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
     !short && updatestochasticprices!(master, medprices, 1)
 
-    update!(master, t)
+    (tnormalmaster, tphaseinmaster) = scenarios[1] # tphasein is the same for all scenarios before phasein
+    update!(master, tphaseinmaster)
 
     # Update subs
     for (i,sub) in enumerate(subs)
-        
+        (tnormalsub, tphaseinsub, scenario) = scenarios[i]
         substorages = getstorages(getobjects(sub))
         
         if short
             setendstates!(sub, substorages, startstates) # set end reservoir
-            updatestochasticprices!(sub, shortprices, i) 
+            updatestochasticprices!(sub, shortprices, scenario)
         else
             subendvaluesobj = sub.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), sub.objects)]
-            subendvalues = [medendvaluesdicts[i][getinstancename(getid(obj))] for obj in substorages]
+            subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
             updateendvalues!(sub, subendvaluesobj, subendvalues)
-            updatestochasticprices!(sub, medprices, i) 
+            updatestochasticprices!(sub, medprices, scenario) 
         end
-
-        update!(sub, t) # update parameters given problem start time of scenario
+        
+        update!(sub, tnormalsub) # update parameters given problem start time of scenario
     end
 
     lb = cuts.lower_bound
     ub = 0
     cutreuse = true
-    iterate_convergence!(master, subs, cuts, cutparameters, states, numscen, cutreuse, lb, ub, reltol)
+    iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
 
     # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
     # HiGHS API cannot be used when master is moved to local process.
@@ -368,7 +359,7 @@ end
 end
 
 # Run stochastic subsystem problems in parallel
-function pl_stochastic!(numcores, masters_, subs_, states_, cuts_, startstates, medprices, shortprices, medendvaluesdicts, shorts, numscen, reltol, t, skipmed)
+function pl_stochastic!(numcores, masters_, subs_, states_, cuts_, startstates, medprices, shortprices, medendvaluesdicts, shorts, reltol, scenarios, skipmed)
     @sync @distributed for core in 1:(numcores-1)
         masters = localpart(masters_)
         subs = localpart(subs_)
@@ -381,7 +372,7 @@ function pl_stochastic!(numcores, masters_, subs_, states_, cuts_, startstates, 
             for ix in range
                 localix += 1
                 if !(!short[localix] && (skipmed.value > 0))
-                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], numscen, reltol, t)
+                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, scenarios)
                 end
             end
         end

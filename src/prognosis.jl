@@ -1,19 +1,17 @@
 # Functions for making prob from main elements and horizon settings
-function make_prob(scenario::Int, elements::Vector{DataElement}, horizonstart::Int, horizonend::DateTime, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, simplify::String)
+function make_prob(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, simplify::String)
 
-    offset = TimeDeltaOffset(MsTimeDelta(getisoyearstart(horizonstart + scenario - 1) - getisoyearstart(horizonstart)))
-
-    hydro_horizon = SequentialHorizon(getisoyearstart(horizonstart), horizonend, hydroperiodduration; offset)
-    power_horizon = AdaptiveHorizon(clusters, unit_duration, rhsdata, method, getisoyearstart(horizonstart), horizonend, hydroperiodduration; offset)
+    hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
+    hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
+    power_horizon = AdaptiveHorizon(clusters, unit_duration, rhsdata, method, hydroperiods, hydroperiodduration)
 
     return _make_prob(elements, hydro_horizon, power_horizon, simplify)
 end
 
-function make_prob(scenario::Int, elements::Vector{DataElement}, horizonstart::Int, horizonend::DateTime, hydroperiodduration::Millisecond, powerparts::Int, simplify::String)
+function make_prob(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int, simplify::String)
 
-    offset = TimeDeltaOffset(MsTimeDelta(getisoyearstart(horizonstart + scenario - 1) - getisoyearstart(horizonstart)))
-
-    hydro_horizon = SequentialHorizon(getisoyearstart(horizonstart), horizonend, hydroperiodduration; offset)
+    hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
+    hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = SequentialHorizon(hydro_horizon, powerparts)
 
     return _make_prob(elements, hydro_horizon, power_horizon, simplify)
@@ -21,7 +19,7 @@ end
 
 function _make_prob(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, simplify::String)
     elements1 = copy(elements)
-    elements1 = set_horizon!(elements1, "Power", power_horizon)
+    set_horizon!(elements1, "Power", power_horizon)
     set_horizon!(elements1, "Battery", power_horizon)
     set_horizon!(elements1, "Hydro", hydro_horizon)
 
@@ -77,8 +75,8 @@ function simplify!(modelobjects::Dict; aggzone::Bool=true, removestartup::Bool=t
 end
 
 # Initialize price prognosis problems for specific scenario
-function prognosis_init!(elements::Vector{DataElement}, horizonstart::Int, longinput::Tuple, medinput::Tuple, shortinput::Tuple, scenario::Int, tnormal::ProbTime, tphasein::ProbTime, phaseinoffsetdays::Int, medprice::Dict, shortprice::Dict)
-    longprob, lhh, lph  = make_prob(scenario, elements, horizonstart, longinput...)
+function prognosis_init!(elements::Vector{DataElement}, longinput::Tuple, medinput::Tuple, shortinput::Tuple, tnormal::ProbTime, tphasein::ProbTime, phaseinoffset::Millisecond, medprice::Dict, shortprice::Dict)
+    longprob, lhh, lph  = make_prob(elements, longinput...)
     
     longstorages = getstorages(getobjects(longprob))
     
@@ -88,7 +86,7 @@ function prognosis_init!(elements::Vector{DataElement}, horizonstart::Int, longi
     update!(longprob, tnormal)
     solve!(longprob)
 
-    medprob, mhh, mph = make_prob(scenario, elements, horizonstart, medinput...)
+    medprob, mhh, mph = make_prob(elements, medinput...)
     
     medstorages = getstorages(getobjects(medprob))
     
@@ -108,7 +106,7 @@ function prognosis_init!(elements::Vector{DataElement}, horizonstart::Int, longi
     # Collect prices that will be used in stochastic subsystem problems
     getareaprices!(medprice, medprob, mph, tnormal)
     
-    shortprob, shh, sph = make_prob(scenario, elements, horizonstart, shortinput...)
+    shortprob, shh, sph = make_prob(elements, shortinput...)
     
     shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
     allstorages = getstorages(getobjects(shortprob))
@@ -130,7 +128,7 @@ function prognosis_init!(elements::Vector{DataElement}, horizonstart::Int, longi
     solve!(shortprob)
 
     # Market clearing problem uses end state values from short problem for non-storage state variables, 
-    clearingperiod = getendperiodfromduration(sph, Millisecond(Day(phaseinoffsetdays))) # which period in short problem correspond to end period in market clearing problem
+    clearingperiod = getendperiodfromduration(sph, phaseinoffset) # which period in short problem correspond to end period in market clearing problem
     nonstoragestates = getnonstoragestatevariables(shortprob.objects) # get non-storage state variables (e.g. variables used for thermal power ramping or startup costs)
     changeendtoinsidestates!(shortprob, nonstoragestates, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
 
@@ -142,7 +140,7 @@ end
 
 # Initialize price prognosis models for all scenarios in parallel
 function pl_prognosis_init!(probs::Tuple{DArray, DArray, DArray}, allinput::Tuple, longinput::Tuple, medinput::Tuple, shortinput::Tuple, output::Tuple)
-    (numcores, elements, horizonstart, tnormal, tphasein, phaseinoffsetdays) = allinput
+    (numcores, elements, scenarios, phaseinoffset) = allinput
     (longprobs, medprobs, shortprobs) = probs
     (medprices, shortprices, medendvaluesobjs, nonstoragestates) = output
     
@@ -150,6 +148,7 @@ function pl_prognosis_init!(probs::Tuple{DArray, DArray, DArray}, allinput::Tupl
     @sync @distributed for core in 1:(numcores-1)
 
         # Local version of distributed arrays only consist of elements that are assignet to this specific core
+        scenario = localpart(scenarios)
         longprob = localpart(longprobs)
         medprob = localpart(medprobs)
         shortprob = localpart(shortprobs)
@@ -162,7 +161,8 @@ function pl_prognosis_init!(probs::Tuple{DArray, DArray, DArray}, allinput::Tupl
         for range in localindices(longprobs) # for each scenariorange on this specific core
             for ix in range # for each scenario on this specific core
                 localix += 1
-                probs = prognosis_init!(elements, horizonstart, longinput, medinput, shortinput, ix, tnormal, tphasein, phaseinoffsetdays, medprice[localix], shortprice[localix])
+                (tnormal, tphasein, scen) = scenario[localix]
+                probs = prognosis_init!(elements, longinput, medinput, shortinput, tnormal, tphasein, phaseinoffset, medprice[localix], shortprice[localix])
                 longprob[localix], medprob[localix], shortprob[localix], medendvaluesobj[localix], nonstoragestate[localix] = probs
             end
         end
@@ -236,9 +236,10 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
 end
 
 # Run price prognosis models in parallel
-function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, tnormal::ProbTime, tphasein::ProbTime, skipmed::Millisecond)
+function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, scenarios::DArray, skipmed::Millisecond)
     
     @sync @distributed for core in 1:(numcores-1)
+        scenario = localpart(scenarios)
         longprob = localpart(longprobs)
         medprob = localpart(medprobs)
         shortprob = localpart(shortprobs)
@@ -250,6 +251,7 @@ function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, short
         for range in localindices(longprobs)
             for ix in range
                 localix += 1
+                (tnormal, tphasein, scen) = scenario[localix]
                 prognosis!(longprob[localix], medprob[localix], shortprob[localix], medprice[localix], shortprice[localix], nonstoragestate[localix], startstates, tnormal, tphasein, skipmed)
             end
         end

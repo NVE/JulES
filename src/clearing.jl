@@ -1,11 +1,11 @@
 # Initialize market clearing problem and solve for first time step
-function clearing_init(elements, t, clearingdays, masterslocal, cutslocal, nonstoragestateslocal)
+function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, cutslocal, nonstoragestateslocal)
     elements1 = copy(elements)
 
     # Add horizon to dataelements
-    battery_horizon = SequentialHorizon(clearingdays*12, Hour(2)) # TODO: Replace with user settings
-    hydro_horizon = SequentialHorizon(clearingdays*4, Hour(6)) # TODO: Higher time resolution for small PHS
-    power_horizon = SequentialHorizon(clearingdays*12, Hour(2))
+    battery_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdp), cpdp) # TODO: Replace with user settings
+    hydro_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdh), cpdh) # TODO: Higher time resolution for small PHS
+    power_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdp), cpdp)
 
     push!(elements1, getelement(COMMODITY_CONCEPT, "BaseCommodity", "Power", 
             (HORIZON_CONCEPT, power_horizon)))
@@ -17,6 +17,7 @@ function clearing_init(elements, t, clearingdays, masterslocal, cutslocal, nonst
     # Make modelobjects and add upper slack variable for power production
     modelobjects = getmodelobjects(elements1)
     addPowerUpperSlack!(modelobjects)
+    remove_hydrorampingwithout!(modelobjects)
 
     # Initialize cuts
     varendperiod = Dict()
@@ -151,8 +152,8 @@ function getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates
     getoutgoingstates!(clearing, startstates_)
     
     for var in keys(startstates_)
-        # value = round(startstates_[var], digits=10) # avoid approx 0 negative values, ignored by solvers so no problem?
-        startstates[getinstancename(first(getvarout(var)))] = startstates_[var]
+        value = round(startstates_[var], digits=10) # avoid approx 0 negative values, ignored by solvers so no problem?
+        startstates[getinstancename(first(getvarout(var)))] = value
     end
 
     for area in Set(values(detailedrescopl))
