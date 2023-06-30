@@ -262,10 +262,9 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreus
             
             solve!(sub)
 
-            ub += getobjectivevalue(sub)
+            ub += getobjectivevalue(sub)*cuts.probabilities[i]
             cutparameters[i] = getcutparameters(sub, states)
         end
-        ub /= length(subs)
 
         count += 1
         (count == 1 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
