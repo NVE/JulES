@@ -23,8 +23,10 @@ The simulation model uses a rolling horizon approach where the underlying models
 - The storage valuation model for each subsystem can be customized depending on the technology and geographical location. For example the horizon length, time resolution or scenario generation of the model.
 - Water values (and battery storage values) are calculated for each individual storage, without the need for advanced end values.
 - Multi-year storage can be considered.
-- Calibration consists of choosing horizons / temporal resolution and degree of detail for each technology in the dataset, for each type of subproblem.
+- Model configuration consists of choosing horizons / temporal resolution and degree of detail for each technology in the dataset, for each type of subproblem.
 - Parallel processing, solver warm start, reuse of cuts in multiple time steps, and scenario generation can be used to make JulES run faster.
+- We have implemented scenario reduction and an interface to allow different methods. We later want to implement scenario generation.
+- The hydropower is already modelled quite detailed with PQ-curves, environmental constraints and head dependency.
 
 #### TuLiPa
 TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
@@ -33,6 +35,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - src/prognosis.jl – Code for price prognosis models
 - src/stochastic.jl – Code for stochastic sub system models
 - src/clearing.jl - Code for market clearing problem
+- src/scenarioreduction.jl - Code for scenario reduction
 - src/util.jl - Various useful functions
 
 #### See also demos:
@@ -52,6 +55,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
     - 998 with reservoirs
     - 788 restrictions (environmental, reservoir curves and ramping)
     - 90 PQ-curves (mostly Sweden)
+    - Metadata for head dependency (nominal head, outlet level and reservoir curves) for some plants and pumps
 - Throughout the testing we have achieved the wanted price volatility in the thermal dominated part of the dataset (Western Europe). On the other hand, the Nordics have had very flat prices due to too much flexibility in the hydropower system. In this demo we have therefore added hydropower production ramping restrictions in an attempt to reduce the flexibility of the run-of-river hydropower plants. This results in much more price volatiliy, but at a big computational cost. 
 - (not updated!!!) Ramping restrictions on transmission lines has the same effect. With ramping restrictions (hydro and transmission) the computational time in the demo is around 10 seconds per simulated day. Without ramping in the market clearing it is down to around 4.5 seconds per day. This is promising considering the big dataset, and the list of possible optimization we have in mind. It is also always possible to clear the market for 24 hours instead of 48 hours like now, which would reduce the computational time substantially. It is also interesting what these computational times would be with a commercial solver (now we use HiGHS).
 - We will try different configurations of ramping restrictions, and also test if time delays can achieve the same effects at a lower computation cost. Considering unavailability of hydropower or reserve market obligations, should also decrease the flexibility of the hydropower system.
