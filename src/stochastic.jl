@@ -20,7 +20,7 @@ function makestochasticobjects(elements, problemduration::Millisecond, pdp::Mill
     for (i, area) in enumerate(price["names"])
         push!(elements, getelement(TIMEVALUES_CONCEPT, "VectorTimeValues", "ValuesPrice_" * area,
             ("Vector", price["matrix"][:, i])))
-        push!(elements, getelement(TIMEVECTOR_CONCEPT, "InfiniteTimeVector", "ProfilePrice_" * area,
+        push!(elements, getelement(TIMEVECTOR_CONCEPT, "MutableInfiniteTimeVector", "ProfilePrice_" * area,
             (TIMEINDEX_CONCEPT, "ShortTermTimeIndex"), (TIMEVALUES_CONCEPT, "ValuesPrice_" * area)))
         push!(elements, getelement(PARAM_CONCEPT, "MeanSeriesIgnorePhaseinParam", "Price_" * area,
             ("Level", 1),
@@ -303,6 +303,7 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
         if obj isa ExogenBalance
             priceix = findfirst(x -> x == split(getinstancename(getid(obj)), "PowerBalance_")[2], price["names"])
             
+
             obj.price.param.profile.index = price["steprange"] # TODO: API function in TuLiPa
             obj.price.param.profile.values .= price["matrix"][:, priceix]
         end
