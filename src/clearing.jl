@@ -17,7 +17,6 @@ function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, 
     # Make modelobjects and add upper slack variable for power production
     modelobjects = getmodelobjects(elements1)
     addPowerUpperSlack!(modelobjects)
-    remove_hydrorampingwithout!(modelobjects)
 
     # Initialize cuts (has to be added to modelobjects so that all the variables are built at the same time)
     varendperiod = Dict()
@@ -53,13 +52,14 @@ function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, 
 
     # Set outgoing states for non-storage variables
     nonstoragestatesmean = Dict{StateVariableInfo, Float64}()
-    for nonstoragestate in keys(nonstoragestateslocal[1])
-        # (id, ix) = getvarout(nonstoragestate)
-        # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
-        # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
-        nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
-    end
-    setoutgoingstates!(clearing, nonstoragestatesmean)
+    # for nonstoragestate in keys(nonstoragestateslocal[1])
+    #     # (id, ix) = getvarout(nonstoragestate)
+    #     # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
+    #     # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
+    #     nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
+    # end
+    # setoutgoingstates!(clearing, nonstoragestatesmean)
+    setoutgoingstates!(clearing, nonstoragestateslocal[1])
 
     # State dependent hydropower production and pumping.
     statedependentprod_init!(clearing, 65, t)
@@ -87,13 +87,14 @@ function clearing!(clearing, t, startstates, masterslocal, cutslocal, nonstorage
     end
 
     # Update end states for non storage variables
-    for nonstoragestate in keys(nonstoragestateslocal[1])
-        # (id, ix) = getvarout(nonstoragestate)
-        # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
-        # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
-        nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
-    end
-    setoutgoingstates!(clearing, nonstoragestatesmean)
+    # for nonstoragestate in keys(nonstoragestateslocal[1])
+    #     # (id, ix) = getvarout(nonstoragestate)
+    #     # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
+    #     # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
+    #     nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
+    # end
+    # setoutgoingstates!(clearing, nonstoragestatesmean)
+    setoutgoingstates!(clearing, nonstoragestateslocal[1])
 
     # Statedependent hydropower production
     statedependentprod!(clearing, startstates)
