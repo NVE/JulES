@@ -1,5 +1,5 @@
-abstract type ScenarioReductionMethod end
-mutable struct NoScenarioReductionMethod <: ScenarioReductionMethod
+abstract type ScenarioModellingMethod end
+mutable struct NoScenarioModellingMethod <: ScenarioModellingMethod
     scentimes::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}
     weights::Vector{Float64}
     function NoScenarioReductionMethod(numscen, totalscentimes)
@@ -7,9 +7,9 @@ mutable struct NoScenarioReductionMethod <: ScenarioReductionMethod
         new(totalscentimes, [1/length(totalscentimes) for i in 1:length(totalscentimes)])
     end
 end
-# mutable struct ResidualLoadMethod <: ScenarioReductionMethod # choose scenario based on residual load (also energy inflow)
+# mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
 # end
-mutable struct InflowClusteringMethod <: ScenarioReductionMethod
+mutable struct InflowClusteringMethod <: ScenarioModellingMethod
     scentimes::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}
     weights::Vector{Float64}
     factors::Vector{Float64}
@@ -18,7 +18,7 @@ mutable struct InflowClusteringMethod <: ScenarioReductionMethod
         return new(Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), Vector{Float64}(undef, numscen), parts)
     end
 end
-mutable struct SumInflowQuantileMethod <: ScenarioReductionMethod
+mutable struct SumInflowQuantileMethod <: ScenarioModellingMethod
     scentimes::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}
     weights::Vector{Float64}
     factors::Vector{Float64}
@@ -32,11 +32,11 @@ mutable struct SumInflowQuantileMethod <: ScenarioReductionMethod
     end
 end
 
-function scenarioreduction!(scenredmethod::NoScenarioReductionMethod, objects, numscen, totalscentimes, scendelta)
-    scenredmethod.scentimes = totalscentimes
+function scenariomodelling!(scenmodmethod::ScenarioModellingMethod, objects, numscen, totalscentimes, scendelta)
+    scenmodmethod.scentimes = totalscentimes
 end
 
-function scenarioreduction!(scenredmethod::SumInflowQuantileMethod, objects, numscen, totalscentimes, scendelta)
+function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, numscen, totalscentimes, scendelta)
     # Calculate total energy inflow in the system for the scenariodelta
     totalsumenergyinflow = zeros(length(totalscentimes))
     for obj in objects
@@ -54,11 +54,11 @@ function scenarioreduction!(scenredmethod::SumInflowQuantileMethod, objects, num
 
     # Fit values to normal distribution
     n = fit(Normal, totalsumenergyinflow)
-    quantiles = [i for i in 1-scenredmethod.maxquantile:(2*scenredmethod.maxquantile-1)/(numscen-1):scenredmethod.maxquantile] # get quantiles from maxquantile
+    quantiles = [i for i in 1-scenmodmethod.maxquantile:(2*scenmodmethod.maxquantile-1)/(numscen-1):scenmodmethod.maxquantile] # get quantiles from maxquantile
     qvalues = quantile.(n, quantiles) # get quantile values from distribution
     
     # Could also use probability density of the quantiles in the calculation of the weights
-    if scenredmethod.usedensity
+    if scenmodmethod.usedensity
         d = pdf.(n, qvalues) # get probability density for each quantile
     else
         d = [1.0 for i in numscen] # ignore probabilty density
@@ -66,24 +66,24 @@ function scenarioreduction!(scenredmethod::SumInflowQuantileMethod, objects, num
 
     # How much should each scenario be weighted - combination of weighting function and probability density
     x = collect(-numscen+1:2:numscen-1)
-    y = (scenredmethod.a .* x .^ 2 .+ x .* scenredmethod.b .+ scenredmethod.c) .* d
-    scenredmethod.weights = y/sum(y)
+    y = (scenmodmethod.a .* x .^ 2 .+ x .* scenmodmethod.b .+ scenmodmethod.c) .* d
+    scenmodmethod.weights = y/sum(y)
 
     # How much should the inflow in the scenario be adjusted so that it is similar to the quantile?
     for i in 1:numscen
         qvalue = qvalues[i]
         idx = findmin(abs.(totalsumenergyinflow.-qvalue))[2]
-        scenredmethod.scentimes[i] = totalscentimes[idx]
-        scenredmethod.factors[i] = qvalue/totalsumenergyinflow[idx]
+        scenmodmethod.scentimes[i] = totalscentimes[idx]
+        scenmodmethod.factors[i] = qvalue/totalsumenergyinflow[idx]
     end
     return
 end
 
-function scenarioreduction!(scenredmethod::InflowClusteringMethod, objects, numscen, totalscentimes, scendelta)
+function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, numscen, totalscentimes, scendelta)
     # Calculate total energy inflow in the system for each part of the scenariodelta
     sumenergyinflow = zeros(length(totalscentimes))
-    partsumenergyinflow = zeros(scenredmethod.parts ,length(totalscentimes))
-    scendeltapart = scendelta/scenredmethod.parts
+    partsumenergyinflow = zeros(scenmodmethod.parts ,length(totalscentimes))
+    scendeltapart = scendelta/scenmodmethod.parts
 
     for obj in objects
         if obj isa Balance
@@ -119,32 +119,32 @@ function scenarioreduction!(scenredmethod::InflowClusteringMethod, objects, nums
     for i in 1:numscen
         # Weight based on amount of scenarios in cluster
         idxs = findall(x -> x == i, assignments)
-        scenredmethod.weights[i] = length(idxs)/length(totalscentimes)
+        scenmodmethod.weights[i] = length(idxs)/length(totalscentimes)
 
         # Scenario in middle of cluster
         clustersumenergyinflows = sumenergyinflow[idxs]
         meanclustersumenergyinflow = mean(clustersumenergyinflows)
         clusteridx = findmin(x->abs(x-meanclustersumenergyinflow), clustersumenergyinflows)[2]
         totalidx = findfirst(x -> x == clustersumenergyinflows[clusteridx], sumenergyinflow)
-        scenredmethod.scentimes[i] = totalscentimes[totalidx]
+        scenmodmethod.scentimes[i] = totalscentimes[totalidx]
 
         # Adjust scenario to represent actual middle of cluster
-        scenredmethod.factors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
+        scenmodmethod.factors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
     end
     return
 end
 
-# Scale inflow of modelobjects given a scenario reduction method (only )
-scaleinflow!(scenredmethod::ScenarioReductionMethod, scenario, objects) = nothing # generic fallback
-function scaleinflow!(scenredmethod::Union{InflowClusteringMethod,SumInflowQuantileMethod}, scenario, objects) # inflow methods has field factor
+# Scale inflow of modelobjects given a scenario modelling method (only )
+scaleinflow!(scenmodmethod::ScenarioModellingMethod, scenario, objects) = nothing # generic fallback
+function scaleinflow!(scenmodmethod::Union{InflowClusteringMethod,SumInflowQuantileMethod}, scenario, objects) # inflow methods has field factor
     for obj in objects
         if obj isa BaseBalance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
                 for rhsterm in getrhsterms(obj)
                     if rhsterm.param isa TwoProductParam
-                        rhsterm.param = TwoProductParam(rhsterm.param.param1, ConstantParam(scenredmethod.factors[scenario]))
+                        rhsterm.param = TwoProductParam(rhsterm.param.param1, ConstantParam(scenmodmethod.factors[scenario]))
                     else
-                        rhsterm.param = TwoProductParam(rhsterm.param, ConstantParam(scenredmethod.factors[scenario]))
+                        rhsterm.param = TwoProductParam(rhsterm.param, ConstantParam(scenmodmethod.factors[scenario]))
                     end
                 end
             end
