@@ -22,10 +22,11 @@ The simulation model uses a rolling horizon approach where the underlying models
 4.	Then we clear the power market for one or two days at a time, considering storage values (water and battery values) and end states calculated in models 1 and 2. In the market clearing problem the power system elements can have all their details since the problem horizon is so short.
 
 #### Some features we want to highlight
-- Scenarios and subsystems are run in parallel.
-- The storage valuation model for each subsystem can be customized depending on the technology and geographical location. For example the horizon length and time resolution of the model. We later want to add the possibility to do scenario modelling for each subsystem.
 - Water values (and battery storage values) are calculated for each individual storage, without the need for advanced end values.
+- The storage valuation model for each subsystem can be customized depending on the technology and geographical location. For example the horizon length and time resolution of the model. We later want to add the possibility to do scenario modelling for each subsystem.
+- Since the dataset is stored as time series we can run the model with different time resolutions without having to adapt the dataset.
 - Multi-year storage can be considered.
+- Scenarios and subsystems are run in parallel.
 - Model configuration consists of choosing horizons / temporal resolution and degree of detail for each technology in the dataset, for each type of subproblem.
 - Parallel processing, solver warm start, reuse of cuts in multiple time steps, and scenario generation can be used to make JulES run faster.
 - The hydropower is already modelled quite detailed with PQ-curves, environmental constraints and head dependency.
