@@ -15,18 +15,21 @@ JulES clears the power market in small steps with some of the bids generated fro
 
 The simulation model uses a rolling horizon approach where the underlying models are solved for each time step:
 1.	Deterministic price prognosis models generate long-, medium- and short-term prices for different scenarios. The short-term problems have the most details, but they still have a simplified representation of some of the power system elements (i.e. aggregated hydro per price area).
-2.	The prices for different scenarios are then used in stochastic subsystem models for storage valuation. Each subsystem (e.g. battery or watercourse) can have its own storage valuation model that is tailored to the storage system they represent, for example short horizons and short-term prices for small batteries and longer horizons and long-term prices for watercourses with multi-year storages. The subsystem models can calculate storage values for each individual storage without the need for advanced end values. This should scale well when we want to solve a complex and detailed power market problem since the smaller detailed subsystems can be solved fast and in parallel. Adding other technologies like hydrogen or gas storage systems should also scale well, since they can be treated as new subsystems that are run in parallel. 
-3.	Then we clear the power market for one or two days at a time, considering storage values (water and battery values) and end states calculated in models 1 and 2. In the market clearing problem the power system elements can have all their details since the problem horizon is so short.
+2.	The prices for different scenarios are then used in stochastic subsystem models for storage valuation. Each subsystem (e.g. battery or watercourse) can have its own storage valuation model that is tailored to the storage system they represent, for example short horizons and short-term prices for small batteries and longer horizons and long-term prices for watercourses with multi-year storages. The subsystem models can calculate storage values for each individual storage without the need for advanced end values. This should scale well when we want to solve a complex and detailed power market problem since the smaller detailed subsystems can be solved fast and in parallel. Adding other technologies like hydrogen or gas storage systems should also scale well, since they can be treated as new subsystems that are run in parallel.
+    - In the stochastic subsystem models we use scenario modelling to consider uncertainty from all scenarios (30 in the demo) with only a few (7 in the demo). Scenarios can be chosen and weighted with different methods. In the demo we use InflowClusteringMethod which cluster together scenarios with similar total energy inflows in the whole dataset (both level and profile). One scenario from each cluster will represent the others with the weight based on the size of the cluster.
+    - At the moment we use the same scenarios for all the subsystems. This works ok since the most important subsystem models are the watercourses in the Nordics. But the scenarios chosen will work worse for the battery systems. In the future we would like to have different scenario modelling for different technologies and systems in different geographical areas. Other alternatives could be to do the scenario modelling based on the price series, or with the residual load (including energy inflow.)
+    - We also want to implement more complex scenario generation. This modular design of JulES gives us the flexibility to in the future generate inflow series for each watercourse with state information like snow reservoir levels and weather forecasts.
+4.	Then we clear the power market for one or two days at a time, considering storage values (water and battery values) and end states calculated in models 1 and 2. In the market clearing problem the power system elements can have all their details since the problem horizon is so short.
 
 #### Some features we want to highlight
 - Scenarios and subsystems are run in parallel.
-- The storage valuation model for each subsystem can be customized depending on the technology and geographical location. For example the horizon length, time resolution or scenario generation of the model.
+- The storage valuation model for each subsystem can be customized depending on the technology and geographical location. For example the horizon length and time resolution of the model. We later want to add the possibility to do scenario modelling for each subsystem.
 - Water values (and battery storage values) are calculated for each individual storage, without the need for advanced end values.
 - Multi-year storage can be considered.
 - Model configuration consists of choosing horizons / temporal resolution and degree of detail for each technology in the dataset, for each type of subproblem.
 - Parallel processing, solver warm start, reuse of cuts in multiple time steps, and scenario generation can be used to make JulES run faster.
-- We have implemented scenario reduction and an interface to allow different methods. We later want to implement scenario generation.
 - The hydropower is already modelled quite detailed with PQ-curves, environmental constraints and head dependency.
+- Scenarios are phased in from the main/simulation scenario since uncertainty is lower close to the decision time.
 
 #### TuLiPa
 TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
@@ -35,7 +38,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - src/prognosis.jl – Code for price prognosis models
 - src/stochastic.jl – Code for stochastic sub system models
 - src/clearing.jl - Code for market clearing problem
-- src/scenarioreduction.jl - Code for scenario reduction
+- src/scenariomodelling.jl - Code for scenario reduction
 - src/util.jl - Various useful functions
 
 #### See also demos:
