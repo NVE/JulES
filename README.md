@@ -29,7 +29,7 @@ The simulation model uses a rolling horizon approach where the underlying models
 - Scenarios and subsystems are run in parallel.
 - Model configuration consists of choosing horizons / temporal resolution and degree of detail for each technology in the dataset, for each type of subproblem.
 - Parallel processing, solver warm start, reuse of cuts in multiple time steps, and scenario generation can be used to make JulES run faster.
-- The hydropower is already modelled quite detailed with PQ-curves, environmental constraints and head dependency.
+- The hydropower is already modelled quite detailed with PQ-curves, environmental constraints, ramping restrictions and head dependency.
 - Scenarios are phased in from the main/simulation scenario since uncertainty is lower close to the decision time.
 
 #### TuLiPa
@@ -39,7 +39,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - src/prognosis.jl – Code for price prognosis models
 - src/stochastic.jl – Code for stochastic sub system models
 - src/clearing.jl - Code for market clearing problem
-- src/scenariomodelling.jl - Code for scenario reduction
+- src/scenariomodelling.jl - Code for scenario modelling
 - src/util.jl - Various useful functions
 
 #### See also demos:
@@ -59,10 +59,33 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
     - 998 with reservoirs
     - 788 restrictions (environmental, reservoir curves and ramping)
     - 90 PQ-curves (mostly Sweden)
-    - Metadata for head dependency (nominal head, outlet level and reservoir curves) for some plants and pumps
-- Throughout the testing we have achieved the wanted price volatility in the thermal dominated part of the dataset (Western Europe). On the other hand, the Nordics have had very flat prices due to too much flexibility in the hydropower system. In this demo we have therefore added hydropower production ramping restrictions in an attempt to reduce the flexibility of the run-of-river hydropower plants. This results in much more price volatiliy, but at a big computational cost. 
-- (not updated!!!) Ramping restrictions on transmission lines has the same effect. With ramping restrictions (hydro and transmission) the computational time in the demo is around 10 seconds per simulated day. Without ramping in the market clearing it is down to around 4.5 seconds per day. This is promising considering the big dataset, and the list of possible optimization we have in mind. It is also always possible to clear the market for 24 hours instead of 48 hours like now, which would reduce the computational time substantially. It is also interesting what these computational times would be with a commercial solver (now we use HiGHS).
-- We will try different configurations of ramping restrictions, and also test if time delays can achieve the same effects at a lower computation cost. Considering unavailability of hydropower or reserve market obligations, should also decrease the flexibility of the hydropower system.
+    - Metadata for head dependency (nominal head, outlet level and reservoir head to filling curves) for some plants and pumps
+      
+- In the first phase of JulES we have prioritized implementing functionality and test that they give the intended results, and compared results against other long-term models (TheMA and Samnett, which give a sufficient basis for comparison) on a big dataset. The price formation, reservoir operation and runtime of JulES seems promising, but there remains a lot of testing to see all the impacts of the concept implementation, model parameters, scenario modelling and head dependency on water values, prices, reservoir operation and runtime. The testing has been restricted by the runtime of the model, which we will have to improve to test different parts of the model more efficiently. In the next phase we want to test JulES as a short/medium-term paralell-simulation prognosis model. The results can then be compared to our other prognosis model (EMPS) and quickly be compared to the real market and historical data.
+  
+- Throughout the testing we have achieved the wanted price volatility in the thermal dominated part of the dataset (Western Europe). On the other hand, the Nordics have had very flat prices due to too much flexibility in the hydropower modelling. We have therefore added hydropower production ramping restrictions in the market clearing in an attempt to reduce the flexibility of the run-of-river hydropower plants. This results in much more price volatiliy, but at a big computational cost. Ramping restrictions on transmission lines has the same effect.
+
+- Time usage with the current implementation in the demo and serial simulation of 30 weather years (~5500 two day long time steps):
+    - Same as demo: 2 hourly power resolution and 6 hourly hydro resolution in market clearing and hydro ramping restrictions
+        - 46 hours total or 30 sec per time step or 105 sec per week
+    - 2 hourly hydro resolution in market clearing and hydro ramping restrictions (no other difference to demo)
+        - 78 hours total or 51 sec per time step or 180 sec per week
+    - 24 hourly hydro resolution in market clearing and no hydro ramping restrictions (no other difference to demo)
+        - 20 hours total or 13 sec per time step or 45 sec per week
+
+- This is promising considering the big dataset, and the list of possible optimization we have in mind:
+    - It is interesting what these computational times would be with a commercial solver (we now use HiGHS), and with more and faster processor cores in parallel (now 30 2.2 GHz processor cores). 
+    - We could clear the market for 24 hours at a time instead of 48 hours like now, which could reduce the computational time depending on if the market clearing has a higher runtime than the stochastic subsystem and price prognosis models (this is the case when we have a very detailed market clearing). 
+    - We could try different configurations of ramping restrictions, and test if time delays in watercourses can achieve the same effects at a lower computation cost. Considering unavailability of hydropower or reserve market obligations, should also decrease the flexibility of the hydropower system. Detailed transmission system modelling should also be implemented in the future.
+    - We could run the model only for the Nordics, which would reduce the size of the dataset substantially and give results that are comparable to other models we use.
+
+- The price levels in the Nordics are higher than in other models. This is partly due to the high flexibility in the hydropower modelling, which gives stable high prices and not many zero-prices. Another reason is that the stochastic subsystem models could need some improvements, for example longer and more detailed horizons. This should give water values that gives better long term signals. More load shedding can also be a contributor to higher prices, but this can be prevented with scenario modelling and head dependencies.
+
+- We have also seen the effects of scenario modelling and head dependencies. Scenario modelling can be used to reduce the runtime and adjust the risk taking, which gives more realistic reservoir operation and avoid the extremes of flooding and load shedding. Head dependency can be used to get a more realistic reservoir operation and higher production, and also gives lower risk of load shedding. These have to be tested further.
+
+- We are also very happy with the modelling choice of modularity, using time-series datasets and using Julia. This has made TuLiPa and JulES very pleasant to work with, as they provide a great deal of flexibility in adding complex functionality without having to make extensive changes to the existing code. Additionally, the models can be run with different methods and time resolutions without adaptations of the dataset. These design choices contribute to the model's suitability for further development and modeling the future power system when new modeling requirements arise.
+
+- However, the project's codebase needs to be professionalized with better structure to make the model more user-friendly, allowing not only developers to run the model. Unit testing is also important to ensure that the model functions as intended. So far, we have been working on the model concept alone, so it will be crucial to involve analysts who will use the models and developers outside of NVE who can contribute to further developing the concept.
 
 #### Possible improvements to JulES:
 See file "Possible improvements to JulES"
