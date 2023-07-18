@@ -74,6 +74,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
         - 20 hours total or 13 sec per time step or 45 sec per week
 
 - This is promising considering the big dataset, and the list of possible optimization we have in mind:
+    - At the moment we solve the market clearing problem with the HiGHS serial Simplex method, which could be replaced by a method that uses parallelization. The HiGHS PAMI Simplex method is a good option that is faster, but there are also other open-source solvers that should be tested.
     - It is interesting what these computational times would be with a commercial solver (we now use HiGHS), and with more and faster processor cores in parallel (now 30 2.2 GHz processor cores). 
     - We could clear the market for 24 hours at a time instead of 48 hours like now, which could reduce the computational time depending on if the market clearing has a higher runtime than the stochastic subsystem and price prognosis models (this is the case when we have a very detailed market clearing). 
     - We could try different configurations of ramping restrictions, and test if time delays in watercourses can achieve the same effects at a lower computation cost. Considering unavailability of hydropower or reserve market obligations, should also decrease the flexibility of the hydropower system. Detailed transmission system modelling should also be implemented in the future.
