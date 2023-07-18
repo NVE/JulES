@@ -38,6 +38,9 @@ function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, 
     # clearing = JuMP_Prob(modelobjects, model)
     clearing = HiGHS_Prob(modelobjects)
 
+    # Highs_setStringOptionValue(clearing, "solver", "ipm") # interior point method
+    # Highs_setIntOptionValue(clearing, "simplex_strategy", 3) # parallel simplex
+
     # Set start storages
     shorttermstorages = getshorttermstorages(getobjects(clearing), Hour(10))
     clearingstorages = getstorages(getobjects(clearing))
