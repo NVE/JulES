@@ -1,5 +1,5 @@
 # Initialize market clearing problem and solve for first time step
-function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, cutslocal, nonstoragestateslocal)
+function clearing_init(probmethod, elements, t, clearingduration, cpdp, cpdh, masterslocal, cutslocal, nonstoragestateslocal)
     elements1 = copy(elements)
 
     # Add horizon to dataelements
@@ -34,12 +34,7 @@ function clearing_init(elements, t, clearingduration, cpdp, cpdh, masterslocal, 
     end
 
     # Build problem from modelobjects and optimizer
-    # model = Model(HiGHS.Optimizer)
-    # clearing = JuMP_Prob(modelobjects, model)
-    clearing = HiGHS_Prob(modelobjects)
-
-    # Highs_setStringOptionValue(clearing, "solver", "ipm") # interior point method
-    # Highs_setIntOptionValue(clearing, "simplex_strategy", 3) # parallel simplex
+    clearing = buildprob(probmethod, modelobjects)
 
     # Set start storages
     shorttermstorages = getshorttermstorages(getobjects(clearing), Hour(10))
