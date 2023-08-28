@@ -185,7 +185,7 @@ function stochastic_init(masterobjects, subobjects, short, storageinfo, lb, maxc
 
     cutobjects = getcutobjects(masterobjects)
     cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, length(scenarios));
-    states = getstatevariables(cutobjects) # state variables in master and subs for boundary reservoirs
+    states = getstates(cutobjects) # state variables in master and subs for boundary reservoirs
 
     # master = JuMP_Prob(masterobjects, Model(HiGHS.Optimizer))
     # subs = [JuMP_Prob(subobject, Model(HiGHS.Optimizer)) for subobject in subobjects] # initialize subproblems
