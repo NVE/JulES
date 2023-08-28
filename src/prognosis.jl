@@ -1,23 +1,23 @@
 # Functions for making prob from main elements and horizon settings
-function make_prob(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, simplify::String)
+function make_prob(probmethod::ProbMethod, elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, simplify::String)
 
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = AdaptiveHorizon(clusters, unit_duration, rhsdata, method, hydroperiods, hydroperiodduration)
 
-    return _make_prob(elements, hydro_horizon, power_horizon, simplify)
+    return _make_prob(probmethod, elements, hydro_horizon, power_horizon, simplify)
 end
 
-function make_prob(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int, simplify::String)
+function make_prob(probmethod::ProbMethod, elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int, simplify::String)
 
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = SequentialHorizon(hydro_horizon, powerparts)
 
-    return _make_prob(elements, hydro_horizon, power_horizon, simplify)
+    return _make_prob(probmethod, elements, hydro_horizon, power_horizon, simplify)
 end
 
-function _make_prob(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, simplify::String)
+function _make_prob(probmethod::ProbMethod, elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, simplify::String)
     elements1 = copy(elements)
     set_horizon!(elements1, "Power", power_horizon)
     set_horizon!(elements1, "Battery", power_horizon)
@@ -29,9 +29,7 @@ function _make_prob(elements::Vector{DataElement}, hydro_horizon::Horizon, power
     simplify == "short" && simplify!(modelobjects; removestartup=false, residualarealist=["DEU","NLDBEL","GBR","NOS","NON","SEN","DMK"])
     addPowerUpperSlack!(modelobjects)
 
-    # model = Model(HiGHS.Optimizer)
-    # prob = JuMP_Prob(modelobjects, model)
-    prob = HiGHS_Prob(modelobjects)
+    prob = buildprob(probmethod, modelobjects)
 
     return prob, hydro_horizon, power_horizon
 end
@@ -75,8 +73,8 @@ function simplify!(modelobjects::Dict; aggzone::Bool=true, removestartup::Bool=t
 end
 
 # Initialize price prognosis problems for specific scenario
-function prognosis_init!(elements::Vector{DataElement}, longinput::Tuple, medinput::Tuple, shortinput::Tuple, tnormal::ProbTime, tphasein::ProbTime, phaseinoffset::Millisecond, medprice::Dict, shortprice::Dict)
-    longprob, lhh, lph  = make_prob(elements, longinput...)
+function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, longinput::Tuple, medinput::Tuple, shortinput::Tuple, tnormal::ProbTime, tphasein::ProbTime, phaseinoffset::Millisecond, medprice::Dict, shortprice::Dict)
+    longprob, lhh, lph  = make_prob(probmethods[1], elements, longinput...)
     
     longstorages = getstorages(getobjects(longprob))
     
@@ -86,7 +84,7 @@ function prognosis_init!(elements::Vector{DataElement}, longinput::Tuple, medinp
     update!(longprob, tnormal)
     solve!(longprob)
 
-    medprob, mhh, mph = make_prob(elements, medinput...)
+    medprob, mhh, mph = make_prob(probmethods[1], elements, medinput...)
     
     medstorages = getstorages(getobjects(medprob))
     
@@ -106,7 +104,7 @@ function prognosis_init!(elements::Vector{DataElement}, longinput::Tuple, medinp
     # Collect prices that will be used in stochastic subsystem problems
     getareaprices!(medprice, medprob, mph, tnormal)
     
-    shortprob, shh, sph = make_prob(elements, shortinput...)
+    shortprob, shh, sph = make_prob(probmethods[1], elements, shortinput...)
     
     shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
     allstorages = getstorages(getobjects(shortprob))
@@ -139,7 +137,7 @@ function prognosis_init!(elements::Vector{DataElement}, longinput::Tuple, medinp
 end
 
 # Initialize price prognosis models for all scenarios in parallel
-function pl_prognosis_init!(probs::Tuple{DArray, DArray, DArray}, allinput::Tuple, longinput::Tuple, medinput::Tuple, shortinput::Tuple, output::Tuple)
+function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DArray}, allinput::Tuple, longinput::Tuple, medinput::Tuple, shortinput::Tuple, output::Tuple)
     (numcores, elements, scenarios, phaseinoffset) = allinput
     (longprobs, medprobs, shortprobs) = probs
     (medprices, shortprices, medendvaluesobjs, nonstoragestates) = output
@@ -162,7 +160,7 @@ function pl_prognosis_init!(probs::Tuple{DArray, DArray, DArray}, allinput::Tupl
             for ix in range # for each scenario on this specific core
                 localix += 1
                 (tnormal, tphasein, scen) = scenario[localix]
-                probs = prognosis_init!(elements, longinput, medinput, shortinput, tnormal, tphasein, phaseinoffset, medprice[localix], shortprice[localix])
+                probs = prognosis_init!(probmethods, elements, longinput, medinput, shortinput, tnormal, tphasein, phaseinoffset, medprice[localix], shortprice[localix])
                 longprob[localix], medprob[localix], shortprob[localix], medendvaluesobj[localix], nonstoragestate[localix] = probs
             end
         end
