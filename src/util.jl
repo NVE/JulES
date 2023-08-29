@@ -5,7 +5,7 @@ function json_to_elements(path::String, filename::String)
 end
 
 # Add element for scenariotimeperiod
-function addscenariotimeperiod!(elements::Vector{DataElement}, start::Int, stop::Int)
+function addscenariotimeperiod_vector!(elements::Vector{DataElement}, start::Int, stop::Int)
     push!(elements, getelement(TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
             ("Start", getisoyearstart(start)), ("Stop", getisoyearstart(stop))))
 end
@@ -129,7 +129,7 @@ function setendstoragepercentage!(prob::Prob, storages::Vector, endtime::ProbTim
 end
 
 # Initialize dict of statevariables from list of modelobjects
-function getstatevariables(modelobjects::Vector)
+function getstates(modelobjects::Vector)
     states = Dict{StateVariableInfo, Float64}()
     
     for obj in modelobjects

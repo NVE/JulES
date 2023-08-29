@@ -112,7 +112,7 @@ end
 # Collect startstates for next iteration. Also calculate for aggregated reservoirs
 function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
 
-    startstates_ = getstatevariables(clearing.objects)
+    startstates_ = getstates(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
     startstates = Dict{String, Float64}()
 
@@ -148,7 +148,7 @@ function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
 end
 
 function getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
-    startstates_ = getstatevariables(clearing.objects)
+    startstates_ = getstates(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
     
     for var in keys(startstates_)
