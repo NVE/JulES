@@ -226,7 +226,7 @@ function stochastic_init(probmethods, masterobjects, subobjects, short, storagei
     # We use the dual values of the master problem to calculate the headloss costs
     # Possible TODO
     if master isa HiGHS_Prob
-        _setconduals!(master)
+        setconduals!(master)
         master.iscondualsupdated = true
     end
 
