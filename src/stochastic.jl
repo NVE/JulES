@@ -175,7 +175,7 @@ function transferboundarystates!(master, sub, states)
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(masterobjects, subobjects, short, storageinfo, lb, maxcuts, reltol, scenarios)
+function stochastic_init(probmethods, masterobjects, subobjects, short, storageinfo, lb, maxcuts, reltol, scenarios)
     shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
     if short
         startstorage = shortstartstorage
@@ -189,8 +189,8 @@ function stochastic_init(masterobjects, subobjects, short, storageinfo, lb, maxc
 
     # master = JuMP_Prob(masterobjects, Model(HiGHS.Optimizer))
     # subs = [JuMP_Prob(subobject, Model(HiGHS.Optimizer)) for subobject in subobjects] # initialize subproblems
-    master = HiGHS_Prob(masterobjects)
-    subs = [HiGHS_Prob(subobject) for subobject in subobjects] # initialize subproblems
+    master = buildprob(probmethods[1], masterobjects)
+    subs = [buildprob(probmethods[2], subobject) for subobject in subobjects] # initialize subproblems
 
     # Init cutparameters
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
@@ -239,6 +239,9 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreus
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
 
+        if (count == 0) && (master isa HiGHS_Prob) # implement this for other solvers
+            master.warmstart = false
+        end
         if cutreuse # try to reuse cuts from last time step
             try
                 solve!(master)
@@ -251,6 +254,9 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreus
             end
         else
             solve!(master)
+        end
+        if (count == 0) && (master isa HiGHS_Prob) 
+            master.warmstart = true
         end
 
         lb = getvarvalue(master, getfuturecostvarid(cuts),1)
@@ -276,7 +282,7 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreus
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(numcores, storagesystemobjects, shorts, masters_, subs_, states_, cuts_, storageinfo, lb, maxcuts, reltol, scenarios)
+function pl_stochastic_init!(probmethods, numcores, storagesystemobjects, shorts, masters_, subs_, states_, cuts_, storageinfo, lb, maxcuts, reltol, scenarios)
     @sync @distributed for core in 1:(numcores-1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
@@ -290,7 +296,7 @@ function pl_stochastic_init!(numcores, storagesystemobjects, shorts, masters_, s
             for ix in range
                 localix += 1
                 masterobjects, subobjects = storagesystemobject[localix]
-                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, scenarios)
+                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(probmethods, masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, scenarios)
             end
         end
     end
