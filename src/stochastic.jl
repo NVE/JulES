@@ -1,5 +1,5 @@
 # Make modelobjects for stochastic subsystems, group into subsystems
-function makestochasticobjects(elements, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool)
+function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool)
     # Add horizons to elements
     battery_horizon = SequentialHorizon(ceil(Int64, problemduration/pdp), pdp; offset) # TODO: Quickfix
     hydro_horizon = SequentialHorizon(ceil(Int64, problemduration/pdh), pdh; offset)
@@ -56,7 +56,7 @@ function makestochasticobjects(elements, problemduration::Millisecond, pdp::Mill
 end
 
 # Make master and subproblem objects for each subsystem
-function makemastersubobjects!(inputs, mastersubobjects, shorts)
+function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}, Millisecond, Vector{Dict}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
     elements1 = copy(elements)
@@ -78,7 +78,7 @@ function makemastersubobjects!(inputs, mastersubobjects, shorts)
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
-function removeelements!(elements, short) # TODO: Replace with user settings
+function removeelements!(elements::Vector{DataElement}, short) # TODO: Replace with user settings
     # Aggregate areas
     aggzoneareadict = Dict("NLDBEL" => ["NLD","HUB_NLD","BEL","HUB_BEL"],
     "FRACHE" => ["FRA","CHE"],
@@ -138,7 +138,7 @@ function removeelements!(elements, short) # TODO: Replace with user settings
 end
 
 # Get cutobjects
-function getcutobjects(modelobjects)
+function getcutobjects(modelobjects::Vector)
     cutobjects = Vector{Any}()
     for obj in modelobjects
         if hasstatevariables(obj)
@@ -153,7 +153,7 @@ function getcutobjects(modelobjects)
 end
 
 # Initialize cuts
-function initialize_cuts!(modelobjects, cutobjects, maxcuts, lb, numscen)
+function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int)
     # Make a cutid
     cutname = getinstancename(getid(modelobjects[1]))
     cutid = Id(BOUNDARYCONDITION_CONCEPT,"StorageCuts" * cutname)
@@ -168,14 +168,14 @@ function initialize_cuts!(modelobjects, cutobjects, maxcuts, lb, numscen)
 end
 
 # Transfer master problem end states to subproblem start states (currently only storage states)
-function transferboundarystates!(master, sub, states)
+function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVariableInfo, Float64})
     states = getoutgoingstates!(master, states)
     # display(states)
     setingoingstates!(sub, states)
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods, masterobjects, subobjects, short, storageinfo, lb, maxcuts, reltol, scenarios)
+function stochastic_init(probmethods::Vector{ProbMethod}, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Float64,Float64,Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}})
     shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
     if short
         startstorage = shortstartstorage
@@ -234,7 +234,7 @@ function stochastic_init(probmethods, masterobjects, subobjects, short, storagei
 end
 
 # Iterate until convergence between master and subproblems
-function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts, cutparameters::Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}, states::Dict{StateVariableInfo, Float64}, cutreuse::Bool, lb::Float64, ub::Int, reltol::Float64)
     count = 0
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
@@ -282,7 +282,7 @@ function iterate_convergence!(master, subs, cuts, cutparameters, states, cutreus
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods, numcores, storagesystemobjects, shorts, masters_, subs_, states_, cuts_, storageinfo, lb, maxcuts, reltol, scenarios)
+function pl_stochastic_init!(probmethods::Vector{ProbMethod}, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Float64, Float64, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int}})
     @sync @distributed for core in 1:(numcores-1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
@@ -317,7 +317,7 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-@everywhere function stochastic!(master, subs, states, cuts, startstates, medprices, shortprices, medendvaluesdicts, short, reltol, scenarios)
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}})
         
     # Init cutparameters
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
@@ -359,13 +359,13 @@ end
     # We use the dual values of the master problem to calculate the headloss costs
     # Possible TODO
     if master isa HiGHS_Prob
-        _setconduals!(master)
+        setconduals!(master)
         master.iscondualsupdated = true
     end
 end
 
 # Run stochastic subsystem problems in parallel
-function pl_stochastic!(numcores, masters_, subs_, states_, cuts_, startstates, medprices, shortprices, medendvaluesdicts, shorts, reltol, scenarios, skipmed)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}, skipmed::Millisecond)
     @sync @distributed for core in 1:(numcores-1)
         masters = localpart(masters_)
         subs = localpart(subs_)
@@ -398,7 +398,7 @@ end
 #       -  Core 2: Index 2 and 5
 #       -  Core 3: Index 3 and 4
 # TODO: Replace with low level Distributed functions that are more flexible than DistributedArrays
-function distribute_subsystems(ustoragesystemobjects::Vector, ushorts::Vector)
+function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector)
     objectcount = [length(first(objs)) for objs in ustoragesystemobjects]
     sortedindex = sortperm(objectcount, rev=true)
     testsort = distribute(collect(1:length(ustoragesystemobjects)))

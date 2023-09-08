@@ -78,8 +78,8 @@ function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, lon
     
     longstorages = getstorages(getobjects(longprob))
     
-    setstartstoragepercentage!(longprob, longstorages, tnormal, 65) # replace with user settings
-    setendstoragepercentage!(longprob, longstorages, tnormal, 65)
+    setstartstoragepercentage!(longprob, longstorages, tnormal, 65.0) # replace with user settings
+    setendstoragepercentage!(longprob, longstorages, tnormal, 65.0)
     
     update!(longprob, tnormal)
     solve!(longprob)
@@ -88,7 +88,7 @@ function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, lon
     
     medstorages = getstorages(getobjects(medprob))
     
-    setstartstoragepercentage!(medprob, medstorages, tnormal, 65) # TODO: Replace with user settings
+    setstartstoragepercentage!(medprob, medstorages, tnormal, 65.0) # TODO: Replace with user settings
     
     # Dual values from long problem used as end values for med problem, initialize
     longperiod = getendperiodfromduration(lhh, getduration(mhh)) # which period in long problem correspond to end period in medium problem
@@ -110,9 +110,9 @@ function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, lon
     allstorages = getstorages(getobjects(shortprob))
     longtermstorages = setdiff(allstorages, shorttermstorages)
     
-    setstartstoragepercentage!(shortprob, shorttermstorages, tnormal, 50)
-    setendstoragepercentage!(shortprob, shorttermstorages, tnormal, 50)
-    setstartstoragepercentage!(shortprob, longtermstorages, tnormal, 65)
+    setstartstoragepercentage!(shortprob, shorttermstorages, tnormal, 50.0)
+    setendstoragepercentage!(shortprob, shorttermstorages, tnormal, 50.0)
+    setstartstoragepercentage!(shortprob, longtermstorages, tnormal, 65.0)
     
     # Dual values from med problem used as end values for short problem, initialize
     medperiod = getendperiodfromduration(mhh, getduration(shh))

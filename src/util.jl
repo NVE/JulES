@@ -98,7 +98,7 @@ function remove_hydroramping!(modelobjects::Dict)
 end
 
 # Set start and end reservoir as a percentage of capacity
-function setstartstoragepercentage!(prob::Prob, storages::Vector, start::ProbTime, percentage::Int)
+function setstartstoragepercentage!(prob::Prob, storages::Vector, start::ProbTime, percentage::Float64)
     for obj in storages
 
         dummydelta = MsTimeDelta(Millisecond(0))
@@ -113,7 +113,7 @@ function setstartstoragepercentage!(prob::Prob, storages::Vector, start::ProbTim
     end
 end
 
-function setendstoragepercentage!(prob::Prob, storages::Vector, endtime::ProbTime, percentage::Int)
+function setendstoragepercentage!(prob::Prob, storages::Vector, endtime::ProbTime, percentage::Float64)
     for obj in storages
 
         dummydelta = MsTimeDelta(Millisecond(0))

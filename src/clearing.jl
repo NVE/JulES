@@ -1,5 +1,5 @@
 # Initialize market clearing problem and solve for first time step
-function clearing_init(probmethod, elements, t, clearingduration, cpdp, cpdh, masterslocal, cutslocal, nonstoragestateslocal)
+function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t::ProbTime, clearingduration::Millisecond, cpdp::Millisecond, cpdh::Millisecond, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict})
     elements1 = copy(elements)
 
     # Add horizon to dataelements
@@ -40,8 +40,8 @@ function clearing_init(probmethod, elements, t, clearingduration, cpdp, cpdh, ma
     shorttermstorages = getshorttermstorages(getobjects(clearing), Hour(10))
     clearingstorages = getstorages(getobjects(clearing))
     longtermstorages = setdiff(clearingstorages, shorttermstorages)
-    setstartstoragepercentage!(clearing, shorttermstorages, t, 50)
-    setstartstoragepercentage!(clearing, longtermstorages, t, 65)
+    setstartstoragepercentage!(clearing, shorttermstorages, t, 50.0)
+    setstartstoragepercentage!(clearing, longtermstorages, t, 65.0)
 
     # Update cuts
     for cuts in cutslocal
@@ -74,7 +74,7 @@ function clearing_init(probmethod, elements, t, clearingduration, cpdp, cpdh, ma
 end
 
 # Run market clearing for new time step
-function clearing!(clearing, t, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
+function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict)
         
     # Update startstates for all state variables, equals end state of last market clearing
     setstartstates!(clearing, clearing.objects, startstates) # TODO: Also store actual statevariables to update more efficiently?
@@ -110,7 +110,7 @@ function clearing!(clearing, t, startstates, masterslocal, cutslocal, nonstorage
 end
 
 # Collect startstates for next iteration. Also calculate for aggregated reservoirs
-function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
+function startstates_init(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, prob::Prob, t::ProbTime)
 
     startstates_ = getstates(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
@@ -147,7 +147,7 @@ function startstates_init(clearing, detailedrescopl, enekvglobaldict, prob, t)
     return startstates
 end
 
-function getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
+function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
     startstates_ = getstates(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
     
