@@ -175,7 +175,7 @@ function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVari
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods::Vector{ProbMethod}, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Float64,Float64,Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}})
+function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Float64,Float64,Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}})
     shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
     if short
         startstorage = shortstartstorage
@@ -282,7 +282,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods::Vector{ProbMethod}, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Float64, Float64, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int}})
+function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Float64, Float64, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int}})
     @sync @distributed for core in 1:(numcores-1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
