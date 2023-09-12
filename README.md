@@ -67,14 +67,13 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 
 - Time usage with the current implementation in the demo and serial simulation of 30 weather years (~5500 two day long time steps):
     - Same as demo: 2 hourly power resolution and 6 hourly hydro resolution in market clearing and hydro ramping restrictions
-        - 46 hours total or 30 sec per time step or 105 sec per week
+        - 24 hours total or 16 sec per time step or 55 sec per week
     - 2 hourly hydro resolution in market clearing and hydro ramping restrictions (no other difference to demo)
-        - 78 hours total or 51 sec per time step or 180 sec per week
+        - 36 hours total or 24 sec per time step or 84 sec per week
     - 24 hourly hydro resolution in market clearing and no hydro ramping restrictions (no other difference to demo)
-        - 20 hours total or 13 sec per time step or 45 sec per week
+        - 18 hours total or 12 sec per time step or 41 sec per week
 
 - This is promising considering the big dataset, and the list of possible optimization we have in mind:
-    - At the moment we solve the market clearing problem with the HiGHS serial Simplex method, which could be replaced by a method that uses parallelization. The HiGHS PAMI Simplex method is a good option that is faster, but there are also other open-source solvers that should be tested.
     - It is interesting what these computational times would be with a commercial solver (we now use HiGHS), and with more and faster processor cores in parallel (now 30 2.2 GHz processor cores). 
     - We could clear the market for 24 hours at a time instead of 48 hours like now, which could reduce the computational time depending on if the market clearing has a higher runtime than the stochastic subsystem and price prognosis models (this is the case when we have a very detailed market clearing). 
     - We could try different configurations of ramping restrictions, and test if time delays in watercourses can achieve the same effects at a lower computation cost. Considering unavailability of hydropower or reserve market obligations, should also decrease the flexibility of the hydropower system. Detailed transmission system modelling should also be implemented in the future.
