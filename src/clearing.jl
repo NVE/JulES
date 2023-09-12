@@ -60,8 +60,8 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
     setoutgoingstates!(clearing, nonstoragestateslocal[1])
 
     # State dependent hydropower production and pumping.
-    statedependentprod_init!(clearing, 65, t)
-    statedependentpump_init!(clearing, 65, t)
+    statedependentprod_init!(clearing, 65.0, t)
+    statedependentpump_init!(clearing, 65.0, t)
 
     # Update and solve
     update!(clearing, t)
