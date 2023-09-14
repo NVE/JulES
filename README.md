@@ -88,7 +88,7 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - However, the project's codebase needs to be professionalized with better structure to make the model more user-friendly, allowing not only developers to run the model. Unit testing is also important to ensure that the model functions as intended. So far, we have been working on the model concept alone, so it will be crucial to involve analysts who will use the models and developers outside of NVE who can contribute to further developing the concept.
 
 #### Possible improvements to JulES:
-See file "Possible improvements to JulES"
+File "Possible improvements to JulES" is temporarly removed
 
 ### Contact:
 Julien Cabrol: jgrc@nve.no
