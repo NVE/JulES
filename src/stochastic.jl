@@ -56,7 +56,7 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
 end
 
 # Make master and subproblem objects for each subsystem
-function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}, Millisecond, Vector{Dict}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
+function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Vector{Dict}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
     elements1 = copy(elements)
@@ -175,7 +175,7 @@ function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVari
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Float64,Float64,Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}})
+function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Float64,Float64,Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}})
     shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
     if short
         startstorage = shortstartstorage
@@ -282,8 +282,8 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Float64, Float64, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int}})
-    @sync @distributed for core in 1:(numcores-1)
+function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Float64, Float64, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int}})
+    @sync @distributed for core in 1:max(numcores-1,1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
         masters = localpart(masters_)
@@ -317,7 +317,7 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}})
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}})
         
     # Init cutparameters
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
@@ -365,8 +365,8 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
 end
 
 # Run stochastic subsystem problems in parallel
-function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, scenarios::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}, skipmed::Millisecond)
-    @sync @distributed for core in 1:(numcores-1)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}}, skipmed::Millisecond)
+    @sync @distributed for core in 1:max(numcores-1,1)
         masters = localpart(masters_)
         subs = localpart(subs_)
         states = localpart(states_)
