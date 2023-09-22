@@ -143,7 +143,7 @@ function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DA
     (medprices, shortprices, medendvaluesobjs, nonstoragestates) = output
     
     # Execute each scenario in parallel on different cores
-    @sync @distributed for core in 1:(numcores-1)
+    @sync @distributed for core in 1:max(numcores-1,1)
 
         # Local version of distributed arrays only consist of elements that are assignet to this specific core
         scenario = localpart(scenarios)
@@ -236,7 +236,7 @@ end
 # Run price prognosis models in parallel
 function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, scenarios::DArray, skipmed::Millisecond)
     
-    @sync @distributed for core in 1:(numcores-1)
+    @sync @distributed for core in 1:max(numcores-1,1)
         scenario = localpart(scenarios)
         longprob = localpart(longprobs)
         medprob = localpart(medprobs)
