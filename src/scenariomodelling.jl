@@ -1,8 +1,8 @@
 abstract type ScenarioModellingMethod end
 mutable struct NoScenarioModellingMethod <: ScenarioModellingMethod
-    scentimes::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}
+    scentimes::Vector{Tuple{Any, Any, Int64}}
     weights::Vector{Float64}
-    function NoScenarioReductionMethod(numscen, totalscentimes)
+    function NoScenarioModellingMethod(numscen, totalscentimes)
         @assert numscen == length(totalscentimes)
         new(totalscentimes, [1/length(totalscentimes) for i in 1:length(totalscentimes)])
     end
@@ -10,16 +10,16 @@ end
 # mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
 # end
 mutable struct InflowClusteringMethod <: ScenarioModellingMethod
-    scentimes::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}
+    scentimes::Vector{Tuple{Any, Any, Int64}}
     weights::Vector{Float64}
     factors::Vector{Float64}
     parts::Int
     function InflowClusteringMethod(numscen, parts)
-        return new(Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), Vector{Float64}(undef, numscen), parts)
+        return new(Vector{Tuple{Any, Any, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), Vector{Float64}(undef, numscen), parts)
     end
 end
 mutable struct SumInflowQuantileMethod <: ScenarioModellingMethod
-    scentimes::Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}
+    scentimes::Vector{Tuple{Any, Any, Int64}}
     weights::Vector{Float64}
     factors::Vector{Float64}
     maxquantile::Float64 # parameter
@@ -28,7 +28,7 @@ mutable struct SumInflowQuantileMethod <: ScenarioModellingMethod
     c::Float64 # parameter
     usedensity::Bool # parameter
     function SumInflowQuantileMethod(numscen, maxquantile, a, b, c; usedensity=false)
-        return new(Vector{Tuple{FixedDataTwoTime, PhaseinTwoTime, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), Vector{Float64}(undef, numscen), maxquantile, a, b, c, usedensity)
+        return new(Vector{Tuple{Any, Any, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), Vector{Float64}(undef, numscen), maxquantile, a, b, c, usedensity)
     end
 end
 
