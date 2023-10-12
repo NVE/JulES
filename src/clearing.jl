@@ -123,24 +123,23 @@ function startstates_init(clearing::Prob, detailedrescopl::Dict, enekvglobaldict
     for area in Set(values(detailedrescopl))
         resname = "Reservoir_" * area * "_hydro_reservoir"
         startstates[resname] = 0.0
-
-        for obj in prob.objects
-            if getinstancename(getid(obj)) == resname
-                startstates[resname * "_max"] = getparamvalue(obj.ub, t, MsTimeDelta(Millisecond(0)))
-            end
-        end
     end
-
     for res in keys(detailedrescopl)
         resname = "Reservoir_" * res
         areaname = "Reservoir_" * detailedrescopl[res] * "_hydro_reservoir"
         startstates[areaname] += startstates[resname] * enekvglobaldict[res]
     end
 
-    for area in Set(values(detailedrescopl)) # aggregated reservoirs cannot be filled more than max
-        resname = "Reservoir_" * area * "_hydro_reservoir"
-        if startstates[resname] > startstates[resname * "_max"]
-            startstates[resname] = startstates[resname * "_max"]
+    # Avoid reservoir being filled more than max, gives infeasible solution
+    # - If aggregated reservoirs capacity is lower than the sum capacities
+    # - If reservoir is full in model, numerical tolerance can bring variable value slightly over cap
+    for obj in clearing.objects
+        resname = getinstancename(getid(obj))
+        if haskey(startstates, resname)
+            startstates[resname * "_max"] = getparamvalue(obj.ub, t, MsTimeDelta(Millisecond(0)))
+            if startstates[resname] > startstates[resname * "_max"]
+                startstates[resname] = startstates[resname * "_max"]
+            end
         end
     end
     
@@ -155,21 +154,19 @@ function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict:
         value = round(startstates_[var], digits=10) # avoid approx 0 negative values, ignored by solvers so no problem?
         startstates[getinstancename(first(getvarout(var)))] = value
     end
-
     for area in Set(values(detailedrescopl))
         startstates["Reservoir_" * area * "_hydro_reservoir"] = 0.0
     end
 
-    for res in keys(detailedrescopl)
-        resname = "Reservoir_" * res
-        areaname = "Reservoir_" * detailedrescopl[res] * "_hydro_reservoir"
-        startstates[areaname] += startstates[resname] * enekvglobaldict[res]
-    end
-
-    for area in Set(values(detailedrescopl)) # aggregated reservoirs cannot be filled more than max
-        resname = "Reservoir_" * area * "_hydro_reservoir"
-        if startstates[resname] > startstates[resname * "_max"]
-            startstates[resname] = startstates[resname * "_max"]
+    # Avoid reservoirs being filled more than max, gives infeasible solution
+    # - If aggregated reservoir capacity is lower than the sum capacities
+    # - If reservoir is full in model, numerical tolerance can bring variable value slightly over cap
+    for obj in clearing.objects
+        resname = getinstancename(getid(obj))
+        if haskey(startstates, resname)
+            if startstates[resname] > startstates[resname * "_max"]
+                startstates[resname] = startstates[resname * "_max"]
+            end
         end
     end
 end
