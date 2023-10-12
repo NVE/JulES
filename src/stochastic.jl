@@ -225,7 +225,7 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     # HiGHS API cannot be used when master is moved to local process.
     # We use the dual values of the master problem to calculate the headloss costs
     # Possible TODO
-    if master isa HiGHS_Prob
+    if master isa Union{HiGHS_Prob, CPLEX_Prob}
         setconduals!(master)
         master.iscondualsupdated = true
     end
@@ -241,6 +241,8 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 
         if (count == 0) && (master isa HiGHS_Prob) # implement this for other solvers
             master.warmstart = false
+        elseif (count == 0) && (master isa CPLEX_Prob)
+            setparam!(master, "CPXPARAM_Advance", 0)
         end
         if cutreuse # try to reuse cuts from last time step
             try
@@ -257,6 +259,8 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
         end
         if (count == 0) && (master isa HiGHS_Prob) 
             master.warmstart = true
+        elseif (count == 0) && (master isa CPLEX_Prob)
+            setparam!(master, "CPXPARAM_Advance", 1) # TODO: What if setting is 2?
         end
 
         lb = getvarvalue(master, getfuturecostvarid(cuts),1)
@@ -358,7 +362,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     # HiGHS API cannot be used when master is moved to local process.
     # We use the dual values of the master problem to calculate the headloss costs
     # Possible TODO
-    if master isa HiGHS_Prob
+    if master isa Union{HiGHS_Prob, CPLEX_Prob}
         setconduals!(master)
         master.iscondualsupdated = true
     end
