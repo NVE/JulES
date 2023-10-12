@@ -84,7 +84,7 @@ function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, lon
     update!(longprob, tnormal)
     solve!(longprob)
 
-    medprob, mhh, mph = make_prob(probmethods[1], elements, medinput...)
+    medprob, mhh, mph = make_prob(probmethods[2], elements, medinput...)
     
     medstorages = getstorages(getobjects(medprob))
     
@@ -104,7 +104,7 @@ function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, lon
     # Collect prices that will be used in stochastic subsystem problems
     getareaprices!(medprice, medprob, mph, tnormal)
     
-    shortprob, shh, sph = make_prob(probmethods[1], elements, shortinput...)
+    shortprob, shh, sph = make_prob(probmethods[3], elements, shortinput...)
     
     shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
     allstorages = getstorages(getobjects(shortprob))
