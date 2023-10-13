@@ -52,22 +52,20 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
     end
     sort!(storagesystems, by = x -> getinstancename(getid(first(x))))
 
-    return storagesystems
+    return storagesystems, modelobjects
 end
 
 # Make master and subproblem objects for each subsystem
 function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Vector{Dict}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
-    elements1 = copy(elements)
-    removeelements!(elements1, short)
-
-    masterobjects = makestochasticobjects(copy(elements1), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
     for (tnormal, tphasein, scenario) in scenarios
         offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
-        push!(subscenarioobjects, makestochasticobjects(copy(elements1), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false))
+        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false)
+        push!(subscenarioobjects, subobject)
     end
 
     for (i, masterobject) in enumerate(masterobjects)
@@ -75,22 +73,13 @@ function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, M
         push!(mastersubobjects, (masterobject, subobjects))
         push!(shorts, short)
     end
+    return modelobjects
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
-function removeelements!(elements::Vector{DataElement}, short) # TODO: Replace with user settings
-    # Aggregate areas
-    aggzoneareadict = Dict("NLDBEL" => ["NLD","HUB_NLD","BEL","HUB_BEL"],
-    "FRACHE" => ["FRA","CHE"],
-    "AUTCZE" => ["AUT","CZE"],
-    "BAL" => ["LTU","LVA","EST","HUB_OST"],
-    "DMK" => ["DK1","HUB_DK1","DK2","HUB_DK2"],
-    "NOS" => ["NO1","NO2","NO5"],
-    "NON" => ["NO3","NO4"],
-    "SEN" => ["SE1","SE2"],
-    "SES" => ["SE3","SE4"])
+function removeelements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) # TODO: Replace with more user settings
     aggzonecopl = Dict()
-    for (k,v) in aggzoneareadict
+    for (k,v) in aggzone
         for vv in v
             aggzonecopl["PowerBalance_" * vv] = "PowerBalance_" * k
         end
@@ -175,13 +164,8 @@ function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVari
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Float64,Float64,Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}})
-    shortstartstorage, medstartstorage, medendvaluesdicts = storageinfo
-    if short
-        startstorage = shortstartstorage
-    else
-        startstorage = medstartstorage
-    end
+function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}})
+    startstates, medendvaluesdicts = storageinfo
 
     cutobjects = getcutobjects(masterobjects)
     cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, length(scenarios));
@@ -198,7 +182,7 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     # Update master
     (tnormalmaster, tphaseinmaster, scenario) = scenarios[1] # tphasein is the same for all scenarios before phasein
     update!(master, tphaseinmaster) 
-    setstartstoragepercentage!(master, getstorages(getobjects(master)), tphaseinmaster, startstorage)
+    setstartstates!(master, getstorages(getobjects(master)), startstates)
 
     # Update subs
     for (i,sub) in enumerate(subs)
@@ -207,7 +191,7 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
 
         storages = getstorages(getobjects(sub))
         if short
-            setendstoragepercentage!(sub, storages, tphaseinsub, startstorage) # set end reservoir
+            setendstates!(sub, storages, startstates) # set end reservoir
         else
             subendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
             subendvaluesobj = EndValues(subendvaluesid, storages)
@@ -286,7 +270,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Float64, Float64, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int}})
+function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int}})
     @sync @distributed for core in 1:max(numcores-1,1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
