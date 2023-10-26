@@ -25,7 +25,6 @@ function set_horizon!(elements::Vector{DataElement}, commodity::String, horizon:
     # Else, add commodity to element list
     push!(elements, getelement(COMMODITY_CONCEPT, "BaseCommodity", commodity, 
         (HORIZON_CONCEPT, horizon)))
-    elements
 end
 
 # The hydropower storages in the dataset needs boundary conditions for the state variables
