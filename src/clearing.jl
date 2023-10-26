@@ -1,5 +1,5 @@
 # Initialize market clearing problem and solve for first time step
-function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t::ProbTime, clearingduration::Millisecond, cpdp::Millisecond, cpdh::Millisecond, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict})
+function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t::ProbTime, clearingduration::Millisecond, cpdp::Millisecond, cpdh::Millisecond, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict})
     elements1 = copy(elements)
 
     # Add horizon to dataelements
@@ -37,11 +37,7 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
     clearing = buildprob(probmethod, modelobjects)
 
     # Set start storages
-    shorttermstorages = getshorttermstorages(getobjects(clearing), Hour(10))
-    clearingstorages = getstorages(getobjects(clearing))
-    longtermstorages = setdiff(clearingstorages, shorttermstorages)
-    setstartstoragepercentage!(clearing, shorttermstorages, t, 50.0)
-    setstartstoragepercentage!(clearing, longtermstorages, t, 65.0)
+    setstartstates!(clearing, getstorages(clearing.objects), startstates)
 
     # Update cuts
     for cuts in cutslocal
@@ -60,8 +56,8 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
     setoutgoingstates!(clearing, nonstoragestateslocal[1])
 
     # State dependent hydropower production and pumping.
-    statedependentprod_init!(clearing, 65.0, t)
-    statedependentpump_init!(clearing, 65.0, t)
+    statedependentprod!(clearing, startstates, init=true)
+    statedependentpump!(clearing, startstates)
 
     # Update and solve
     update!(clearing, t)
@@ -109,44 +105,6 @@ function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float6
     getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
 end
 
-# Collect startstates for next iteration. Also calculate for aggregated reservoirs
-function startstates_init(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, prob::Prob, t::ProbTime)
-
-    startstates_ = getstates(clearing.objects)
-    getoutgoingstates!(clearing, startstates_)
-    startstates = Dict{String, Float64}()
-
-    for var in keys(startstates_)
-        startstates[getinstancename(first(getvarout(var)))] = startstates_[var]
-    end
-
-    for area in Set(values(detailedrescopl))
-        resname = "Reservoir_" * area * "_hydro_reservoir"
-        startstates[resname] = 0.0
-
-        for obj in prob.objects
-            if getinstancename(getid(obj)) == resname
-                startstates[resname * "_max"] = getparamvalue(obj.ub, t, MsTimeDelta(Millisecond(0)))
-            end
-        end
-    end
-
-    for res in keys(detailedrescopl)
-        resname = "Reservoir_" * res
-        areaname = "Reservoir_" * detailedrescopl[res] * "_hydro_reservoir"
-        startstates[areaname] += startstates[resname] * enekvglobaldict[res]
-    end
-
-    for area in Set(values(detailedrescopl)) # aggregated reservoirs cannot be filled more than max
-        resname = "Reservoir_" * area * "_hydro_reservoir"
-        if startstates[resname] > startstates[resname * "_max"]
-            startstates[resname] = startstates[resname * "_max"]
-        end
-    end
-    
-    return startstates
-end
-
 function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
     startstates_ = getstates(clearing.objects)
     getoutgoingstates!(clearing, startstates_)
@@ -159,17 +117,21 @@ function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict:
     for area in Set(values(detailedrescopl))
         startstates["Reservoir_" * area * "_hydro_reservoir"] = 0.0
     end
-
     for res in keys(detailedrescopl)
         resname = "Reservoir_" * res
         areaname = "Reservoir_" * detailedrescopl[res] * "_hydro_reservoir"
         startstates[areaname] += startstates[resname] * enekvglobaldict[res]
     end
 
-    for area in Set(values(detailedrescopl)) # aggregated reservoirs cannot be filled more than max
-        resname = "Reservoir_" * area * "_hydro_reservoir"
-        if startstates[resname] > startstates[resname * "_max"]
-            startstates[resname] = startstates[resname * "_max"]
+    # Avoid reservoirs being filled more than max, gives infeasible solution
+    # - If aggregated reservoir capacity is lower than the sum capacities
+    # - If reservoir is full in model, numerical tolerance can bring variable value slightly over cap
+    for obj in clearing.objects
+        resname = getinstancename(getid(obj))
+        if haskey(startstates, resname)
+            if startstates[resname] > startstates[resname * "_max"]
+                startstates[resname] = startstates[resname * "_max"]
+            end
         end
     end
 end

@@ -25,7 +25,6 @@ function set_horizon!(elements::Vector{DataElement}, commodity::String, horizon:
     # Else, add commodity to element list
     push!(elements, getelement(COMMODITY_CONCEPT, "BaseCommodity", commodity, 
         (HORIZON_CONCEPT, horizon)))
-    elements
 end
 
 # The hydropower storages in the dataset needs boundary conditions for the state variables
@@ -144,6 +143,21 @@ function getstates(modelobjects::Vector)
     return states
 end
 
+# Initialize max startstates and cap at maximum
+function startstates_max!(objects::Vector, t::ProbTime, startstates::Dict)
+    for obj in objects
+        resname = getinstancename(getid(obj))
+        if haskey(startstates, resname)
+            startstates[resname * "_max"] = getparamvalue(obj.ub, t, MsTimeDelta(Millisecond(0)))
+            if startstates[resname] > startstates[resname * "_max"]
+                startstates[resname] = startstates[resname * "_max"]
+            end
+        end
+    end
+    
+    return startstates
+end
+
 # Set start and end states for objects with statevariables
 function setstartstates!(prob::Prob, objects::Vector, startstates::Dict)
     for obj in objects
@@ -167,6 +181,20 @@ function setendstates!(prob::Prob, objects::Vector, startstates::Dict)
         
         setoutgoingstates!(prob, states)
     end
+end
+
+function getstartstoragepercentage(storages::Vector, start::ProbTime, percentage::Float64)
+    startstates = Dict{String, Float64}()
+
+    for obj in storages
+        dummydelta = MsTimeDelta(Millisecond(0))
+        startreservoir = getparamvalue(getub(obj), start, dummydelta)*percentage/100
+        for statevariable in getstatevariables(obj)
+            startstates[getinstancename(first(getvarout(statevariable)))] = startreservoir
+        end
+    end
+
+    return startstates
 end
 
 function getnonstorageobjects(modelobjects::Vector)
