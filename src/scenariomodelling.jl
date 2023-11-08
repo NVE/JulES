@@ -85,6 +85,8 @@ function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, nums
     partsumenergyinflow = zeros(scenmodmethod.parts ,length(totalscentimes))
     scendeltapart = scendelta/scenmodmethod.parts
 
+	parts = scenmodmethod.parts
+
     for obj in objects
         if obj isa Balance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
