@@ -1,7 +1,10 @@
 module JulesPrognose
 
-using DataFrames, Plots, Statistics, JSON, Distributed, Clustering, TuLiPa, Dates, FileIO, HDF5, CSV
-include("JulES.jl")
+using DataFrames, Statistics, JSON, Distributed, Clustering, FileIO, HDF5, CSV
+
+# @everywhere using TuLiPa, Dates
+include(joinpath(dirname(pwd()),raw"TuLiPa/src/TuLiPa.jl"));
+include(joinpath(dirname(pwd()),raw"JulES/src/JulES.jl"));    
 
 # Get dictionary with each detailed reservoir and their water value for each scenario
 # TODO: Detailed run-of-river reservoirs get water value from aggregated reservoir hydro
@@ -21,53 +24,54 @@ function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvgloba
     return endvaluesdicts
 end
 
-function get_data(year, sti_dataset)
+function get_data(prognoser_path, scenarioyear, weekstart)
     
-    missing_path = joinpath(dirname(sti_dataset), "missing")
+    sti_dataset = joinpath(prognoser_path, "static_input")
+    sti_dataset1 = joinpath(prognoser_path, "Uke_$weekstart", "input")
 
-    # FIX: thermal, nuclear, brenselspriser is not included
-
-    exogen = getelements(JSON.parsefile(joinpath(sti_dataset, "exogenprices_prognose1.json")), sti_dataset)
-    agginflow = getelements(JSON.parsefile(joinpath(sti_dataset, "tilsigsprognoseragg$(year).json")), sti_dataset)
-    thermal = getelements(JSON.parsefile(joinpath(sti_dataset, "termisk.json")), sti_dataset)
-    brenselspriser = getelements(JSON.parsefile(joinpath(sti_dataset, "brenselspriser.json")), sti_dataset)
-
+    # Aggregated data
+    thermal = getelements(JSON.parsefile(joinpath(sti_dataset, "termisk1.json")), sti_dataset)
     windsol = getelements(JSON.parsefile(joinpath(sti_dataset, "vindsol.json")), sti_dataset)
-    nuclear = getelements(JSON.parsefile(joinpath(sti_dataset, "nuclear.json")), sti_dataset)
-    transm = getelements(JSON.parsefile(joinpath(sti_dataset, "nett.json")))    
-    cons = getelements(JSON.parsefile(joinpath(missing_path, "forbruk5.json")), missing_path) # missing
-    aggdetd = getelements(JSON.parsefile(joinpath(missing_path, "aggdetd2.json")), missing_path) # missing
-    elements = vcat(exogen,aggdetd, windsol, transm, cons, agginflow) # thermal, nuclear, brenselspriser
+    cons = getelements(JSON.parsefile(joinpath(sti_dataset, "forbruk5.json")), sti_dataset)
+    aggdetd = getelements(JSON.parsefile(joinpath(sti_dataset, "aggdetd2.json")), sti_dataset)
 
-    detdseries = getelements(JSON.parsefile(joinpath(missing_path, "tidsserier_detd.json")), missing_path); # missing
-    detdstructure = getelements(JSON.parsefile(joinpath(missing_path, "dataset_detd.json"))); # missing
-    inflow = getelements(JSON.parsefile(joinpath(sti_dataset, "tilsigsprognoser$(year).json")), sti_dataset);
-    detailedelements = vcat(exogen,detdseries,detdstructure, windsol,transm,cons,inflow) # thermal,nuclear, brenselspriser
+    nuclear = getelements(JSON.parsefile(joinpath(sti_dataset1, "nuclear.json")), sti_dataset1)
+    exogen = getelements(JSON.parsefile(joinpath(sti_dataset1, "exogenprices_prognose1.json")), sti_dataset1)
+    brenselspriser = getelements(JSON.parsefile(joinpath(sti_dataset1, "brenselspriser.json")), sti_dataset1)
+    transm = getelements(JSON.parsefile(joinpath(sti_dataset1, "nett.json")))   
+    agginflow = getelements(JSON.parsefile(joinpath(sti_dataset1, "tilsigsprognoseragg$(scenarioyear).json")), sti_dataset1) 
 
-    detailedrescopl = JSON.parsefile(joinpath(missing_path, "magasin_elspot.json")) # missing
-    startmagdict_json = JSON.parsefile(joinpath(sti_dataset, "startmagdict.json"))
-    startstates = JSON.parsefile(joinpath(sti_dataset, "aggstartmagdict.json"), dicttype=Dict{String, Float64})
+    elements = vcat(exogen, aggdetd, windsol, transm, cons, agginflow, thermal, nuclear, brenselspriser)
+
+    # Detailed data
+    detdseries = getelements(JSON.parsefile(joinpath(sti_dataset, "tidsserier_detd.json")), sti_dataset)
+    detdstructure = getelements(JSON.parsefile(joinpath(sti_dataset, "dataset_detd.json")))
+
+    inflow = getelements(JSON.parsefile(joinpath(sti_dataset1, "tilsigsprognoser$(scenarioyear).json")), sti_dataset1)
+
+    detailedelements = vcat(exogen,detdseries,detdstructure, windsol,transm,cons,inflow,thermal,nuclear,brenselspriser)
+
+    # Reservoirs
+    detailedrescopl = JSON.parsefile(joinpath(sti_dataset, "magasin_elspot.json"))
+    startmagdict_json = JSON.parsefile(joinpath(sti_dataset1, "startmagdict.json"))
+    startstates = JSON.parsefile(joinpath(sti_dataset1, "aggstartmagdict.json"), dicttype=Dict{String, Float64})
 
     return elements, startstates, detailedrescopl, startmagdict_json, detailedelements
 end
 
+function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
 
-function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #1991 - 2010 hovedinput
-
-    sti_dataset = joinpath(output_path, "Uke_$(week_no)")
-    sti_output = joinpath(sti_dataset, "jules_output")
+    sti_dataset = joinpath(prognoser_path, "Uke_$(weekstart)")
+    sti_output = joinpath(sti_dataset, "output")
     mkpath(sti_output)
 
-
-    datayearstart = 2024 #2023
-    weekstart = 44
 
     scenarioyearstart = 1991
     scenarioyearstop = 2021
 
     totalscen = 30 # scenarios to consider uncertainty for
 
-    elements, startstates, detailedrescopl, startmagdict_json, detailedelements = get_data(1991, sti_dataset)
+    elements, startstates, detailedrescopl, startmagdict_json, detailedelements = get_data(prognoser_path, scenarioyear, weekstart)
 
     # Standard time for market clearing - perfect information so simple time type
     datatime = getisoyearstart(datayearstart) + Week(weekstart - 1)
@@ -85,15 +89,14 @@ function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #199
     totalscentimes = []
     for scen in 1:totalscen
         scentnormal = PrognosisTime(datatime, datatime, getisoyearstart(scenarioyear + scen - 1) + Week(weekstart - 1))
-        scentphasein = PhaseinPrognosisTime(datatime, datatime, getisoyearstart(scenarioyear) + Week(weekstart - 1), getisoyearstart(scenarioyear + scen - 1) + Week(weekstart), phaseinoffset, phaseindelta, phaseinsteps);
+        scentphasein = PhaseinPrognosisTime(datatime, datatime, getisoyearstart(scenarioyear) + Week(weekstart - 1), getisoyearstart(scenarioyear + scen - 1) + Week(weekstart - 1), phaseinoffset, phaseindelta, phaseinsteps);
         push!(totalscentimes, (scentnormal, scentphasein, scen))
     end
 
     # How many time steps to run the simulation for
-    simulationyears = 1
-    # steps = 48;
-    steps = 1
-    #steps = Int(ceil((getisoyearstart(datayearstart + simulationyears) - getisoyearstart(datayearstart)).value/phaseinoffset.value))
+    if simulationyears != 0
+        steps = Int(ceil((getisoyearstart(datayearstart + simulationyears) - getisoyearstart(datayearstart)).value/phaseinoffset.value))
+    end
 
     addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop);
 
@@ -318,8 +321,8 @@ function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #199
     cpdh = Millisecond(Hour(6)) # clearing period duration hydro
     # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
     cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
-    probmethodclearing = HighsSimplexSIPMethod(warmstart=false) # Which solver and settings should we use for each problem?
-    #probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=1)
+    # probmethodclearing = HighsSimplexSIPMethod(warmstart=false) # Which solver and settings should we use for each problem?
+    probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
     @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal);
 
     # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
@@ -352,9 +355,9 @@ function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #199
     skipmed = Millisecond(Day(6))
     skipmax = Millisecond(Day(6))
 
-    step = 2; # already ran first step in initialization
+    stepnr = 2; # already ran first step in initialization
 
-    totaltime = @elapsed while step <= steps # while step <= steps and count elapsed time
+    totaltime = @elapsed while stepnr <= steps # while step <= steps and count elapsed time
 
         # Increment simulation/main scenario and uncertainty scenarios
         tnormal += phaseinoffset
@@ -408,14 +411,14 @@ function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #199
         
         # Results
         updateareaprices!(price, clearing, clearing.horizons[powerhorizonix], tnormal)
-        ix[Int(length(price["steprange"])*(step-1)+1):Int(length(price["steprange"])*step)] .= price["steprange"]
-        pricematrix[Int(pricex*(step-1)+1):Int(pricex*(step)),:] .= price["matrix"]
-        statematrix[:,Int(step)] .= collect(values(startstates))
+        ix[Int(length(price["steprange"])*(stepnr-1)+1):Int(length(price["steprange"])*stepnr)] .= price["steprange"]
+        pricematrix[Int(pricex*(stepnr-1)+1):Int(pricex*(stepnr)),:] .= price["matrix"]
+        statematrix[:,Int(stepnr)] .= collect(values(startstates))
         
-        update_results!(step, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+        update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
         
         # Increment step
-        step += 1
+        stepnr += 1
     end
 
     println(string("The simulation took: ", totaltime/60, " minutes"))
@@ -463,9 +466,9 @@ function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #199
     end
 
     # Time
-    x1 = [getisoyearstart(datayearstart) + Week(weekstart) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
-    x2 = [getisoyearstart(datayearstart) + Week(weekstart) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
-    x3 = [getisoyearstart(datayearstart) + Week(weekstart) + phaseinoffset*(t-1) for t in 1:steps]; # state resolution
+    x1 = [getisoyearstart(datayearstart) + Week(weekstart-1) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
+    x2 = [getisoyearstart(datayearstart) + Week(weekstart-1) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
+    x3 = [getisoyearstart(datayearstart) + Week(weekstart-1) + phaseinoffset*(t-1) for t in 1:steps]; # state resolution
 
 
 
@@ -525,6 +528,7 @@ function run(numcores, scenarioyear = 1992, week_no = 42, output_path = "") #199
     hydro[!,:time] = x2
     CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro);
 
+    return
 end
 
 end
