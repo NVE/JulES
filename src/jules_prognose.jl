@@ -478,8 +478,8 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     modelname = scenarioyear
 
     data = Dict()
-    data["areanames"] = areanames |> Vector{String}
-    data["pricematrix"] = pricematrix
+    data["areanames"] = powerbalancenames |> Vector{String}
+    data["pricematrix"] = prices
     data["priceindex"] = Dates.format.(x1, datetimeformat) # not necessary to store as string
 
     data["resnames"] = hydronames
