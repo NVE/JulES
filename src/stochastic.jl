@@ -23,7 +23,7 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
         push!(elements, getelement(TIMEVECTOR_CONCEPT, "MutableInfiniteTimeVector", "ProfilePrice_" * area,
             (TIMEINDEX_CONCEPT, "ShortTermTimeIndex"), (TIMEVALUES_CONCEPT, "ValuesPrice_" * area)))
         push!(elements, getelement(PARAM_CONCEPT, "MeanSeriesIgnorePhaseinParam", "Price_" * area,
-            ("Level", 1),
+            ("Level", 1.0),
             ("Profile", "ProfilePrice_" * area)))
         push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", "PowerBalance_" * area, 
             (COMMODITY_CONCEPT, "Power"),
@@ -209,7 +209,7 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     # HiGHS API cannot be used when master is moved to local process.
     # We use the dual values of the master problem to calculate the headloss costs
     # Possible TODO
-    if master isa Union{HiGHS_Prob, CPLEX_Prob}
+    if master isa HiGHS_Prob || is_CPLEX_Prob(master)
         setconduals!(master)
         master.iscondualsupdated = true
     end
@@ -225,7 +225,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 
         if (count == 0) && (master isa HiGHS_Prob) # implement this for other solvers
             master.warmstart = false
-        elseif (count == 0) && (master isa CPLEX_Prob)
+        elseif (count == 0) && is_CPLEX_Prob(master)
             setparam!(master, "CPXPARAM_Advance", 0)
         end
         if cutreuse # try to reuse cuts from last time step
@@ -243,7 +243,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
         end
         if (count == 0) && (master isa HiGHS_Prob) 
             master.warmstart = true
-        elseif (count == 0) && (master isa CPLEX_Prob)
+        elseif (count == 0) && is_CPLEX_Prob(master)
             setparam!(master, "CPXPARAM_Advance", 1) # TODO: What if setting is 2?
         end
 
@@ -346,7 +346,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     # HiGHS API cannot be used when master is moved to local process.
     # We use the dual values of the master problem to calculate the headloss costs
     # Possible TODO
-    if master isa Union{HiGHS_Prob, CPLEX_Prob}
+    if master isa HiGHS_Prob || is_CPLEX_Prob(master)
         setconduals!(master)
         master.iscondualsupdated = true
     end

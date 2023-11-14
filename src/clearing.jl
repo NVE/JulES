@@ -126,11 +126,11 @@ function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict:
     # Avoid reservoirs being filled more than max, gives infeasible solution
     # - If aggregated reservoir capacity is lower than the sum capacities
     # - If reservoir is full in model, numerical tolerance can bring variable value slightly over cap
-    for obj in clearing.objects
-        resname = getinstancename(getid(obj))
-        if haskey(startstates, resname)
-            if startstates[resname] > startstates[resname * "_max"]
-                startstates[resname] = startstates[resname * "_max"]
+    for resname in keys(startstates)
+        resmax = resname * "_max"
+        if haskey(startstates, resmax)
+            if startstates[resname] > startstates[resmax]
+                startstates[resname] = startstates[resmax]
             end
         end
     end
