@@ -104,7 +104,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # Long
     longhorizonduration = Millisecond(Week(5*52))
     longhydroperiodduration = Millisecond(Week(6))
-    longrhsdata = DynamicRHSAHData("Power") # TODO: If dynamic use tphasein
+    longrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND")) # TODO: If dynamic use tphasein
     longmethod = KMeansAHMethod()
     longclusters = 4
     longunitduration = Millisecond(Hour(6))
@@ -117,7 +117,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # Medium
     medhorizonduration = Millisecond(Week(54))
     medhydroperiodduration = Millisecond(Day(7)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
-    medrhsdata = DynamicRHSAHData("Power")
+    medrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND"))
     medmethod = KMeansAHMethod()
     medclusters = 4
     medunitduration = Millisecond(Hour(4))
@@ -321,7 +321,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     cpdh = Millisecond(Hour(6)) # clearing period duration hydro
     # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
     cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
-    probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrence=min(8, numcores)) # Which solver and settings should we use for each problem?
+    probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
     # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
     @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal);
 
