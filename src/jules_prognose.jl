@@ -104,7 +104,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # Long
     longhorizonduration = Millisecond(Week(5*52))
     longhydroperiodduration = Millisecond(Week(6))
-    longrhsdata = DynamicRHSAHData("Power") # TODO: If dynamic use tphasein
+    longrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND")) # TODO: If dynamic use tphasein
     longmethod = KMeansAHMethod()
     longclusters = 4
     longunitduration = Millisecond(Hour(6))
@@ -117,7 +117,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # Medium
     medhorizonduration = Millisecond(Week(54))
     medhydroperiodduration = Millisecond(Day(7)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
-    medrhsdata = DynamicRHSAHData("Power")
+    medrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND"))
     medmethod = KMeansAHMethod()
     medclusters = 4
     medunitduration = Millisecond(Hour(4))
