@@ -2,8 +2,8 @@ module JulesPrognose
 
 using DataFrames, Statistics, JSON, Distributed, Clustering, FileIO, HDF5, CSV
 
-# @everywhere using TuLiPa, Dates
-include(joinpath(dirname(pwd()),raw"TuLiPa/src/TuLiPa.jl"));
+using TuLiPa, Dates
+#include(joinpath(dirname(pwd()),raw"TuLiPa/src/TuLiPa.jl"));
 include("JulES.jl");    
 
 # Get dictionary with each detailed reservoir and their water value for each scenario
@@ -321,7 +321,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     cpdh = Millisecond(Hour(6)) # clearing period duration hydro
     # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
     cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
-    probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrence=min(8, numcores)) # Which solver and settings should we use for each problem?
+    probmethodclearing = HighsSimplexMethod(warmstart=false) # Which solver and settings should we use for each problem?
     # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
     @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal);
 
@@ -526,8 +526,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
 
     hydro = rename!(DataFrame(hydrolevels, :auto),hydronames)
     hydro[!,:time] = x2
-    CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro);
-
+    CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro)
     return
 end
 
