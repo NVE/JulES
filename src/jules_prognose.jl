@@ -9,7 +9,7 @@ include("JulES.jl");
 # Get dictionary with each detailed reservoir and their water value for each scenario
 # TODO: Detailed run-of-river reservoirs get water value from aggregated reservoir hydro
 function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvglobaldict::Dict)
-    endvaluesdicts = Dict[]
+    endvaluesdicts = Dict[];
     for endvaluesobj in endvaluesobjs
         instance = [getinstancename(getid(obj)) for obj in endvaluesobj.objects]
         endvalues = endvaluesobj.values
@@ -54,7 +54,7 @@ function get_data(prognoser_path, scenarioyear, weekstart)
     # Reservoirs
     detailedrescopl = JSON.parsefile(joinpath(sti_dataset, "magasin_elspot.json"))
     startmagdict_json = JSON.parsefile(joinpath(sti_dataset1, "startmagdict.json"))
-    startstates = JSON.parsefile(joinpath(sti_dataset1, "aggstartmagdict.json"), dicttype=Dict{String, Float64})
+    startstates = JSON.parsefile(joinpath(sti_dataset1, "aggstartmagdict.json"), dicttype=Dict{String, Float64});
 
     return elements, startstates, detailedrescopl, startmagdict_json, detailedelements
 end
@@ -130,7 +130,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # Short
     shorthorizonduration = Millisecond(Week(1))
     shorthydroperiodduration = Millisecond(Day(1)); @assert medhorizonduration.value % shorthorizonduration.value == 0
-    shortpowerparts = 12
+    shortpowerparts = 8
     shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
 
     shortobjects, shh, sph = make_obj(elements, shorthorizon...)
@@ -257,10 +257,10 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     reltol = 0.0001 # relative tolerance
 
     # Parameters for stochastic subsystem problems (could also split totalduration into master- and subduration)
-    smpdp = Millisecond(Hour(2)) # short/med - master/sub - period duration - power/hydro (commodity)
-    smpdh = Millisecond(Hour(2))
-    sspdp = Millisecond(Hour(2))
-    sspdh = Millisecond(Hour(2)) # both master and subproblems for PHS and batteries has 2 hour resolution
+    smpdp = Millisecond(Hour(3)) # short/med - master/sub - period duration - power/hydro (commodity)
+    smpdh = Millisecond(Hour(3))
+    sspdp = Millisecond(Hour(3))
+    sspdh = Millisecond(Hour(3)) # both master and subproblems for PHS and batteries has 2 hour resolution
     mmpdp = Millisecond(Hour(24))
     mmpdh = Millisecond(Hour(24)) # daily resolution in hydro master problems
     mspdp = Millisecond(Hour(168))
@@ -316,12 +316,14 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
 
     # Initialize market clearing problem and run for first time step
-    cpdp = Millisecond(Hour(2)) # clearing period duration power/battery
+    cpdp = Millisecond(Hour(3)) # clearing period duration power/battery
     cnpp = ceil(Int64, phaseinoffset/cpdp) # clearing numperiods power/battery
     cpdh = Millisecond(Hour(6)) # clearing period duration hydro
     # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
     cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
+    # probmethodclearing = CPLEXSimplexMethod(warmstart=false)
     probmethodclearing = HighsSimplexMethod(warmstart=false) # Which solver and settings should we use for each problem?
+    # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
     # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
     @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal);
 
@@ -503,31 +505,30 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
             display(k)
             write(file, k, v)
         end
-    end
+    end;
 
-    # Store as CSV
-    areaprices = rename!(DataFrame(prices, :auto),powerbalancenames)
-    areaprices[!,:time] = x1
-    CSV.write(joinpath(sti_output, "price$scenarioyear.csv"), areaprices)
+    # # Store as CSV
+    # areaprices = rename!(DataFrame(prices, :auto),powerbalancenames)
+    # areaprices[!,:time] = x1
+    # CSV.write(joinpath(sti_output, "price$scenarioyear.csv"), areaprices)
 
-    demand = rename!(DataFrame(demandvalues, :auto),demandnames)
-    demand[!,:time] = x1
-    demand = stack(demand,Not(:time))
-    demandcopl = DataFrame(variable=demandnames, area=demandbalancenames)
-    demand = leftjoin(demand, demandcopl, on=:variable)
-    CSV.write(joinpath(sti_output, "demand$scenarioyear.csv"), demand)
+    # demand = rename!(DataFrame(demandvalues, :auto),demandnames)
+    # demand[!,:time] = x1
+    # demand = stack(demand,Not(:time))
+    # demandcopl = DataFrame(variable=demandnames, area=demandbalancenames)
+    # demand = leftjoin(demand, demandcopl, on=:variable)
+    # CSV.write(joinpath(sti_output, "demand$scenarioyear.csv"), demand)
 
-    supply = rename!(DataFrame(supplyvalues, :auto),supplynames)
-    supply[!,:time] = x1
-    supply = stack(supply,Not(:time))
-    supplycopl = DataFrame(variable=supplynames, area=supplybalancenames)
-    supply = leftjoin(supply, supplycopl, on=:variable)
-    CSV.write(joinpath(sti_output, "supply$scenarioyear.csv"), supply)
+    # supply = rename!(DataFrame(supplyvalues, :auto),supplynames)
+    # supply[!,:time] = x1
+    # supply = stack(supply,Not(:time))
+    # supplycopl = DataFrame(variable=supplynames, area=supplybalancenames)
+    # supply = leftjoin(supply, supplycopl, on=:variable)
+    # CSV.write(joinpath(sti_output, "supply$scenarioyear.csv"), supply)
 
-    hydro = rename!(DataFrame(hydrolevels, :auto),hydronames)
-    hydro[!,:time] = x2
-    CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro)
-    return
+    # hydro = rename!(DataFrame(hydrolevels, :auto),hydronames)
+    # hydro[!,:time] = x2
+    # CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro);
 end
 
 end
