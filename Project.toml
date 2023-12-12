@@ -1,4 +1,5 @@
 name = "JulES"
+uuid = "05c5cb9d-dcc3-436a-b9c7-df36424a75d6"
 repo = "https://github.com/NVE/JulES.jl.git"
 version = "0.1.0"
 

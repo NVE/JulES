@@ -1,9 +1,8 @@
-module JulesPrognose
+#module JulesPrognose
 
 using DataFrames, Statistics, JSON, Distributed, Clustering, FileIO, HDF5, CSV
 
-using TuLiPa, Dates
-#include(joinpath(dirname(pwd()),raw"TuLiPa/src/TuLiPa.jl"));
+#using TuLiPa, Dates
 include("JulES.jl");    
 
 # Get dictionary with each detailed reservoir and their water value for each scenario
@@ -531,4 +530,4 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro);
 end
 
-end
+#end
