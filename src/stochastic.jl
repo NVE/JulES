@@ -195,7 +195,7 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
         else
             subendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
             subendvaluesobj = EndValues(subendvaluesid, storages)
-            push!(sub.objects, subendvaluesobj)
+            push!(getobjects(sub), subendvaluesobj)
             subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in storages]
             updateendvalues!(sub, subendvaluesobj, subendvalues)
         end
@@ -223,11 +223,8 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
 
-        if (count == 0) && (master isa HiGHS_Prob) # implement this for other solvers
-            master.warmstart = false
-        elseif (count == 0) && is_CPLEX_Prob(master)
-            setparam!(master, "CPXPARAM_Advance", 0)
-        end
+        count == 0 && setwarmstart!(master, false)
+
         if cutreuse # try to reuse cuts from last time step
             try
                 solve!(master)
@@ -241,11 +238,8 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
         else
             solve!(master)
         end
-        if (count == 0) && (master isa HiGHS_Prob) 
-            master.warmstart = true
-        elseif (count == 0) && is_CPLEX_Prob(master)
-            setparam!(master, "CPXPARAM_Advance", 1) # TODO: What if setting is 2?
-        end
+        
+        count == 0 && setwarmstart!(master, true)
 
         lb = getvarvalue(master, getfuturecostvarid(cuts),1)
         ub = 0
@@ -293,7 +287,7 @@ end
 # Update prices in exogen prices
 function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int)
     price = prices[scenario]
-    for obj in prob.objects
+    for obj in getobjects(prob)
         if obj isa ExogenBalance
             priceix = findfirst(x -> x == split(getinstancename(getid(obj)), "PowerBalance_")[2], price["names"])
             
@@ -311,7 +305,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
 
     # Update master
-    masterstorages = getstorages(master.objects)
+    masterstorages = getstorages(getobjects(master))
     setstartstates!(master, masterstorages, startstates)
     short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
     !short && updatestochasticprices!(master, medprices, 1)
@@ -328,7 +322,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             setendstates!(sub, substorages, startstates) # set end reservoir
             updatestochasticprices!(sub, shortprices, scenario)
         else
-            subendvaluesobj = sub.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), sub.objects)]
+            subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(sub))]
             subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
             updateendvalues!(sub, subendvaluesobj, subendvalues)
             updatestochasticprices!(sub, medprices, scenario) 

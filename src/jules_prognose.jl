@@ -326,8 +326,8 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
 
     # Initialize and collect prices and start states
     price = Dict()
-    powerhorizonix = argmax(getnumperiods(h) for h in clearing.horizons)
-    getareaprices!(price, clearing, clearing.horizons[powerhorizonix], tnormal)
+    powerhorizonix = argmax(getnumperiods(h) for h in gethorizons(clearing))
+    getareaprices!(price, clearing, gethorizons(clearing)[powerhorizonix], tnormal)
     areanames = price["names"]
 
     ix = Vector{DateTime}(undef,Int(length(price["steprange"])*steps))
@@ -341,9 +341,9 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     statematrix = zeros(length(values(startstates)), Int(steps))
     statematrix[:,1] .= collect(values(startstates));
 
-    clearingobjects = Dict(zip([getid(obj) for obj in clearing.objects],clearing.objects)) # collect results from all areas
+    clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
     # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
-    resultobjects = clearing.objects # collect results for all areas
+    resultobjects = getobjects(clearing) # collect results for all areas
 
     prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
 
@@ -406,7 +406,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
         @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
         
         # Results
-        updateareaprices!(price, clearing, clearing.horizons[powerhorizonix], tnormal)
+        updateareaprices!(price, clearing, gethorizons(clearing)[powerhorizonix], tnormal)
         ix[Int(length(price["steprange"])*(stepnr-1)+1):Int(length(price["steprange"])*stepnr)] .= price["steprange"]
         pricematrix[Int(pricex*(stepnr-1)+1):Int(pricex*(stepnr)),:] .= price["matrix"]
         statematrix[:,Int(stepnr)] .= collect(values(startstates))

@@ -33,11 +33,18 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
         modelobjects[cutid] = cuts
     end
 
+    # # Make softbounds fixable
+    # for (k, v) in modelobjects
+    #     if v isa BaseSoftBound
+    #         v.fixable = true
+    #     end
+    # end
+
     # Build problem from modelobjects and optimizer
     clearing = buildprob(probmethod, modelobjects)
 
     # Set start storages
-    setstartstates!(clearing, getstorages(clearing.objects), startstates)
+    setstartstates!(clearing, getstorages(getobjects(clearing)), startstates)
 
     # Update cuts
     for cuts in cutslocal
@@ -73,7 +80,7 @@ end
 function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict)
         
     # Update startstates for all state variables, equals end state of last market clearing
-    setstartstates!(clearing, clearing.objects, startstates) # TODO: Also store actual statevariables to update more efficiently?
+    setstartstates!(clearing, getobjects(clearing), startstates) # TODO: Also store actual statevariables to update more efficiently?
 
     # Update cuts in problem
     for cuts in cutslocal
@@ -106,7 +113,7 @@ function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float6
 end
 
 function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
-    startstates_ = getstates(clearing.objects)
+    startstates_ = getstates(getobjects(clearing))
     getoutgoingstates!(clearing, startstates_)
     
     for var in keys(startstates_)
