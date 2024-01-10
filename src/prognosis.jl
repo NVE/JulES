@@ -1,6 +1,5 @@
 # Functions for making modelobjects from main elements and horizon settings
 function make_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond)
-
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = AdaptiveHorizon(clusters, unit_duration, rhsdata, method, hydroperiods, hydroperiodduration)
@@ -8,8 +7,15 @@ function make_obj(elements::Vector{DataElement}, horizonduration::Millisecond, h
     return _make_obj(elements, hydro_horizon, power_horizon)
 end
 
-function make_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int)
+function make_shrinkable_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, startafter::Millisecond, shrinkatleast::Millisecond, minperiod::Millisecond)
+    hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
+    hydro_horizon = ShrinkableHorizon(SequentialHorizon(1, startafter, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
+    power_horizon = ShrinkableHorizon(AdaptiveHorizon(clusters, unit_duration, rhsdata, method, 1, startafter, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
 
+    return _make_obj(elements, hydro_horizon, power_horizon)
+end
+
+function make_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int)
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = SequentialHorizon(hydro_horizon, powerparts)
@@ -179,12 +185,13 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
         medstorages = getstorages(getobjects(medprob))
         setstartstates!(medprob, medstorages, startstates)
         
+        update!(medprob, tphasein) # horizons needs to be updated before we can calculate endvalues
+
         longperiod = getendperiodfromduration(lhh, getduration(mhh))
         medendvalues = getinsideduals(longprob, medstorages, longperiod)
         medendvaluesobj = medprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"MedEndValue"), medprob.objects)]
         updateendvalues!(medprob, medendvaluesobj, medendvalues)
 
-        update!(medprob, tphasein)
         solve!(medprob)
 
         updateareaprices!(medprice, medprob, mph, tnormal)
@@ -236,6 +243,7 @@ function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, short
 end
 
 # Collect prices in each period for each area
+# - Only supports AdaptiveHorizons
 function getareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTime)
     price["steprange"] = getscenariosteprange(horizon, t)
     price["names"] = []
@@ -256,12 +264,23 @@ function getareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTime)
     end
 end
 
-function updateareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTime)
-    price["steprange"] = getscenariosteprange(horizon, t)
+function updateareaprices!(price::Dict, prob::Prob, horizon::Horizon, t::ProbTime) # could specify this to each case (Shrinkable, Sequential, Adaptive)
+    (nr,nc) = size(price["matrix"])
+    numconduals = -1
 
     for (i, name) in enumerate(price["names"])
         id = Id("Balance", "PowerBalance_" * name)
-        price["matrix"][:,i] = -getconduals(prob, horizon, id)
+        conduals = -getconduals(prob, horizon, id)
+        price["matrix"][(nr - length(conduals) + 1):end,i] .= conduals
+
+        if i == 1
+            numconduals = length(conduals)
+        end
+    end
+
+    # For SequentialPeriod we could check if horizonduration equals steprange duration
+    if numconduals == nr
+        price["steprange"] = getscenariosteprange(horizon, t)
     end
 end
 
@@ -280,6 +299,13 @@ function getscenariosteprange(horizon::AdaptiveHorizon, start::ProbTime)
     periodduration = horizon.unit_duration
     return StepRange(scenariostart, periodduration, scenariostop)
 end
+
+getscenariosteprange(horizon::ShrinkableHorizon, start::ProbTime) = getshrinkablescenariosteprange(horizon.subhorizon, start)
+
+getshrinkablescenariosteprange(horizon::Horizon, start::ProbTime) = error("Not supported")
+# Could make steprange for SequentialPeriod based on minperiod
+getshrinkablescenariosteprange(horizon::AdaptiveHorizon, start::ProbTime) = getscenariosteprange(horizon, start)
+
 
 # Collect dual values for a modelobject id for all periods - TODO: Move to TuLiPa
 getconduals(prob::Prob, horizon::SequentialHorizon, id::Id) = [getcondual(prob, id, s) for s in 1:getnumperiods(horizon)]
@@ -303,3 +329,9 @@ function getconduals(prob::Prob, horizon::AdaptiveHorizon, id::Id)
     sort!(points)
     return [p[2] for p in points]
 end
+
+getconduals(prob::Prob, horizon::ShrinkableHorizon, id::Id) = getshrinkableconduals(prob, horizon.subhorizon, id)
+
+getshrinkableconduals(prob::Prob, horizon::Horizon, id::Id) = error("Horizon not supported") 
+# Could split conduals for SequentialHorizon into minperiod
+getshrinkableconduals(prob::Prob, horizon::AdaptiveHorizon, id::Id) = getconduals(prob, horizon, id)

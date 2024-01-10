@@ -56,7 +56,7 @@ end
 function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
 
     sti_dataset = joinpath(prognoser_path, "Uke_$(weekstart)")
-    sti_output = joinpath(sti_dataset, "output")
+    sti_output = joinpath(sti_dataset, "output2")
     mkpath(sti_output)
 
 
@@ -97,7 +97,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     # Set horizons for price prognosis models
     # Long
     longhorizonduration = Millisecond(Week(5*52))
-    longhydroperiodduration = Millisecond(Week(6))
+    longhydroperiodduration = Millisecond(Day(5*8))
     longrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND")) # TODO: If dynamic use tphasein
     longmethod = KMeansAHMethod()
     longclusters = 4
@@ -109,8 +109,8 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     addPowerUpperSlack!(longobjects)
 
     # Medium
-    medhorizonduration = Millisecond(Week(54))
-    medhydroperiodduration = Millisecond(Day(7)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
+    medhorizonduration = Millisecond(Day(50*8))
+    medhydroperiodduration = Millisecond(Day(8)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
     medrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND"))
     medmethod = KMeansAHMethod()
     medclusters = 4
@@ -122,7 +122,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     addPowerUpperSlack!(medobjects)
 
     # Short
-    shorthorizonduration = Millisecond(Week(1))
+    shorthorizonduration = Millisecond(Day(8))
     shorthydroperiodduration = Millisecond(Day(1)); @assert medhorizonduration.value % shorthorizonduration.value == 0
     shortpowerparts = 8
     shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
@@ -162,34 +162,6 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
 
     # Initialize price prognosis models and run for first time step. Run scenarios in parallell
     @time pl_prognosis_init!(probmethodsprognosis, probs, objects, horizons, proginput, progoutput)
-
-    #=
-    scenario = 1
-    index = collect(medprices[scenario]["steprange"])
-    prices = medprices[scenario]["matrix"]
-    labels = [name for name in medprices[scenario]["names"]]
-    p = plot(index,prices*100,label=reshape(labels, 1, length(labels)),legend=:outertopright)
-
-    for scenario in 2:5 # length(allscenarios)
-        prices = medprices[scenario]["matrix"]
-        labels = [name for name in medprices[scenario]["names"]]
-        plot!(p,index,prices*100,label=reshape(labels, 1, length(labels)),legend=:outertopright)
-    end
-    display(p)
-
-    scenario = 1
-    index = collect(shortprices[scenario]["steprange"])
-    prices = shortprices[scenario]["matrix"]
-    labels = [name for name in shortprices[scenario]["names"]]
-    p = plot(index,prices,label=reshape(labels, 1, length(labels)), ylabel="€/MWh",legend=:outertopright)
-
-    for scenario in 2:5 # length(allscenarios)
-        prices = shortprices[scenario]["matrix"]
-        labels = [name for name in shortprices[scenario]["names"]]
-        plot!(p, index, prices*100 ,label=reshape(labels, 1, length(labels)),legend=:outertopright)
-    end
-    display(p)
-    =#
 
    
     addscenariotimeperiod_vector!(detailedelements, scenarioyearstart, scenarioyearstop);
@@ -257,10 +229,10 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     sspdh = Millisecond(Hour(3)) # both master and subproblems for PHS and batteries has 2 hour resolution
     mmpdp = Millisecond(Hour(24))
     mmpdh = Millisecond(Hour(24)) # daily resolution in hydro master problems
-    mspdp = Millisecond(Hour(168))
-    mspdh = Millisecond(Hour(168)) # weekly resolution in hydro subproblems
+    mspdp = Millisecond(Day(8))
+    mspdh = Millisecond(Day(8)) # 8-day resolution in hydro subproblems
     shorttotalduration = shorthorizonduration # total duration of master and subproblem
-    medtotalduration = medhorizonduration - Millisecond(Week(2)) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
+    medtotalduration = medhorizonduration - Millisecond(Day(16)) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
 
     # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
     @assert ceil(Int64, phaseinoffset/smpdp) == ceil(Int64, phaseinoffset/smpdh)
