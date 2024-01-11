@@ -56,7 +56,7 @@ end
 function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
 
     sti_dataset = joinpath(prognoser_path, "Uke_$(weekstart)")
-    sti_output = joinpath(sti_dataset, "output2")
+    sti_output = joinpath(sti_dataset, "output_updatehorizon")
     mkpath(sti_output)
 
 
@@ -95,6 +95,9 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop);
 
     # Set horizons for price prognosis models
+    # All
+    shorthorizonduration = Millisecond(Day(8))
+
     # Long
     longhorizonduration = Millisecond(Week(5*52))
     longhydroperiodduration = Millisecond(Day(5*8))
@@ -102,9 +105,12 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     longmethod = KMeansAHMethod()
     longclusters = 4
     longunitduration = Millisecond(Hour(6))
-    longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
+    longstartafter = shorthorizonduration
+    longshrinkatleast = longhydroperiodduration - phaseinoffset
+    longminperiod = phaseinoffset
+    longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod)
 
-    longobjects, lhh, lph = make_obj(elements, longhorizon...)
+    longobjects, lhh, lph = make_shrinkable_obj(elements, longhorizon...)
     simplify!(longobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
     addPowerUpperSlack!(longobjects)
 
@@ -115,14 +121,16 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     medmethod = KMeansAHMethod()
     medclusters = 4
     medunitduration = Millisecond(Hour(4))
-    medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
+    medstartafter = shorthorizonduration
+    medshrinkatleast = longhydroperiodduration - phaseinoffset
+    medminperiod = phaseinoffset
+    medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod)
 
-    medobjects, mhh, mph = make_obj(elements, medhorizon...)
+    medobjects, mhh, mph = make_shrinkable_obj(elements, medhorizon...)
     simplify!(medobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
     addPowerUpperSlack!(medobjects)
 
     # Short
-    shorthorizonduration = Millisecond(Day(8))
     shorthydroperiodduration = Millisecond(Day(1)); @assert medhorizonduration.value % shorthorizonduration.value == 0
     shortpowerparts = 8
     shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
@@ -320,7 +328,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
 
     # Only do scenario modelling and calculate new cuts every 8 days (other reuse scenarios and cuts)
-    skipmed = Millisecond(Day(6))
+    skipmed = Millisecond(Day(0))
     skipmax = Millisecond(Day(6))
 
     stepnr = 2; # already ran first step in initialization

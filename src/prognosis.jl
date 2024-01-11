@@ -185,7 +185,7 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
         medstorages = getstorages(getobjects(medprob))
         setstartstates!(medprob, medstorages, startstates)
         
-        update!(medprob, tphasein) # horizons needs to be updated before we can calculate endvalues
+        update!(medprob, tphasein) # horizons needs to be updated before we can calculate longperiod
 
         longperiod = getendperiodfromduration(lhh, getduration(mhh))
         medendvalues = getinsideduals(longprob, medstorages, longperiod)
