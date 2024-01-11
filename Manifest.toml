@@ -1270,7 +1270,7 @@ weakdeps = ["Random", "Test"]
 
 [[deps.TuLiPa]]
 deps = ["CSV", "Clustering", "DataFrames", "Dates", "Distributed", "DistributedArrays", "Distributions", "HiGHS", "IJulia", "Interpolations", "JSON", "JuMP", "PlotlyJS", "Plots", "Random", "Statistics", "Test"]
-git-tree-sha1 = "99e3f99cedd7a89de90093d12df06b3794954ed1"
+git-tree-sha1 = "5b5fe1046b675a170b05eeae969ec7551414b990"
 repo-rev = "master"
 repo-url = "https://github.com/NVE/TuLiPa.git"
 uuid = "970f5c25-cd7d-4f04-b50d-7a4fe2af6639"

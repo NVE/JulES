@@ -56,7 +56,7 @@ end
 function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
 
     sti_dataset = joinpath(prognoser_path, "Uke_$(weekstart)")
-    sti_output = joinpath(sti_dataset, "output")
+    sti_output = joinpath(sti_dataset, "output_basis")
     mkpath(sti_output)
 
 
@@ -348,7 +348,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
 
     # Only do scenario modelling and calculate new cuts every 8 days (other reuse scenarios and cuts)
-    skipmed = Millisecond(Day(6))
+    skipmed = Millisecond(Day(0))
     skipmax = Millisecond(Day(6))
 
     stepnr = 2; # already ran first step in initialization
