@@ -155,7 +155,7 @@ function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DA
 end
 
 # Run price prognosis model for a specific scenario
-function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Dict, shortprice::Dict, nonstoragestates::Dict{StateVariableInfo, Float64}, startstates::Dict, tnormal::ProbTime, tphasein::ProbTime, skipmed::Millisecond)
+function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Dict, shortprice::Dict, nonstoragestates::Dict{StateVariableInfo, Float64}, startstates::Dict, tnormal::ProbTime, tphasein::ProbTime, skipmed::Millisecond, prognosistimes::Array, step::Int)
 
     # Collect hydro and power horizons for each problem
     mh = medprob.horizons
@@ -174,103 +174,34 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
 
     # Skipmed inidcates if we reuse water values for this time step, and therefore does not have to run the long and medium problems
     if skipmed.value == 0
-        longstorages = getstorages(getobjects(longprob))
-        
-        setstartstates!(longprob, longstorages, startstates)
-        setendstates!(longprob, longstorages, startstates)
-        
-        update!(longprob, tnormal)
-        solve!(longprob)
-        
-        medstorages = getstorages(getobjects(medprob))
-        setstartstates!(medprob, medstorages, startstates)
-        
-        update!(medprob, tphasein) # horizons needs to be updated before we can calculate longperiod
-
-        longperiod = getendperiodfromduration(lhh, getduration(mhh))
-        medendvalues = getinsideduals(longprob, medstorages, longperiod)
-        medendvaluesobj = medprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"MedEndValue"), medprob.objects)]
-        updateendvalues!(medprob, medendvaluesobj, medendvalues)
-
-        solve!(medprob)
-
-        updateareaprices!(medprice, medprob, mph, tnormal)
-    end
-    
-    shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
-    allstorages = getstorages(getobjects(shortprob))
-    longtermstorages = setdiff(allstorages, shorttermstorages)
-    nonstorageobjects = getnonstorageobjects(getobjects(shortprob))
-    
-    setstartstates!(shortprob, allstorages, startstates)
-    setendstates!(shortprob, shorttermstorages, startstates)
-    setstartstates!(shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
-    
-    medperiod = getendperiodfromduration(mhh, getduration(shh))
-    shortendvalues = getinsideduals(medprob, longtermstorages, medperiod)
-    shortendvaluesobj = shortprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"ShortEndValue"), shortprob.objects)]
-    updateendvalues!(shortprob, shortendvaluesobj, shortendvalues)
-
-    update!(shortprob, tphasein)
-    solve!(shortprob)
-
-    getoutgoingstates!(shortprob, nonstoragestates)
-
-    updateareaprices!(shortprice, shortprob, sph, tnormal)
-end
-
-# Run price prognosis model for a specific scenario
-function timeprognosis!(solvetimes, prognosistimes, longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Dict, shortprice::Dict, nonstoragestates::Dict{StateVariableInfo, Float64}, startstates::Dict, tnormal::ProbTime, tphasein::ProbTime, skipmed::Millisecond)
-
-    # Collect hydro and power horizons for each problem
-    mh = medprob.horizons
-    mhp = [getnumperiods(h) for h in mh]
-    sh = shortprob.horizons
-    shp = [getnumperiods(h) for h in sh]
-    if skipmed.value == 0
-        lh = longprob.horizons
-        lhp = [getnumperiods(h) for h in lh]
-        lhh = lh[argmin(lhp)]
-        mph = mh[argmax(mhp)]
-    end
-    mhh = mh[argmin(mhp)]
-    sph = sh[argmax(shp)]
-    shh = sh[argmin(shp)]
-
-    # Skipmed inidcates if we reuse water values for this time step, and therefore does not have to run the long and medium problems
-    if skipmed.value == 0
-        newprognosistime1 = @elapsed begin
+        prognosistimes[step, 3, 1] = @elapsed begin
             longstorages = getstorages(getobjects(longprob))
             
             setstartstates!(longprob, longstorages, startstates)
             setendstates!(longprob, longstorages, startstates)
             
-            update!(longprob, tnormal)
-            solvetimes[1] += @elapsed solve!(longprob)
+            prognosistimes[step, 1, 1] = @elapsed update!(longprob, tnormal)
+            prognosistimes[step, 2, 1] = @elapsed solve!(longprob)
         end
 
-        newprognosistime2 = @elapsed begin
+        prognosistimes[step, 3, 2] = @elapsed begin
             medstorages = getstorages(getobjects(medprob))
             setstartstates!(medprob, medstorages, startstates)
             
-            update!(medprob, tphasein) # horizons needs to be updated before we can calculate longperiod
+            prognosistimes[step, 1, 2] = @elapsed update!(medprob, tphasein) # horizons needs to be updated before we can calculate longperiod
 
             longperiod = getendperiodfromduration(lhh, getduration(mhh))
             medendvalues = getinsideduals(longprob, medstorages, longperiod)
             medendvaluesobj = medprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"MedEndValue"), medprob.objects)]
             updateendvalues!(medprob, medendvaluesobj, medendvalues)
 
-            solvetimes[2] += @elapsed solve!(medprob)
+            prognosistimes[step, 2, 2] = @elapsed solve!(medprob)
 
             updateareaprices!(medprice, medprob, mph, tnormal)
         end
-        prognosistimes[1] += newprognosistime1
-        # println(newprognosistime1)
-        prognosistimes[2] += newprognosistime2
-        # println(newprognosistime2)
     end
     
-    newprognosistime3 = @elapsed begin
+    prognosistimes[step, 3, 3] = @elapsed begin
         shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
         allstorages = getstorages(getobjects(shortprob))
         longtermstorages = setdiff(allstorages, shorttermstorages)
@@ -285,45 +216,19 @@ function timeprognosis!(solvetimes, prognosistimes, longprob::Prob, medprob::Pro
         shortendvaluesobj = shortprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"ShortEndValue"), shortprob.objects)]
         updateendvalues!(shortprob, shortendvaluesobj, shortendvalues)
 
-        update!(shortprob, tphasein)
-        solvetimes[3] += @elapsed solve!(shortprob)
+        prognosistimes[step, 1, 3] = @elapsed update!(shortprob, tphasein)
+        prognosistimes[step, 2, 3] = @elapsed solve!(shortprob)
 
         getoutgoingstates!(shortprob, nonstoragestates)
 
         updateareaprices!(shortprice, shortprob, sph, tnormal)
     end
-    prognosistimes[3] += newprognosistime3
-    # println(newprognosistime2)
 end
 
 # Run price prognosis models in parallel
-function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, scenarios::DArray, skipmed::Millisecond)
-    
-    @sync @distributed for core in 1:max(numcores-1,1)
-        scenario = localpart(scenarios)
-        longprob = localpart(longprobs)
-        medprob = localpart(medprobs)
-        shortprob = localpart(shortprobs)
-        medprice = localpart(medprices)
-        shortprice = localpart(shortprices)
-        nonstoragestate = localpart(nonstoragestates)
-
-        localix = 0
-        for range in localindices(longprobs)
-            for ix in range
-                localix += 1
-                (tnormal, tphasein, scen) = scenario[localix]
-                prognosis!(longprob[localix], medprob[localix], shortprob[localix], medprice[localix], shortprice[localix], nonstoragestate[localix], startstates, tnormal, tphasein, skipmed)
-            end
-        end
-    end
-end
-
-# Run price prognosis models in parallel
-function timepl_prognosis!(solvetimes, prognosistimes, step, numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, scenarios::DArray, skipmed::Millisecond)
+function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, scenarios::DArray, skipmed::Millisecond, prognosistimes::DArray, step::Int)
     
     @sync @distributed for core in 1:(numcores-1)
-        solvetime = localpart(solvetimes)
         prognosistime = localpart(prognosistimes)
         scenario = localpart(scenarios)
         longprob = localpart(longprobs)
@@ -338,7 +243,7 @@ function timepl_prognosis!(solvetimes, prognosistimes, step, numcores::Int, long
             for ix in range
                 localix += 1
                 (tnormal, tphasein, scen) = scenario[localix]
-                timeprognosis!(solvetime[localix], prognosistime[localix], longprob[localix], medprob[localix], shortprob[localix], medprice[localix], shortprice[localix], nonstoragestate[localix], startstates, tnormal, tphasein, skipmed)
+                prognosis!(longprob[localix], medprob[localix], shortprob[localix], medprice[localix], shortprice[localix], nonstoragestate[localix], startstates, tnormal, tphasein, skipmed, prognosistime[localix], step)
             end
         end
     end
