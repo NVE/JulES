@@ -155,7 +155,7 @@ function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DA
 end
 
 # Run price prognosis model for a specific scenario
-function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Dict, shortprice::Dict, nonstoragestates::Dict{StateVariableInfo, Float64}, startstates::Dict, tnormal::ProbTime, tphasein::ProbTime, skipmed::Millisecond, prognosistimes::Array, step::Int)
+function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Dict, shortprice::Dict, nonstoragestates::Dict{StateVariableInfo, Float64}, startstates::Dict, tnormal::ProbTime, tphasein::ProbTime, skipmed::Millisecond, prognosistimes::Array{Float64, 3}, step::Int)
 
     # Collect hydro and power horizons for each problem
     mh = medprob.horizons
