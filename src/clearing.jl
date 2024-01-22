@@ -77,7 +77,7 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 end
 
 # Run market clearing for new time step
-function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict, clearingtimes::Array, step::Int)
+function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict, clearingtimes::Matrix{Float64}, step::Int)
     clearingtimes[step, 3] = @elapsed begin
         # Update startstates for all state variables, equals end state of last market clearing
         setstartstates!(clearing, getobjects(clearing), startstates) # TODO: Also store actual statevariables to update more efficiently?
