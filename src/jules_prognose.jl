@@ -56,7 +56,7 @@ end
 function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
 
     sti_dataset = joinpath(prognoser_path, "Uke_$(weekstart)")
-    sti_output = joinpath(sti_dataset, "output_updatehorizon")
+    sti_output = joinpath(sti_dataset, "output_shrinkableboth")
     mkpath(sti_output)
 
 
@@ -100,7 +100,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
 
     # Long
     longhorizonduration = Millisecond(Week(5*52))
-    longhydroperiodduration = Millisecond(Day(5*8))
+    longhydroperiodduration = Millisecond(Day(7*8))
     longrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND")) # TODO: If dynamic use tphasein
     longmethod = KMeansAHMethod()
     longclusters = 4
@@ -108,14 +108,17 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     longstartafter = shorthorizonduration
     longshrinkatleast = longhydroperiodduration - phaseinoffset
     longminperiod = phaseinoffset
-    longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod)
 
+    # longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
+    # longobjects, lhh, lph = make_obj(elements, longhorizon...)
+    longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod)
     longobjects, lhh, lph = make_shrinkable_obj(elements, longhorizon...)
+
     simplify!(longobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
     addPowerUpperSlack!(longobjects)
 
     # Medium
-    medhorizonduration = Millisecond(Day(50*8))
+    medhorizonduration = Millisecond(Day(56*7))
     medhydroperiodduration = Millisecond(Day(8)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
     medrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND"))
     medmethod = KMeansAHMethod()
@@ -124,9 +127,12 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     medstartafter = shorthorizonduration
     medshrinkatleast = longhydroperiodduration - phaseinoffset
     medminperiod = phaseinoffset
-    medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod)
 
+    # medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
+    # medobjects, mhh, mph = make_obj(elements, medhorizon...)
+    medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod)
     medobjects, mhh, mph = make_shrinkable_obj(elements, medhorizon...)
+
     simplify!(medobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
     addPowerUpperSlack!(medobjects)
 
@@ -327,6 +333,11 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
 
     prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
 
+    # Time problems
+    prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(allscenarios)], allscenarios) # update, solve, total per step for long, med, short
+    stochastictimes = distribute([zeros(steps-1, 7) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
+    clearingtimes = zeros(steps-1, 3); # update, solve, total
+
     # Only do scenario modelling and calculate new cuts every 8 days (other reuse scenarios and cuts)
     skipmed = Millisecond(Day(0))
     skipmax = Millisecond(Day(6))
@@ -356,7 +367,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
 
         # Deterministic long/mid/short - calculate scenarioprices for all 30 scenarios
         allscenarios = distribute(totalscentimes, allscenarios) # TODO: Find better solution
-        @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, allscenarios, skipmed)
+        @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, allscenarios, skipmed, prognosistimes, stepnr-1)
 
         # Stochastic sub systems - calculate storage value    
         if skipmed.value == 0
@@ -376,14 +387,14 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
         end
         shortpriceslocal = convert(Vector{Dict}, shortprices)
 
-        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, scenmodmethod.scentimes, skipmed)
+        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, scenmodmethod.scentimes, skipmed, stochastictimes, stepnr-1)
 
         # Market clearing
         masterslocal = convert(Vector{Prob}, masters)
         cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
         nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
 
-        @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod)
+        @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr-1)
         
         # Results
         updateareaprices!(price, clearing, gethorizons(clearing)[powerhorizonix], tnormal)
@@ -397,8 +408,62 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
         stepnr += 1
     end
 
+    # Total time use and per step
     println(string("The simulation took: ", totaltime/60, " minutes"))
     println(string("Time usage per timestep: ", totaltime/steps, " seconds"))
+
+    # Prognosis and clearing times
+    clearingtimes1 = mean(clearingtimes, dims=1)
+
+    skipfactor = (skipmax+Millisecond(phaseinoffset))/Millisecond(phaseinoffset)
+    factors = [skipfactor,skipfactor,1]
+    dims = size(prognosistimes[1])
+    dims = (dims..., length(prognosistimes))
+    prognosistimes1 = reshape(cat(prognosistimes..., dims=4), dims)
+    prognosistimes2 = transpose(dropdims(mean(prognosistimes1,dims=(1,4)),dims=(1,4))).*factors
+    progclear = vcat(prognosistimes2, mean(clearingtimes, dims=1))
+    df = DataFrame(model=["long","med","short","clearing"], update=progclear[:,1], solve=progclear[:,2], total=progclear[:,3])
+    df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
+    display(df[!, [1, 2, 3, 5, 4]])
+
+    # Stochastic times
+    core_dists = distribute([0 for i in 1:length(storagesystemobjects)], storagesystemobjects)
+    @sync @distributed for core in 1:max(numcores-1,1)
+        core_dist = localpart(core_dists)
+
+        localix = 0
+        for range in localindices(core_dists)
+            for ix in range
+                localix += 1
+                core_dist[localix] = myid()
+            end
+        end
+    end
+
+    dims = size(stochastictimes[1])
+    dims = (dims..., length(stochastictimes))
+    st1 = reshape(cat(stochastictimes..., dims=4), dims)
+    st2 = transpose(dropdims(mean(st1, dims=1), dims=1))
+    df = DataFrame(umaster=st2[:,1], usub=st2[:,2], conv=st2[:,3], count=st2[:,4], smaster=st2[:,5], ssub=st2[:,6], total=st2[:,7], short=ushorts, core=core_dists)
+    df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :total]] .= df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :total]] .* skipfactor
+    dfsort = sort(df, :total, rev=true)
+    display(dfsort)
+    # display(plot(dfsort[!, :total]))
+
+    df1 = combine(groupby(df, :core), 
+                :umaster => sum, 
+                :usub => sum, 
+                :conv => sum, 
+                :count => sum, 
+                :smaster => sum, 
+                :ssub => sum, 
+                :total => sum)
+    dfsort = sort(df1, :total_sum, rev=true)
+    display(dfsort)
+    # display(plot(dfsort[!, :total_sum]))
+    display(mean.(eachcol(select(df1, Not(:core)))))
+
+
 
     # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)
     rhstermtotals = dropdims(sum(rhstermvalues,dims=1),dims=1)
@@ -473,6 +538,10 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     data["demandvalues"] = demandvalues
     data["demandnames"] = demandnames
     data["demandbalancenames"] = demandbalancenames
+
+    data["prognosistimes"] = prognosistimes1
+    data["stochastictimes"] = st1
+    data["clearingtimes"] = clearingtimes
 
     @time h5open(joinpath(sti_output, "$modelname.h5"), "w") do file
         for (k,v) in data
