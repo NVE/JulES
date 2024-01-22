@@ -1,5 +1,5 @@
 # Make modelobjects for stochastic subsystems, group into subsystems
-function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool)
+function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool, validate::Bool)
     # Add horizons to elements
     battery_horizon = SequentialHorizon(ceil(Int64, problemduration/pdp), pdp; offset) # TODO: Quickfix
     hydro_horizon = SequentialHorizon(ceil(Int64, problemduration/pdh), pdh; offset)
@@ -22,16 +22,18 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
             ("Vector", price["matrix"][:, i])))
         push!(elements, getelement(TIMEVECTOR_CONCEPT, "MutableInfiniteTimeVector", "ProfilePrice_" * area,
             (TIMEINDEX_CONCEPT, "ShortTermTimeIndex"), (TIMEVALUES_CONCEPT, "ValuesPrice_" * area)))
-        push!(elements, getelement(PARAM_CONCEPT, "MeanSeriesIgnorePhaseinParam", "Price_" * area,
+        push!(elements, getelement(PARAM_CONCEPT, "MeanSeriesIgnorePhaseinParam", "SeriesPrice_" * area,
             ("Level", 1.0),
             ("Profile", "ProfilePrice_" * area)))
+        push!(elements, getelement(PARAM_CONCEPT, "StatefulParam", "Price_" * area,
+            (PARAM_CONCEPT, "SeriesPrice_" * area)))
         push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", "PowerBalance_" * area, 
             (COMMODITY_CONCEPT, "Power"),
             (PRICE_CONCEPT, "Price_" * area)))
     end
 
     # Make modelobjets from elements and group into subsystems
-    modelobjects = getmodelobjects(elements)
+    modelobjects = getmodelobjects(elements, validate=validate)
     if short
         if master # removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
             for id in keys(modelobjects)
@@ -59,12 +61,13 @@ end
 function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Vector{Dict}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
-    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+    # Only validate dataelements once
+    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
     for (tnormal, tphasein, scenario) in scenarios
         offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
-        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false)
+        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false, false)
         push!(subscenarioobjects, subobject)
     end
 
@@ -203,7 +206,7 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
 
     ub = 0
     cutreuse = false
-    iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+    count, mastertime, subtime = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
 
     # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
     # HiGHS API cannot be used when master is moved to local process.
@@ -220,23 +223,27 @@ end
 # Iterate until convergence between master and subproblems
 function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts, cutparameters::Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}, states::Dict{StateVariableInfo, Float64}, cutreuse::Bool, lb::Float64, ub::Int, reltol::Float64)
     count = 0
+    mastertime = 0
+    subtime = 0
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
 
         count == 0 && setwarmstart!(master, false)
 
-        if cutreuse # try to reuse cuts from last time step
-            try
+        mastertime += @elapsed begin
+            if cutreuse # try to reuse cuts from last time step
+                try
+                    solve!(master)
+                catch
+                    count == 0 && println("Retrying first iteration without cuts from last time step")
+                    count > 0 && println("Restarting iterations without cuts from last time step")
+                    clearcuts!(master, cuts)
+                    solve!(master)
+                    cutreuse = false
+                end
+            else
                 solve!(master)
-            catch
-                count == 0 && println("Retrying first iteration without cuts from last time step")
-                count > 0 && println("Restarting iterations without cuts from last time step")
-                clearcuts!(master, cuts)
-                solve!(master)
-                cutreuse = false
             end
-        else
-            solve!(master)
         end
         
         count == 0 && setwarmstart!(master, true)
@@ -248,7 +255,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 
             transferboundarystates!(master, sub, states)
             
-            solve!(sub)
+            subtime += @elapsed solve!(sub)
 
             ub += getobjectivevalue(sub)*cuts.probabilities[i]
             cutparameters[i] = getcutparameters(sub, states)
@@ -261,6 +268,8 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 #             display(abs((lb-ub)/lb))
 #             display(cuts.slopes)
     end
+    
+    return count, mastertime, subtime
 end
 
 # Initialize stochastic subsystem problems in parallel
@@ -291,64 +300,69 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
         if obj isa ExogenBalance
             priceix = findfirst(x -> x == split(getinstancename(getid(obj)), "PowerBalance_")[2], price["names"])
             
-
-            obj.price.param.profile.index = price["steprange"] # TODO: API function in TuLiPa
-            obj.price.param.profile.values .= price["matrix"][:, priceix]
+            obj.price.param.param.profile.index = price["steprange"] # TODO: API function in TuLiPa
+            obj.price.param.param.profile.values .= price["matrix"][:, priceix]
         end
     end
 end
 
 # Run stochastic subsystem problem
-function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}})
-        
-    # Init cutparameters
-    cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}}, stochastictimes::Matrix{Float64}, stepnr::Int)
+    stochastictimes[stepnr, 7] = @elapsed begin   
+        # Init cutparameters
+        cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
 
-    # Update master
-    masterstorages = getstorages(getobjects(master))
-    setstartstates!(master, masterstorages, startstates)
-    short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
-    !short && updatestochasticprices!(master, medprices, 1)
+        # Update master
+        masterstorages = getstorages(getobjects(master))
+        setstartstates!(master, masterstorages, startstates)
+        short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+        !short && updatestochasticprices!(master, medprices, 1)
 
-    (tnormalmaster, tphaseinmaster) = scenarios[1] # tphasein is the same for all scenarios before phasein
-    update!(master, tphaseinmaster)
+        (tnormalmaster, tphaseinmaster) = scenarios[1] # tphasein is the same for all scenarios before phasein
+        stochastictimes[stepnr, 1] = @elapsed update!(master, tphaseinmaster)
 
-    # Update subs
-    for (i,sub) in enumerate(subs)
-        (tnormalsub, tphaseinsub, scenario) = scenarios[i]
-        substorages = getstorages(getobjects(sub))
-        
-        if short
-            setendstates!(sub, substorages, startstates) # set end reservoir
-            updatestochasticprices!(sub, shortprices, scenario)
-        else
-            subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(sub))]
-            subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
-            updateendvalues!(sub, subendvaluesobj, subendvalues)
-            updatestochasticprices!(sub, medprices, scenario) 
+        # Update subs
+        for (i,sub) in enumerate(subs)
+            (tnormalsub, tphaseinsub, scenario) = scenarios[i]
+            substorages = getstorages(getobjects(sub))
+            
+            if short
+                setendstates!(sub, substorages, startstates) # set end reservoir
+                updatestochasticprices!(sub, shortprices, scenario)
+            else
+                subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(sub))]
+                subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
+                updateendvalues!(sub, subendvaluesobj, subendvalues)
+                updatestochasticprices!(sub, medprices, scenario) 
+            end
+            
+            stochastictimes[stepnr, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
         end
-        
-        update!(sub, tnormalsub) # update parameters given problem start time of scenario
-    end
 
-    lb = cuts.lower_bound
-    ub = 0
-    cutreuse = true
-    iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+        lb = cuts.lower_bound
+        ub = 0
+        cutreuse = true
+        stochastictimes[stepnr, 3] = @elapsed begin
+            (count, mastertime, subtime) = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+        end
+        stochastictimes[stepnr, 4] = count
+        stochastictimes[stepnr, 5] = mastertime
+        stochastictimes[stepnr, 6] = subtime
 
-    # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
-    # HiGHS API cannot be used when master is moved to local process.
-    # We use the dual values of the master problem to calculate the headloss costs
-    # Possible TODO
-    if master isa HiGHS_Prob || is_CPLEX_Prob(master)
-        setconduals!(master)
-        master.iscondualsupdated = true
+        # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
+        # HiGHS API cannot be used when master is moved to local process.
+        # We use the dual values of the master problem to calculate the headloss costs
+        # Possible TODO
+        if master isa HiGHS_Prob || is_CPLEX_Prob(master)
+            setconduals!(master)
+            master.iscondualsupdated = true
+        end
     end
 end
 
-# Run stochastic subsystem problems in parallel
-function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}}, skipmed::Millisecond)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}}, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int)
     @sync @distributed for core in 1:max(numcores-1,1)
+        stochastictime = localpart(stochastictimes)
         masters = localpart(masters_)
         subs = localpart(subs_)
         states = localpart(states_)
@@ -360,7 +374,7 @@ function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_:
             for ix in range
                 localix += 1
                 if !(!short[localix] && (skipmed.value > 0))
-                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, scenarios)
+                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, scenarios, stochastictime[localix], stepnr)
                 end
             end
         end
