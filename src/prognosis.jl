@@ -228,7 +228,7 @@ end
 # Run price prognosis models in parallel
 function pl_prognosis!(numcores::Int, longprobs::DArray, medprobs::DArray, shortprobs::DArray, medprices::DArray, shortprices::DArray, nonstoragestates::DArray, startstates::Dict, scenarios::DArray, skipmed::Millisecond, prognosistimes::DArray, step::Int)
     
-    @sync @distributed for core in 1:(numcores-1)
+    @sync @distributed for core in 1:max(numcores-1,1)
         prognosistime = localpart(prognosistimes)
         scenario = localpart(scenarios)
         longprob = localpart(longprobs)
