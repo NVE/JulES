@@ -53,7 +53,7 @@ function get_data(prognoser_path, scenarioyear, weekstart)
     return elements, startstates, detailedrescopl, startmagdict_json, detailedelements
 end
 
-function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
+function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, scenarioyear; simulationyears = 0, steps = 0)
 
     println("Time parameters")
     @time begin
@@ -91,7 +91,7 @@ function run(numcores, prognoser_path, datayearstart, weekstart, scenarioyear; s
     println("Get data")
     @time begin
         sti_dataset = joinpath(prognoser_path, "Uke_$(weekstart)")
-        sti_output = joinpath(sti_dataset, "output_shrinkableboth")
+        sti_output = joinpath(sti_dataset, outputfolder)
         mkpath(sti_output)
 
         elements, startstates, detailedrescopl, startmagdict_json, detailedelements = get_data(prognoser_path, scenarioyear, weekstart)
