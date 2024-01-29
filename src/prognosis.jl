@@ -1,37 +1,40 @@
 # Functions for making modelobjects from main elements and horizon settings
-function make_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond)
+function make_horizons(horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond)
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = AdaptiveHorizon(clusters, unit_duration, rhsdata, method, hydroperiods, hydroperiodduration)
 
-    return _make_obj(elements, hydro_horizon, power_horizon)
+    return (hydro_horizon, power_horizon)
 end
 
-function make_shrinkable_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, startafter::Millisecond, shrinkatleast::Millisecond, minperiod::Millisecond)
+function make_horizons(horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, startafter::Millisecond, shrinkatleast::Millisecond, minperiod::Millisecond)
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = ShrinkableHorizon(SequentialHorizon(1, startafter, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
     power_horizon = ShrinkableHorizon(AdaptiveHorizon(clusters, unit_duration, rhsdata, method, 1, startafter, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
 
-    return _make_obj(elements, hydro_horizon, power_horizon)
+    return (hydro_horizon, power_horizon)
 end
 
-function make_obj(elements::Vector{DataElement}, horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int)
+function make_horizons(horizonduration::Millisecond, hydroperiodduration::Millisecond, powerparts::Int)
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
     hydro_horizon = SequentialHorizon(hydroperiods, hydroperiodduration)
     power_horizon = SequentialHorizon(hydro_horizon, powerparts)
 
-    return _make_obj(elements, hydro_horizon, power_horizon)
+    return (hydro_horizon, power_horizon)
 end
 
-function _make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon)
+function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon; validate::Bool=true)
     elements1 = copy(elements)
-    set_horizon!(elements1, "Power", power_horizon)
-    set_horizon!(elements1, "Battery", power_horizon)
-    set_horizon!(elements1, "Hydro", hydro_horizon)
+    power_horizon1 = deepcopy(power_horizon)
+    hydro_horizon1 = deepcopy(hydro_horizon)
 
-    modelobjects = getmodelobjects(elements1)
+    set_horizon!(elements1, "Power", power_horizon1)
+    set_horizon!(elements1, "Battery", power_horizon1)
+    set_horizon!(elements1, "Hydro", hydro_horizon1)
 
-    return modelobjects, hydro_horizon, power_horizon
+    modelobjects = getmodelobjects(elements1; validate=validate)
+
+    return (modelobjects, hydro_horizon1, power_horizon1)
 end
 
 # Simplify modelobjects
@@ -61,11 +64,14 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
 end
 
 # Initialize price prognosis problems for specific scenario
-function prognosis_init!(probmethods::Vector, objects::Tuple, horizons::Tuple, startstates::Dict{String, Float64}, tnormal::ProbTime, tphasein::ProbTime, phaseinoffset::Millisecond, medprice::Dict, shortprice::Dict)
-    (longobjects, medobjects, shortobjects) = objects
+function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, horizons::Tuple, startstates::Dict{String, Float64}, tnormal::ProbTime, tphasein::ProbTime, phaseinoffset::Millisecond, medprice::Dict, shortprice::Dict, simplifyinputs::Tuple)
     (lhh, lph, mhh, mph, shh, sph) = horizons
+    (aggzone, aggsuplyn, removestoragehours, residualarealist) = simplifyinputs
     
-    longprob = buildprob(probmethods[1], copy(longobjects))
+    longobjects, newlhh, newlph = make_obj(elements, lhh, lph)
+    simplify!(longobjects; aggzone=aggzone, aggsupplyn=aggsuplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
+    addPowerUpperSlack!(longobjects)
+    longprob = buildprob(probmethods[1], longobjects)
 
     longstorages = getstorages(getobjects(longprob))
     setstartstates!(longprob, longstorages, startstates)
@@ -74,13 +80,16 @@ function prognosis_init!(probmethods::Vector, objects::Tuple, horizons::Tuple, s
     update!(longprob, tnormal)
     solve!(longprob)
 
-    medprob = buildprob(probmethods[2], copy(medobjects))
+    medobjects, newmhh, newmph = make_obj(elements, mhh, mph)
+    simplify!(medobjects; aggzone=aggzone, aggsupplyn=aggsuplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
+    addPowerUpperSlack!(medobjects)
+    medprob = buildprob(probmethods[2], medobjects)
     
     medstorages = getstorages(getobjects(medprob))
     setstartstates!(medprob, medstorages, startstates)
     
     # Dual values from long problem used as end values for med problem, initialize
-    longperiod = getendperiodfromduration(lhh, getduration(mhh)) # which period in long problem correspond to end period in medium problem
+    longperiod = getendperiodfromduration(newlhh, getduration(newmhh)) # which period in long problem correspond to end period in medium problem
     medendvalues = getinsideduals(longprob, medstorages, longperiod) # get dual values from long problem at period which correspond to end period in medium problem
     medendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"MedEndValue")
     medendvaluesobj = EndValues(medendvaluesid, medstorages) # initialize endvalues object
@@ -91,9 +100,12 @@ function prognosis_init!(probmethods::Vector, objects::Tuple, horizons::Tuple, s
     solve!(medprob)
 
     # Collect prices that will be used in stochastic subsystem problems
-    getareaprices!(medprice, medprob, mph, tnormal)
+    getareaprices!(medprice, medprob, newmph, tnormal)
     
-    shortprob= buildprob(probmethods[3], copy(shortobjects))
+    shortobjects, newshh, newsph = make_obj(elements, shh, sph; validate=false) # already validated when making dummyshortobjects
+    simplify!(shortobjects; aggzone=aggzone, removestartup=false)
+    addPowerUpperSlack!(shortobjects)
+    shortprob = buildprob(probmethods[3], shortobjects)
     
     shortstorages = getstorages(getobjects(shortprob))
     shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
@@ -102,7 +114,7 @@ function prognosis_init!(probmethods::Vector, objects::Tuple, horizons::Tuple, s
     setendstates!(shortprob, shorttermstorages, startstates) # set endstates for shortterm storages
     
     # Dual values from med problem used as end values for short problem, initialize
-    medperiod = getendperiodfromduration(mhh, getduration(shh))
+    medperiod = getendperiodfromduration(newmhh, getduration(newshh))
     shortendvalues = getinsideduals(medprob, longtermstorages, medperiod)
     shortendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"ShortEndValue")
     shortendvaluesobj = EndValues(shortendvaluesid, longtermstorages)
@@ -113,20 +125,20 @@ function prognosis_init!(probmethods::Vector, objects::Tuple, horizons::Tuple, s
     solve!(shortprob)
 
     # Market clearing problem uses end state values from short problem for non-storage state variables, 
-    clearingperiod = getendperiodfromduration(sph, phaseinoffset) # which period in short problem correspond to end period in market clearing problem
+    clearingperiod = getendperiodfromduration(newsph, phaseinoffset) # which period in short problem correspond to end period in market clearing problem
     nonstoragestates = getnonstoragestatevariables(shortprob.objects) # get non-storage state variables (e.g. variables used for thermal power ramping or startup costs)
     changeendtoinsidestates!(shortprob, nonstoragestates, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
 
     # Collect prices that will be used in stochastic subsystem problems
-    getareaprices!(shortprice, shortprob, sph, tnormal)
+    getareaprices!(shortprice, shortprob, newsph, tnormal)
 
     return (longprob, medprob, shortprob, medendvaluesobj, nonstoragestates)
 end
 
 # Initialize price prognosis models for all scenarios in parallel
-function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DArray}, objects::Tuple, horizons::Tuple, input::Tuple, output::Tuple)
+function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DArray}, elements::Vector{DataElement}, horizons::Tuple, input::Tuple, output::Tuple)
     (longprobs, medprobs, shortprobs) = probs
-    (numcores, scenarios, phaseinoffset, startstates) = input
+    (numcores, scenarios, phaseinoffset, startstates, simplifyinputs) = input
     (medprices, shortprices, medendvaluesobjs, nonstoragestates) = output
     
     # Execute each scenario in parallel on different cores
@@ -147,7 +159,7 @@ function pl_prognosis_init!(probmethods::Vector, probs::Tuple{DArray, DArray, DA
             for ix in range # for each scenario on this specific core
                 localix += 1
                 (tnormal, tphasein, scen) = scenario[localix]
-                probs = prognosis_init!(probmethods, objects, horizons, startstates, tnormal, tphasein, phaseinoffset, medprice[localix], shortprice[localix])
+                probs = prognosis_init!(probmethods, elements, horizons, startstates, tnormal, tphasein, phaseinoffset, medprice[localix], shortprice[localix], simplifyinputs)
                 longprob[localix], medprob[localix], shortprob[localix], medendvaluesobj[localix], nonstoragestate[localix] = probs
             end
         end

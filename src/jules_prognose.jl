@@ -117,12 +117,8 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         longminperiod = phaseinoffset
 
         # longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
-        # longobjects, lhh, lph = make_obj(elements, longhorizon...)
-        longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod)
-        longobjects, lhh, lph = make_shrinkable_obj(elements, longhorizon...)
-
-        simplify!(longobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
-        addPowerUpperSlack!(longobjects)
+        longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
+        lhh, lph = make_horizons(longhorizon...)
 
         # Medium
         medhorizonduration = Millisecond(Day(10*7*6))
@@ -136,24 +132,25 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         medminperiod = phaseinoffset
 
         # medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
-        # medobjects, mhh, mph = make_obj(elements, medhorizon...)
-        medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod)
-        medobjects, mhh, mph = make_shrinkable_obj(elements, medhorizon...)
-
-        simplify!(medobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
-        addPowerUpperSlack!(medobjects)
+        medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
+        mhh, mph = make_horizons(medhorizon...)
 
         # Short
         shorthydroperiodduration = Millisecond(Day(1)); @assert medhorizonduration.value % shorthorizonduration.value == 0
         shortpowerparts = 8
         shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
-
-        shortobjects, shh, sph = make_obj(elements, shorthorizon...)
-        simplify!(shortobjects; removestartup=false, residualarealist=[])
-        addPowerUpperSlack!(shortobjects)
+        shh, sph = make_horizons(shorthorizon...)
 
         # Start storages
-        startstates_max!(getstorages(shortobjects), tnormal, startstates)
+        dummyshortobjects, dummyshh, dummysph = make_obj(elements, shh, sph) # TODO
+        startstates_max!(getstorages(dummyshortobjects), tnormal, startstates)
+
+        # Simplify modelobjects
+        aggzone = Dict()
+        aggsuplyn = 4
+        removestoragehours = 10
+        residualarealist = []
+        simplifyinputs = (aggzone, aggsuplyn, removestoragehours, residualarealist)
 
         # Preallocate storage for problems and results on different cores. Use package DistributedArrays
         # Distribute scenarios
@@ -172,9 +169,8 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
 
         # Organise inputs and outputs
         probs = (longprobs, medprobs, shortprobs)
-        objects = (longobjects, medobjects, shortobjects)
         horizons = (lhh, lph, mhh, mph, shh, sph)
-        proginput = (numcores, allscenarios, phaseinoffset, startstates)
+        proginput = (numcores, allscenarios, phaseinoffset, startstates, simplifyinputs)
         progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
         
         # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
@@ -182,7 +178,7 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
 
         # Initialize price prognosis models and run for first time step. Run scenarios in parallell
-        @time pl_prognosis_init!(probmethodsprognosis, probs, objects, horizons, proginput, progoutput)
+        @time pl_prognosis_init!(probmethodsprognosis, probs, elements, horizons, proginput, progoutput)
     end
 
 
