@@ -162,12 +162,10 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
     mhp = [getnumperiods(h) for h in mh]
     sh = shortprob.horizons
     shp = [getnumperiods(h) for h in sh]
-    if skipmed.value == 0
-        lh = longprob.horizons
-        lhp = [getnumperiods(h) for h in lh]
-        lhh = lh[argmin(lhp)]
-        mph = mh[argmax(mhp)]
-    end
+    lh = longprob.horizons
+    lhp = [getnumperiods(h) for h in lh]
+    lhh = lh[argmin(lhp)]
+    mph = mh[argmax(mhp)]
     mhh = mh[argmin(mhp)]
     sph = sh[argmax(shp)]
     shh = sh[argmin(shp)]
@@ -211,10 +209,12 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
         setendstates!(shortprob, shorttermstorages, startstates)
         setstartstates!(shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
         
-        medperiod = getendperiodfromduration(mhh, getduration(shh))
-        shortendvalues = getinsideduals(medprob, longtermstorages, medperiod)
-        shortendvaluesobj = shortprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"ShortEndValue"), shortprob.objects)]
-        updateendvalues!(shortprob, shortendvaluesobj, shortendvalues)
+        if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
+            medperiod = getendperiodfromduration(mhh, getduration(shh))
+            shortendvalues = getinsideduals(medprob, longtermstorages, medperiod)
+            shortendvaluesobj = shortprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"ShortEndValue"), shortprob.objects)]
+            updateendvalues!(shortprob, shortendvaluesobj, shortendvalues)
+        end
 
         prognosistimes[step, 1, 3] = @elapsed update!(shortprob, tphasein)
         prognosistimes[step, 2, 3] = @elapsed solve!(shortprob)
