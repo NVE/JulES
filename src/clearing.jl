@@ -135,6 +135,7 @@ function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict:
     # Avoid reservoirs being filled more than max, gives infeasible solution
     # - If aggregated reservoir capacity is lower than the sum capacities
     # - If reservoir is full in model, numerical tolerance can bring variable value slightly over cap
+    # - TODO: Add warning/logging if this happens
     for resname in keys(startstates)
         resmax = resname * "_max"
         if haskey(startstates, resmax)
