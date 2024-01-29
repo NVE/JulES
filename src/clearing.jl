@@ -77,39 +77,41 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 end
 
 # Run market clearing for new time step
-function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict)
-        
-    # Update startstates for all state variables, equals end state of last market clearing
-    setstartstates!(clearing, getobjects(clearing), startstates) # TODO: Also store actual statevariables to update more efficiently?
+function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict, clearingtimes::Matrix{Float64}, step::Int)
+    clearingtimes[step, 3] = @elapsed begin
+        # Update startstates for all state variables, equals end state of last market clearing
+        setstartstates!(clearing, getobjects(clearing), startstates) # TODO: Also store actual statevariables to update more efficiently?
 
-    # Update cuts in problem
-    for cuts in cutslocal
-        updatecuts!(clearing, cuts, varendperiod)
+        # Update cuts in problem
+        for cuts in cutslocal
+            updatecuts!(clearing, cuts, varendperiod)
+        end
+
+        # Update end states for non storage variables
+        # for nonstoragestate in keys(nonstoragestateslocal[1])
+        #     # (id, ix) = getvarout(nonstoragestate)
+        #     # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
+        #     # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
+        #     nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
+        # end
+        # setoutgoingstates!(clearing, nonstoragestatesmean)
+        setoutgoingstates!(clearing, nonstoragestateslocal[1])
+
+        # Statedependent hydropower production
+        statedependentprod!(clearing, startstates)
+        statedependentpump!(clearing, startstates)
+
+        # Update and solve
+        clearingtimes[step, 1] = @elapsed update!(clearing, t)
+        updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
+        setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
+
+        clearingtimes[step, 2] = @elapsed solve!(clearing)
+
+        # Get start states for next iteration
+        getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
     end
 
-    # Update end states for non storage variables
-    # for nonstoragestate in keys(nonstoragestateslocal[1])
-    #     # (id, ix) = getvarout(nonstoragestate)
-    #     # newnonstoragestate = StateVariableInfo(getvarin(nonstoragestate), (id, ix*2)) # Quick fix different resolution short prognosis (2-hourly) and clearing (hourly)
-    #     # nonstoragestatesmean[newnonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate]/2 for i in eachindex(nonstoragestateslocal)])
-    #     nonstoragestatesmean[nonstoragestate] = mean([nonstoragestateslocal[i][nonstoragestate] for i in eachindex(nonstoragestateslocal)])
-    # end
-    # setoutgoingstates!(clearing, nonstoragestatesmean)
-    setoutgoingstates!(clearing, nonstoragestateslocal[1])
-
-    # Statedependent hydropower production
-    statedependentprod!(clearing, startstates)
-    statedependentpump!(clearing, startstates)
-
-    # Update and solve
-    update!(clearing, t)
-    updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
-    setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
-
-    solve!(clearing)
-
-    # Get start states for next iteration
-    getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
 end
 
 function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
@@ -133,6 +135,7 @@ function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict:
     # Avoid reservoirs being filled more than max, gives infeasible solution
     # - If aggregated reservoir capacity is lower than the sum capacities
     # - If reservoir is full in model, numerical tolerance can bring variable value slightly over cap
+    # - TODO: Add warning/logging if this happens
     for resname in keys(startstates)
         resmax = resname * "_max"
         if haskey(startstates, resmax)

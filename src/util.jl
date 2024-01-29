@@ -149,7 +149,7 @@ function startstates_max!(objects::Vector, t::ProbTime, startstates::Dict)
         resname = getinstancename(getid(obj))
         if haskey(startstates, resname)
             startstates[resname * "_max"] = getparamvalue(obj.ub, t, MsTimeDelta(Millisecond(0)))
-            if startstates[resname] > startstates[resname * "_max"]
+            if startstates[resname] > startstates[resname * "_max"] # TODO: Add warning or logging
                 startstates[resname] = startstates[resname * "_max"]
             end
         end
