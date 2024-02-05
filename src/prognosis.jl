@@ -7,10 +7,10 @@ function make_horizons(horizonduration::Millisecond, hydroperiodduration::Millis
     return (hydro_horizon, power_horizon)
 end
 
-function make_horizons(horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, startafter::Millisecond, shrinkatleast::Millisecond, minperiod::Millisecond)
+function make_horizons(firstperiod::Millisecond, horizonduration::Millisecond, hydroperiodduration::Millisecond, rhsdata::AdaptiveHorizonData, method::AdaptiveHorizonMethod, clusters::Int, unit_duration::Millisecond, startafter::Millisecond, shrinkatleast::Millisecond, minperiod::Millisecond)
     hydroperiods = ceil(Int64, horizonduration/hydroperiodduration)
-    hydro_horizon = ShrinkableHorizon(SequentialHorizon(1, startafter, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
-    power_horizon = ShrinkableHorizon(AdaptiveHorizon(clusters, unit_duration, rhsdata, method, 1, startafter, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
+    hydro_horizon = ShrinkableHorizon(SequentialHorizon(1, firstperiod, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
+    power_horizon = ShrinkableHorizon(AdaptiveHorizon(clusters, unit_duration, rhsdata, method, 1, firstperiod, hydroperiods, hydroperiodduration), startafter, shrinkatleast, minperiod)
 
     return (hydro_horizon, power_horizon)
 end

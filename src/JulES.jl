@@ -47,42 +47,36 @@ using PrecompileTools
 	JulES.addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop)
 
 	@compile_workload begin
-		# Set horizons for price prognosis models
+        # Set horizons for price prognosis models
+        # All
+        shorthorizonduration = Millisecond(Day(7))
+
 		# Long
+		longfirstperiod = shorthorizonduration
 		longhorizonduration = Millisecond(Week(5*52))
-		longhydroperiodduration = Millisecond(Week(6))
+		longhydroperiodduration = Millisecond(Day(7*6))
 		longrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND")) # TODO: If dynamic use tphasein
 		longmethod = KMeansAHMethod()
 		longclusters = 4
 		longunitduration = Millisecond(Hour(6))
-		longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
+		longstartafter = longhydroperiodduration + shorthorizonduration
+		longshrinkatleast = longhydroperiodduration - phaseinoffset
+		longminperiod = phaseinoffset
 
-		longobjects, lhh, lph = JulES.make_obj(elements, longhorizon...)
-		JulES.simplify!(longobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
-		JulES.addPowerUpperSlack!(longobjects)
-
-		# Medium
-		medhorizonduration = Millisecond(Week(54))
-		medhydroperiodduration = Millisecond(Day(7)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
-		medrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND"))
-		medmethod = KMeansAHMethod()
-		medclusters = 4
-		medunitduration = Millisecond(Hour(4))
-		medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
-
-		medobjects, mhh, mph = JulES.make_obj(elements, medhorizon...)
-		JulES.simplify!(medobjects; aggsupplyn=4, removestoragehours=10, residualarealist=[])
-		JulES.addPowerUpperSlack!(medobjects)
+		longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
+		lhh, lph = JulES.make_horizons(longhorizon...)
 
 		# Short
-		shorthorizonduration = Millisecond(Week(1))
-		shorthydroperiodduration = Millisecond(Day(1)); @assert medhorizonduration.value % shorthorizonduration.value == 0
+		shorthydroperiodduration = Millisecond(Day(1))
 		shortpowerparts = 8
 		shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
+		shh, sph = JulES.make_horizons(shorthorizon...)
 
-		shortobjects, shh, sph = JulES.make_obj(elements, shorthorizon...)
-		JulES.simplify!(shortobjects; removestartup=false, residualarealist=[])
-		JulES.addPowerUpperSlack!(shortobjects)
+        # Start storages
+        dummyshortobjects, dummyshh, dummysph = make_obj(elements, shh, sph)
+		simplify!(dummyshortobjects; aggsupplyn=4, removestoragehours=10)
+		addPowerUpperSlack!(dummyshortobjects)
+		dummyprob = buildprob(HighsSimplexMethod(), dummyshortobjects)
 
 		# Preallocate storage for problems and results on different cores. Use package DistributedArrays
 		# Distribute scenarios

@@ -106,33 +106,35 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         shorthorizonduration = Millisecond(Day(7))
 
         # Long
+        longfirstperiod = shorthorizonduration
         longhorizonduration = Millisecond(Week(5*52))
         longhydroperiodduration = Millisecond(Day(7*6))
         longrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND")) # TODO: If dynamic use tphasein
         longmethod = KMeansAHMethod()
         longclusters = 4
         longunitduration = Millisecond(Hour(6))
-        longstartafter = shorthorizonduration
+        longstartafter = longhydroperiodduration + shorthorizonduration
         longshrinkatleast = longhydroperiodduration - phaseinoffset
         longminperiod = phaseinoffset
 
         # longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
-        longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
+        longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
         lhh, lph = make_horizons(longhorizon...)
 
         # Medium
+        medfirstperiod = shorthorizonduration
         medhorizonduration = Millisecond(Day(10*7*6))
         medhydroperiodduration = Millisecond(Day(7)); @assert medhorizonduration.value % longhydroperiodduration.value == 0
         medrhsdata = DynamicExogenPriceAHData(Id("Balance", "PowerBalance_TYSKLAND"))
         medmethod = KMeansAHMethod()
         medclusters = 4
         medunitduration = Millisecond(Hour(4))
-        medstartafter = shorthorizonduration
+        medstartafter = longstartafter
         medshrinkatleast = longhydroperiodduration - phaseinoffset
         medminperiod = phaseinoffset
 
         # medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
-        medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
+        medhorizon = (medfirstperiod, medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
         mhh, mph = make_horizons(medhorizon...)
 
         # Short
