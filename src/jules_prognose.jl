@@ -318,7 +318,7 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         probmethodsstochastic = [HighsSimplexMethod(), HighsSimplexMethod()]
 
         # Initialize subsystem problems and run for first time step. Run subsystems in parallell
-        @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, stochscenmodmethod.scentimes)
+        @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod)
     end
 
     println("Init clearing")
@@ -417,7 +417,7 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         end
         shortpriceslocal = convert(Vector{Dict}, shortprices)
 
-        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, stochscenmodmethod.scentimes, skipmed, stochastictimes, stepnr-1)
+        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1)
 
         # Market clearing
         masterslocal = convert(Vector{Prob}, masters)

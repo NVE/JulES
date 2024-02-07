@@ -2,9 +2,10 @@ abstract type ScenarioModellingMethod end
 mutable struct NoScenarioModellingMethod <: ScenarioModellingMethod
     scentimes::Vector{Tuple{Any, Any, Int64}}
     weights::Vector{Float64}
+    factors::Vector{Float64}
     function NoScenarioModellingMethod(numscen, totalscentimes)
         @assert numscen == length(totalscentimes)
-        new(totalscentimes, [1/length(totalscentimes) for i in 1:length(totalscentimes)])
+        new(totalscentimes, [1/length(totalscentimes) for i in 1:length(totalscentimes)], ones(length(totalscentimes)))
     end
 end
 # mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
@@ -35,11 +36,13 @@ end
 function scenariomodelling!(scenmodmethod::ScenarioModellingMethod, objects, numscen, scenmodmethodoptions::ScenarioModellingMethod, scendelta)
     scenmodmethod.scentimes = scenmodmethodoptions.scentimes
     scenmodmethod.weights = scenmodmethodoptions.weights
+    scenmodmethod.factors = scenmodmethodoptions.factors
 end
 
 function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, numscen, scenmodmethodoptions::ScenarioModellingMethod, scendelta)
     scentimesoptions = scenmodmethodoptions.scentimes
     weigthsoptions = scenmodmethodoptions.weights
+    factoroptions = scenmodmethodoptions.factors
     
     # Calculate total energy inflow in the system for the scenariodelta
     totalsumenergyinflow = zeros(length(scentimesoptions))
@@ -49,7 +52,7 @@ function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, num
                 enekvglobal = obj.metadata[GLOBALENEQKEY]
                 for rhsterm in getrhsterms(obj)
                     for (i, (scentnormal,scentphasein,scenario)) in enumerate(scentimesoptions)
-                        totalsumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal
+                        totalsumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal*factoroptions[i]
                     end
                 end
             end
@@ -86,6 +89,7 @@ end
 function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, numscen, scenmodmethodoptions::ScenarioModellingMethod, scendelta)
     scentimesoptions = scenmodmethodoptions.scentimes
     weightsoptions = scenmodmethodoptions.weights
+    factoroptions = scenmodmethodoptions.factors
 
     # Calculate total energy inflow in the system for each part of the scenariodelta
     sumenergyinflow = zeros(length(scentimesoptions))
@@ -103,9 +107,9 @@ function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, nums
                 end
                 for rhsterm in getrhsterms(obj)
                     for (i, (scentnormal,scentphasein)) in enumerate(scentimesoptions)
-                        sumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal
+                        sumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal*factoroptions[i]
                         for j in 1:parts
-                            partsumenergyinflow[j,i] += getparamvalue(rhsterm, scentnormal + scendeltapart*(j-1), scendeltapart)*enekvglobal
+                            partsumenergyinflow[j,i] += getparamvalue(rhsterm, scentnormal + scendeltapart*(j-1), scendeltapart)*enekvglobal*factoroptions[i]
                         end
                     end
                 end
@@ -146,9 +150,13 @@ function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, nums
     return
 end
 
-# Scale inflow of modelobjects given a scenario modelling method (only )
+# Scale inflow of modelobjects given a scenario modelling method
+# Only implemented in subsystem models at the moment. If used in prognosis we loose correlation to rest of market
+# In practice this means Prognosis ignores part of scenario generation (SumInflow of cluster), especially if SumInflowQuantileMethod
+# TODO: Improve interface to have one factor per commodity. Restrictive to only work for inflow
 scaleinflow!(scenmodmethod::ScenarioModellingMethod, scenario, objects) = nothing # generic fallback
 function scaleinflow!(scenmodmethod::Union{InflowClusteringMethod,SumInflowQuantileMethod}, scenario, objects) # inflow methods has field factor
+    scenmodmethod.factors[scenario] == 1.0 && return
     for obj in objects
         if obj isa BaseBalance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
@@ -162,6 +170,7 @@ function scaleinflow!(scenmodmethod::Union{InflowClusteringMethod,SumInflowQuant
             end
         end
     end
+    return
 end
 
 # Increment scenariotimes in scenariomodellingmethods
