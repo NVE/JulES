@@ -32,19 +32,23 @@ mutable struct SumInflowQuantileMethod <: ScenarioModellingMethod
     end
 end
 
-function scenariomodelling!(scenmodmethod::ScenarioModellingMethod, objects, numscen, totalscentimes, scendelta)
-    scenmodmethod.scentimes = totalscentimes
+function scenariomodelling!(scenmodmethod::ScenarioModellingMethod, objects, numscen, scenmodmethodoptions::ScenarioModellingMethod, scendelta)
+    scenmodmethod.scentimes = scenmodmethodoptions.scentimes
+    scenmodmethod.weights = scenmodmethodoptions.weights
 end
 
-function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, numscen, totalscentimes, scendelta)
+function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, numscen, scenmodmethodoptions::ScenarioModellingMethod, scendelta)
+    scentimesoptions = scenmodmethodoptions.scentimes
+    weigthsoptions = scenmodmethodoptions.weights
+    
     # Calculate total energy inflow in the system for the scenariodelta
-    totalsumenergyinflow = zeros(length(totalscentimes))
+    totalsumenergyinflow = zeros(length(scentimesoptions))
     for obj in objects
         if obj isa Balance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
                 enekvglobal = obj.metadata[GLOBALENEQKEY]
                 for rhsterm in getrhsterms(obj)
-                    for (i, (scentnormal,scentphasein)) in enumerate(totalscentimes)
+                    for (i, (scentnormal,scentphasein,scenario)) in enumerate(scentimesoptions)
                         totalsumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal
                     end
                 end
@@ -53,7 +57,7 @@ function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, num
     end
 
     # Fit values to normal distribution
-    n = fit(Normal, totalsumenergyinflow)
+    n = fit(Normal, totalsumenergyinflow, weigthsoptions)
     quantiles = [i for i in 1-scenmodmethod.maxquantile:(2*scenmodmethod.maxquantile-1)/(numscen-1):scenmodmethod.maxquantile] # get quantiles from maxquantile
     qvalues = quantile.(n, quantiles) # get quantile values from distribution
     
@@ -79,10 +83,13 @@ function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, num
     return
 end
 
-function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, numscen, totalscentimes, scendelta)
+function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, numscen, scenmodmethodoptions::ScenarioModellingMethod, scendelta)
+    scentimesoptions = scenmodmethodoptions.scentimes
+    weightsoptions = scenmodmethodoptions.weights
+
     # Calculate total energy inflow in the system for each part of the scenariodelta
-    sumenergyinflow = zeros(length(totalscentimes))
-    partsumenergyinflow = zeros(scenmodmethod.parts ,length(totalscentimes))
+    sumenergyinflow = zeros(length(scentimesoptions))
+    partsumenergyinflow = zeros(scenmodmethod.parts ,length(scentimesoptions))
     scendeltapart = scendelta/scenmodmethod.parts
 
 	parts = scenmodmethod.parts
@@ -95,7 +102,7 @@ function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, nums
                     enekvglobal = obj.metadata[GLOBALENEQKEY]
                 end
                 for rhsterm in getrhsterms(obj)
-                    for (i, (scentnormal,scentphasein)) in enumerate(totalscentimes)
+                    for (i, (scentnormal,scentphasein)) in enumerate(scentimesoptions)
                         sumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal
                         for j in 1:parts
                             partsumenergyinflow[j,i] += getparamvalue(rhsterm, scentnormal + scendeltapart*(j-1), scendeltapart)*enekvglobal
@@ -112,27 +119,30 @@ function scenariomodelling!(scenmodmethod::InflowClusteringMethod, objects, nums
 
     # # Take a look at the clustering
     # plots = plot()
-    # for i in 1:length(totalscentimes)
+    # for i in 1:length(scentimesoptions)
     #     plot!(plots, partsumenergyinflow[:,i], color = palette(:default)[assignments[i]], labels=string(assignments[i]))
     # end
     # display(plots)
 
     # Find scenario in middle of each cluster
     for i in 1:numscen
-        # Weight based on amount of scenarios in cluster
+        # Weight based on amount of scenarios in cluster and weight of options
         idxs = findall(x -> x == i, assignments)
-        scenmodmethod.weights[i] = length(idxs)/length(totalscentimes)
+        scenmodmethod.weights[i] = sum(weightsoptions[idxs])
 
         # Scenario in middle of cluster
         clustersumenergyinflows = sumenergyinflow[idxs]
         meanclustersumenergyinflow = mean(clustersumenergyinflows)
         clusteridx = findmin(x->abs(x-meanclustersumenergyinflow), clustersumenergyinflows)[2]
         totalidx = findfirst(x -> x == clustersumenergyinflows[clusteridx], sumenergyinflow)
-        scenmodmethod.scentimes[i] = totalscentimes[totalidx]
+        scenmodmethod.scentimes[i] = scentimesoptions[totalidx]
 
         # Adjust scenario to represent actual middle of cluster
         scenmodmethod.factors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
     end
+
+    # Normalize weights to sum of 1
+    scenmodmethod.weights = scenmodmethod.weights/sum(scenmodmethod.weights)
     return
 end
 
@@ -152,4 +162,22 @@ function scaleinflow!(scenmodmethod::Union{InflowClusteringMethod,SumInflowQuant
             end
         end
     end
-end;
+end
+
+# Increment scenariotimes in scenariomodellingmethods
+function increment_scenmodmethod!(scenmodmethod::ScenarioModellingMethod, phaseinoffset::Millisecond, phaseindelta::Millisecond, phaseinsteps::Int)
+    for i in 1:length(scenmodmethod.scentimes)
+        (scentnormal, scentphasein, scenario) = scenmodmethod.scentimes[i]
+        scentnormal += phaseinoffset
+        scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentnormal), phaseinoffset, phaseindelta, phaseinsteps)
+        scenmodmethod.scentimes[i] = (scentnormal, scentphasein, scenario)
+    end
+end
+
+# Renumber scenarios
+function renumber_scenmodmethod!(scenmodmethod::ScenarioModellingMethod)
+    for i in 1:length(scenmodmethod.scentimes)
+        (scentnormal, scentphasein, scenario) = scenmodmethod.scentimes[i]
+        scenmodmethod.scentimes[i] = (scentnormal, scentphasein, i)
+    end
+end
