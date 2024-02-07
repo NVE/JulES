@@ -219,13 +219,6 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
             end
         end
 
-        # Detailed dataset has reservoirs for SE4, aggregated does not, TODO: Improve aggregation/mapping
-        for k in keys(detailedrescopl)
-            if detailedrescopl[k] == "SVER-SE4"
-                detailedrescopl[k] = "SVER-SE3"
-            end
-        end
-
         medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict);
     end
 
