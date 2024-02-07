@@ -65,9 +65,9 @@ function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, M
     masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
-    for (tnormal, tphasein, scenario) in scenarios
+    for (i, (tnormal, tphasein, scenario)) in enumerate(scenarios)
         offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
-        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false, false)
+        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, i, prices, short, false, false)
         push!(subscenarioobjects, subobject)
     end
 
@@ -145,13 +145,10 @@ function getcutobjects(modelobjects::Vector)
 end
 
 # Initialize cuts
-function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int)
+function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int, probabilities::Vector)
     # Make a cutid
     cutname = getinstancename(getid(modelobjects[1]))
     cutid = Id(BOUNDARYCONDITION_CONCEPT,"StorageCuts" * cutname)
-    
-    # Probability of each subproblem / second stage scenario
-    probabilities = [1/numscen for i in 1:numscen]
     
     # Make cut modelobject
     cuts = SimpleSingleCuts(cutid, cutobjects, probabilities, maxcuts, lb)
@@ -167,15 +164,13 @@ function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVari
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}})
+function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod)
     startstates, medendvaluesdicts = storageinfo
 
     cutobjects = getcutobjects(masterobjects)
-    cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, length(scenarios));
+    cuts = initialize_cuts!(masterobjects, cutobjects, maxcuts, lb, length(scenarios.scentimes), scenarios.weights);
     states = getstates(cutobjects) # state variables in master and subs for boundary reservoirs
 
-    # master = JuMP_Prob(masterobjects, Model(HiGHS.Optimizer))
-    # subs = [JuMP_Prob(subobject, Model(HiGHS.Optimizer)) for subobject in subobjects] # initialize subproblems
     master = buildprob(probmethods[1], masterobjects)
     subs = [buildprob(probmethods[2], subobject) for subobject in subobjects] # initialize subproblems
 
@@ -183,14 +178,14 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
 
     # Update master
-    (tnormalmaster, tphaseinmaster, scenario) = scenarios[1] # tphasein is the same for all scenarios before phasein
-    update!(master, tphaseinmaster) 
+    update!(master, tnormal)
     setstartstates!(master, getstorages(getobjects(master)), startstates)
 
     # Update subs
     for (i,sub) in enumerate(subs)
-        (tnormalsub, tphaseinsub, scenario) = scenarios[i]
+        (tnormalsub, tphaseinsub, scenario) = scenarios.scentimes[i]
         update!(sub, tphaseinsub) # update parameters given problem start time of scenario
+        scaleinflow!(scenarios, i, getobjects(sub)) # scale inflow to average of represented scenarios
 
         storages = getstorages(getobjects(sub))
         if short
@@ -273,7 +268,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int}})
+function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod)
     @sync @distributed for core in 1:max(numcores-1,1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
@@ -287,7 +282,7 @@ function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemob
             for ix in range
                 localix += 1
                 masterobjects, subobjects = storagesystemobject[localix]
-                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(probmethods, masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, scenarios)
+                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(probmethods, masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, tnormal, scenarios)
             end
         end
     end
@@ -307,7 +302,7 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}}, stochastictimes::Matrix{Float64}, stepnr::Int)
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int)
     stochastictimes[stepnr, 7] = @elapsed begin   
         # Init cutparameters
         cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
@@ -318,12 +313,11 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
         !short && updatestochasticprices!(master, medprices, 1)
 
-        (tnormalmaster, tphaseinmaster) = scenarios[1] # tphasein is the same for all scenarios before phasein
-        stochastictimes[stepnr, 1] = @elapsed update!(master, tphaseinmaster)
+        stochastictimes[stepnr, 1] = @elapsed update!(master, tnormal)
 
         # Update subs
         for (i,sub) in enumerate(subs)
-            (tnormalsub, tphaseinsub, scenario) = scenarios[i]
+            (tnormalsub, tphaseinsub, scenario) = scenarios.scentimes[i]
             substorages = getstorages(getobjects(sub))
             
             if short
@@ -337,8 +331,10 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             end
             
             stochastictimes[stepnr, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
+            scaleinflow!(scenarios, i, getobjects(sub)) # scale inflow to average of represented scenarios
         end
 
+        cuts.probabilities = scenarios.weights
         lb = cuts.lower_bound
         ub = 0
         cutreuse = true
@@ -360,7 +356,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     end
 end
 
-function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, scenarios::Vector{Tuple{Any, Any, Int64}}, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int)
     @sync @distributed for core in 1:max(numcores-1,1)
         stochastictime = localpart(stochastictimes)
         masters = localpart(masters_)
@@ -374,7 +370,7 @@ function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_:
             for ix in range
                 localix += 1
                 if !(!short[localix] && (skipmed.value > 0))
-                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, scenarios, stochastictime[localix], stepnr)
+                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, tnormal, scenarios, stochastictime[localix], stepnr)
                 end
             end
         end

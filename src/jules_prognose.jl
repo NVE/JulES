@@ -60,7 +60,7 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         scenarioyearstart = 1991
         scenarioyearstop = 2021
 
-        totalscen = 30 # scenarios to consider uncertainty for
+        datanumscen = 30 # scenarios to consider uncertainty for
 
         # Standard time for market clearing - perfect information so simple time type
         datatime = getisoyearstart(datayearstart) + Week(weekstart - 1)
@@ -75,12 +75,13 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         phaseinsteps = 5 # Phase in second stage scenario in 5 steps
 
         # Make scenario times for all uncertainty scenarios. List of tuples with tnormal, tphasein and scenarionumber
-        totalscentimes = []
-        for scen in 1:totalscen
+        datascentimes = []
+        for scen in 1:datanumscen
             scentnormal = PrognosisTime(datatime, datatime, getisoyearstart(scenarioyear + scen - 1) + Week(weekstart - 1))
             scentphasein = PhaseinPrognosisTime(datatime, datatime, getisoyearstart(scenarioyear) + Week(weekstart - 1), getisoyearstart(scenarioyear + scen - 1) + Week(weekstart - 1), phaseinoffset, phaseindelta, phaseinsteps);
-            push!(totalscentimes, (scentnormal, scentphasein, scen))
+            push!(datascentimes, (scentnormal, scentphasein, scen))
         end
+        datascenmodmethod = NoScenarioModellingMethod(datanumscen, datascentimes)
 
         # How many time steps to run the simulation for
         if simulationyears != 0
@@ -121,6 +122,13 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
         lhh, lph = make_horizons(longhorizon...)
 
+        # Simplify modelobjects
+        aggzone = Dict()
+        aggsuplyn = 4
+        removestoragehours = 10
+        residualarealist = []
+        simplifyinputs = (aggzone, aggsuplyn, removestoragehours, residualarealist)
+
         # Medium
         medfirstperiod = shorthorizonduration
         medhorizonduration = Millisecond(Day(10*7*6))
@@ -147,32 +155,49 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         dummyshortobjects, dummyshh, dummysph = make_obj(elements, shh, sph) # TODO
         startstates_max!(getstorages(dummyshortobjects), tnormal, startstates)
 
-        # Simplify modelobjects
-        aggzone = Dict()
-        aggsuplyn = 4
-        removestoragehours = 10
-        residualarealist = []
-        simplifyinputs = (aggzone, aggsuplyn, removestoragehours, residualarealist)
+        # Simulation scenario modelling - choose scenarios for the whole simulation
+        simnumscen = 7; @assert simnumscen <= datanumscen
+        simscendelta = MsTimeDelta(Day(364*3)) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+        if simnumscen == datanumscen
+            simscenmodmethod = datascenmodmethod
+        else
+            parts = 4 # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
+            global simscenmodmethod = InflowClusteringMethod(simnumscen, parts)
+        end
+        @time scenariomodelling!(simscenmodmethod, values(dummyshortobjects), simnumscen, datascenmodmethod, simscendelta); # see JulES/scenariomodelling.jl
+        simnumscen != datanumscen && renumber_scenmodmethod!(simscenmodmethod)
+
+        # Prognosis scenario modelling - choose scenarios for the price prognosis models
+        prognumscen = 7; @assert prognumscen <= simnumscen
+        progscendelta = MsTimeDelta(Day(364)) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+        if prognumscen == simnumscen
+            progscenmodmethod = simscenmodmethod
+        else
+            parts = 4 # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
+            global progscenmodmethod = InflowClusteringMethod(prognumscen, parts)
+        end
+        @time scenariomodelling!(progscenmodmethod, values(dummyshortobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
+        prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
 
         # Preallocate storage for problems and results on different cores. Use package DistributedArrays
         # Distribute scenarios
-        allscenarios = distribute(totalscentimes)
+        progscentimes = distribute(progscenmodmethod.scentimes)
 
         # Problems are built, updated, solved, and stored on a specific core. Moving a problem between cores is expensive, so we want it to only exist on one core. 
-        longprobs = distribute([HiGHS_Prob() for i in 1:length(allscenarios)], allscenarios)
-        medprobs = distribute([HiGHS_Prob() for i in 1:length(allscenarios)], allscenarios)
-        shortprobs = distribute([HiGHS_Prob() for i in 1:length(allscenarios)], allscenarios)
+        longprobs = distribute([HiGHS_Prob() for i in 1:length(progscentimes)], progscentimes)
+        medprobs = distribute([HiGHS_Prob() for i in 1:length(progscentimes)], progscentimes)
+        shortprobs = distribute([HiGHS_Prob() for i in 1:length(progscentimes)], progscentimes)
 
         # Results are moved between cores. These are much smaller than longprobs/medprobs/shortprobs and are inexpensive to move between cores.
-        medprices = distribute([Dict() for i in 1:length(allscenarios)], allscenarios)
-        shortprices = distribute([Dict() for i in 1:length(allscenarios)], allscenarios)
-        medendvaluesobjs = distribute([EndValues() for i in 1:length(allscenarios)], allscenarios)
-        nonstoragestates = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(allscenarios)], allscenarios)
+        medprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
+        shortprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
+        medendvaluesobjs = distribute([EndValues() for i in 1:length(progscentimes)], progscentimes)
+        nonstoragestates = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(progscentimes)], progscentimes)
 
         # Organise inputs and outputs
         probs = (longprobs, medprobs, shortprobs)
         horizons = (lhh, lph, mhh, mph, shh, sph)
-        proginput = (numcores, allscenarios, phaseinoffset, startstates, simplifyinputs)
+        proginput = (numcores, progscentimes, phaseinoffset, startstates, simplifyinputs)
         progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
         
         # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
@@ -206,9 +231,6 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
 
     println("Init scenariomodelling")
     @time begin
-        # Scenario reduction to this amount
-        numscen = 7
-
         # Modelobjects that can be used to reduce scenarios
         scenarioelements = copy(detailedelements)
 
@@ -224,15 +246,17 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
 
         scenarioobjects = collect(values(getmodelobjects(scenarioelements)))
 
-        # Scenario modelling method
-        scendelta = MsTimeDelta(Day(364)) # scenario modelling based on the next year, even though the scenario problems can be longer
-        if numscen >= totalscen
-            global scenmodmethod = NoScenarioModellingMethod(totalscen, totalscentimes)
+        # Stochastic scenario modelling - choose scenarios for the price stochastic models
+        stochnumscen = 7; @assert stochnumscen <= prognumscen
+        stochscendelta = MsTimeDelta(Day(364)) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+        if stochnumscen == prognumscen
+            stochscenmodmethod = progscenmodmethod
         else
             parts = 4 # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
-            global scenmodmethod = InflowClusteringMethod(numscen, parts)
+            global stochscenmodmethod = InflowClusteringMethod(stochnumscen, parts)
         end
-        @time scenariomodelling!(scenmodmethod, scenarioobjects, numscen, totalscentimes, scendelta); # see JulES/scenariomodelling.jl
+
+        @time scenariomodelling!(stochscenmodmethod, scenarioobjects, stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
     end
 
     println("Init stochastic")
@@ -267,8 +291,8 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         # Inputs
         stochasticelements = removeelements!(copy(detailedelements))
         storageinfo = (startstates, medendvaluesdicts)
-        shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, scenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
-        medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, scenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
+        shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
+        medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
 
         ustoragesystemobjects = Tuple{Vector, Vector{Vector}}[]
         ushorts = Bool[]
@@ -294,7 +318,7 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         probmethodsstochastic = [HighsSimplexMethod(), HighsSimplexMethod()]
 
         # Initialize subsystem problems and run for first time step. Run subsystems in parallell
-        @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, scenmodmethod.scentimes)
+        @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod)
     end
 
     println("Init clearing")
@@ -346,7 +370,7 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
         prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
 
         # Time problems
-        prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(allscenarios)], allscenarios) # update, solve, total per step for long, med, short
+        prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
         stochastictimes = distribute([zeros(steps-1, 7) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
         clearingtimes = zeros(steps-1, 3); # update, solve, total
     end
@@ -361,13 +385,9 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
 
         # Increment simulation/main scenario and uncertainty scenarios
         tnormal += phaseinoffset
+        println(tnormal)
 
-        for i in 1:length(totalscentimes)
-            (scentnormal, scentphasein, scenario) = totalscentimes[i]
-            scentnormal += phaseinoffset
-            scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentnormal), phaseinoffset, phaseindelta, phaseinsteps)
-            totalscentimes[i] = (scentnormal, scentphasein, scenario)
-        end
+        increment_scenmodmethod!(simscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
 
         # Increment skipmed - should we reuse watervalues this time step?
         skipmed += Millisecond(phaseinoffset)
@@ -375,32 +395,29 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
             skipmed = Millisecond(0)
         end
 
-        # Print here to avoid wrong order
-        println(tnormal)
-
-        # Deterministic long/mid/short - calculate scenarioprices for all 30 scenarios
-        allscenarios = distribute(totalscentimes, allscenarios) # TODO: Find better solution
-        @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, allscenarios, skipmed, prognosistimes, stepnr-1)
+        # Deterministic long/mid/short - calculate scenarioprices for all 30 
+        if skipmed.value == 0
+            @time scenariomodelling!(progscenmodmethod, values(dummyshortobjects), prognumscen, simscenmodmethod, progscendelta)
+        elseif prognumscen < simnumscen
+            increment_scenmodmethod!(progscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
+        end
+        prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
+        progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
+        @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr-1)
 
         # Stochastic sub systems - calculate storage value    
         if skipmed.value == 0
             # Choose new scenarios
-            @time scenariomodelling!(scenmodmethod, scenarioobjects, numscen, totalscentimes, scendelta)
+            @time scenariomodelling!(stochscenmodmethod, scenarioobjects, stochnumscen, progscenmodmethod, stochscendelta)
             
             medpriceslocal = convert(Vector{Dict}, medprices)
             medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict)
-        else
-            # Increment existing scenarios
-            for i in 1:length(scenmodmethod.scentimes)
-                (scentnormal, scentphasein, scenario) = scenmodmethod.scentimes[i]
-                scentnormal += phaseinoffset
-                scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentnormal), phaseinoffset, phaseindelta, phaseinsteps)
-                scenmodmethod.scentimes[i] = (scentnormal, scentphasein, scenario)
-            end
+        elseif stochnumscen < prognumscen
+            increment_scenmodmethod!(stochscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
         end
         shortpriceslocal = convert(Vector{Dict}, shortprices)
 
-        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, scenmodmethod.scentimes, skipmed, stochastictimes, stepnr-1)
+        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1)
 
         # Market clearing
         masterslocal = convert(Vector{Prob}, masters)
