@@ -153,7 +153,8 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
 
         # Start storages
         dummyshortobjects, dummyshh, dummysph = make_obj(elements, shh, sph) # TODO
-        startstates_max!(getstorages(dummyshortobjects), tnormal, startstates)
+        dummystorages = getstorages(dummyshortobjects)
+        startstates_max!(dummystorages, tnormal, startstates)
 
         # Simulation scenario modelling - choose scenarios for the whole simulation
         simnumscen = 7; @assert simnumscen <= datanumscen
@@ -296,7 +297,8 @@ function run(numcores, prognoser_path, outputfolder, datayearstart, weekstart, s
 
         # Add detailed startstates
         merge!(startstates, startmagdict_json) # also read detailed startstates used in the other problems
-        startstates_max!(getstorages(stochasticmodelobjects), tnormal, startstates)
+        detailedstorages = getstorages(stochasticmodelobjects)
+        JulES.startstates_max!(detailedstorages, tnormal, startstates)
 
         # Distribute subsystems with inputs and outputs on different cores
         storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystems to cores based on how many modelobjects in eac subsystem
