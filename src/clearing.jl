@@ -3,7 +3,7 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
     elements1 = copy(elements)
 
     # Add horizon to dataelements
-    battery_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdp), cpdp) # TODO: Replace with user settings
+    battery_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdp), cpdp)
     hydro_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdh), cpdh) # TODO: Higher time resolution for small PHS
     power_horizon = SequentialHorizon(ceil(Int64, clearingduration/cpdp), cpdp)
 
