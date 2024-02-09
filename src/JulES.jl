@@ -9,7 +9,7 @@ include("scenariomodelling.jl") # Code for scenario modelling
 include("prognosis.jl") # Code for price prognosis problems
 include("stochastic.jl") # Code for stochastic subsystem problems
 include("clearing.jl") # Code for market clearing problems
-include("jules_prognose.jl")
+include("run_series.jl")
 
 using PrecompileTools
 
