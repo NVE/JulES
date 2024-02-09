@@ -238,3 +238,105 @@ function getinsideduals(p::Prob, storages::Vector, t::Int)
     end
     return endvalues
 end
+
+# Time util functions
+function gettnormal(type, datatime, scenariotime)
+    if type == "PrognosisTime"
+        return PrognosisTime(datatime, datatime, scenariotime)
+    elseif type == "FixedDataTwoTime"
+        return FixedDataTwoTime(datatime, scenariotime)
+    else
+        error("$type not implementet in getnormal-function")
+    end
+end
+
+function gettphasein(type, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+    if type == "PhaseinPrognosisTime"
+        return PhaseinPrognosisTime(datatime, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+    elseif type == "PhaseinFixedDataTwoTime"
+        return PhaseinFixedDataTwoTime(datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+    else
+        error("$type not implementet in gettphasein-function")
+    end
+end
+
+function getscenariotimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+    # Standard time for market clearing - perfect information so simple time type
+    datatime = getisoyearstart(datayear) + Week(weekstart-1)
+    scenariotime = getisoyearstart(scenarioyear) + Week(weekstart-1)
+    tnormal = gettnormal(tnormaltype, datatime, scenariotime)
+
+    # Make scenario times for all uncertainty scenarios. List of tuples with tnormal, tphasein and scenarionumber
+    datascentimes = []
+    for scen in 1:datanumscen
+        uncertaintyscenariotime = getisoyearstart(scenarioyear + scen - 1) + Week(weekstart-1)
+        scentnormal = gettnormal(tnormaltype, datatime, uncertaintyscenariotime)
+        scentphasein = gettphasein(tphaseintype, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+       
+        push!(datascentimes, (scentnormal, scentphasein, scen))
+    end
+    datascenmodmethod = NoScenarioModellingMethod(datanumscen, datascentimes)
+    return (tnormal, datascenmodmethod)
+end
+
+# Prognosis util functions
+function getrhsdata(rhsdata)
+    method = rhsdata["function"]
+    if method == "DynamicExogenPriceAHData"
+        DynamicExogenPriceAHData(Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
+    elseif method == "StaticRHSAHData"
+        StaticRHSAHData("Power", datayear, scenarioyearstart, scenarioyearstop)
+    else
+        error("$method not supported")
+    end
+end
+
+function getscenmodmethod(problem, numscen)
+    method = problem["function"]
+    if method == "InflowClusteringMethod"
+        parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
+        return InflowClusteringMethod(numscen, parts)
+    else
+        error("$method not supported")
+    end
+end
+
+function getstartstates!(startstates, problemconfig, dataset, objects, storages)
+    startstorages = problemconfig["startstorages"]
+    if startstorages["function"] == "percentages"
+        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
+        longtermstorages = setdiff(storages, shorttermstorages)
+        merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
+        merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
+    elseif haskey(dataset, startstorages["function"])
+        merge!(startstates, dataset[startstorages["function"]])
+    end
+end
+
+# Get dictionary with each detailed reservoir and their water value for each scenario
+# TODO: Detailed run-of-river reservoirs get water value from aggregated reservoir hydro
+function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvglobaldict::Dict)
+    endvaluesdicts = Dict[];
+    for endvaluesobj in endvaluesobjs
+        instance = [getinstancename(getid(obj)) for obj in endvaluesobj.objects]
+        endvalues = endvaluesobj.values
+        endvaluesdict = Dict(instance .=> endvalues)
+
+        for (k,v) in detailedrescopl
+            endvaluesdict["Reservoir_" * k] = endvaluesdict["Reservoir_" * v * "_hydro_reservoir"] * enekvglobaldict[k]
+        end
+        push!(endvaluesdicts, endvaluesdict)
+    end
+    
+    return endvaluesdicts
+end
+
+# Output util
+function getoutputpath(config)
+    method = config["main"]["function"]
+    if method == "nve_prognosis"
+        return joinpath(config["main"]["folder"], "Uke_$weekstart", config["main"]["outputfolder"])
+    else
+        error("$method not supported")
+    end
+end
