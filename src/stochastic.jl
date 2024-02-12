@@ -374,9 +374,9 @@ function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_:
                 end
             end
         end
-        if skipmed.value == 0
-            GC.gc() # regulary garbage collection, else there is always one processor core for each time step that the others have to wait for
-        end
+        # if skipmed.value == 0
+        #     GC.gc() # regulary garbage collection, else there is always one processor core for each time step that the others have to wait for
+        # end
     end
 end
 
