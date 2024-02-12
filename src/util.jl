@@ -240,7 +240,7 @@ function getinsideduals(p::Prob, storages::Vector, t::Int)
 end
 
 # Time util functions
-function gettnormal(type, datatime, scenariotime)
+function gettnormal(type::String, datatime::DateTime, scenariotime::DateTime)
     if type == "PrognosisTime"
         return PrognosisTime(datatime, datatime, scenariotime)
     elseif type == "FixedDataTwoTime"
@@ -250,7 +250,7 @@ function gettnormal(type, datatime, scenariotime)
     end
 end
 
-function gettphasein(type, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+function gettphasein(type::String, datatime::DateTime, scenariotime::DateTime, uncertaintyscenariotime::DateTime, phaseinoffset::Millisecond, phaseindelta::Millisecond, phaseinsteps::Int64)
     if type == "PhaseinPrognosisTime"
         return PhaseinPrognosisTime(datatime, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif type == "PhaseinFixedDataTwoTime"
@@ -264,7 +264,7 @@ function gettphasein(type, datatime, scenariotime, uncertaintyscenariotime, phas
     end
 end
 
-function getprobtimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+function getprobtimes(datayear::Int64, weekstart::Int64, scenarioyear::Int64, datanumscen::Int64, tnormaltype::String, tphaseintype::String, phaseinoffset::Millisecond, phaseindelta::Millisecond, phaseinsteps::Int64)
     # Standard time for market clearing - perfect information so simple time type
     datatime = getisoyearstart(datayear) + Week(weekstart-1)
     scenariotime = getisoyearstart(scenarioyear) + Week(weekstart-1)
@@ -291,24 +291,28 @@ function parse_methods(s::String)
         return HighsSimplexMethod()
     elseif s == "HighsSimplexMethod(warmstart=false)"
         return HighsSimplexMethod(warmstart=false)
+    elseif s == "HighsSimplexSIPMethod(warmstart=false)"
+        return HighsSimplexSIPMethod(warmstart=false)
     elseif s == "KMeansAHMethod()"
         return KMeansAHMethod()
     end
 end
 
 # Prognosis util functions
-function getrhsdata(rhsdata)
+function getrhsdata(rhsdata::Dict, datayear::Int64, scenarioyearstart::Int64, scenarioyearstop::Int64)
     method = rhsdata["function"]
     if method == "DynamicExogenPriceAHData"
-        DynamicExogenPriceAHData(Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
+        return DynamicExogenPriceAHData(Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
     elseif method == "StaticRHSAHData"
-        StaticRHSAHData("Power", datayear, scenarioyearstart, scenarioyearstop)
+        return StaticRHSAHData("Power", datayear, scenarioyearstart, scenarioyearstop)
+    elseif method == "DynamicRHSAHData"
+        return DynamicRHSAHData("Power")
     else
         error("$method not supported")
     end
 end
 
-function getscenmodmethod(problem, numscen)
+function getscenmodmethod(problem::Dict, numscen::Int64)
     method = problem["function"]
     if method == "InflowClusteringMethod"
         parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
@@ -318,7 +322,7 @@ function getscenmodmethod(problem, numscen)
     end
 end
 
-function getstartstates!(startstates, problemconfig, dataset, objects, storages)
+function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
     startstorages = problemconfig["startstorages"]
     if startstorages["function"] == "percentages"
         shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
@@ -349,7 +353,7 @@ function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvgloba
 end
 
 # Output util
-function getoutputpath(config)
+function getoutputpath(config::Dict)
     method = config["main"]["function"]
     if method == "nve_prognosis"
         weekstart = config["main"]["weekstart"]
