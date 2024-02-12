@@ -358,6 +358,8 @@ function getoutputpath(config::Dict)
     if method == "nve_prognosis"
         weekstart = config["main"]["weekstart"]
         return joinpath(config["main"]["folder"], "Uke_$weekstart", config["main"]["outputfolder"])
+    elseif method == "nve_la"
+        return joinpath(config["main"]["folder"], config["main"]["outputfolder"], string(config["main"]["datayear"]))
     else
         error("$method not supported")
     end
