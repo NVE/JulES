@@ -54,7 +54,7 @@ function run_series(config, scenarioyear, dataset)
         # Long
         longhorizonduration = Millisecond(Week(settings["horizons"]["long"]["horizonduration_weeks"]))
         longhydroperiodduration = Millisecond(Day(settings["horizons"]["long"]["hydroperiodduration_days"]))
-        longrhsdata = getrhsdata(settings["horizons"]["long"]["rhsdata"])
+        longrhsdata = getrhsdata(settings["horizons"]["long"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
         longmethod = parse_methods(settings["horizons"]["long"]["rhsmethod"])
         longclusters = settings["horizons"]["long"]["clusters"]
         longunitduration = Millisecond(Hour(settings["horizons"]["long"]["unitduration_hours"]))
@@ -86,7 +86,7 @@ function run_series(config, scenarioyear, dataset)
         # Medium
         medhorizonduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"]))
         medhydroperiodduration = Millisecond(Day(settings["horizons"]["med"]["hydroperiodduration_days"])); @assert medhorizonduration.value % longhydroperiodduration.value == 0
-        medrhsdata = getrhsdata(settings["horizons"]["med"]["rhsdata"])
+        medrhsdata = getrhsdata(settings["horizons"]["med"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
         medmethod = parse_methods(settings["horizons"]["med"]["rhsmethod"])
         medclusters = settings["horizons"]["med"]["clusters"]
         medunitduration = Millisecond(Hour(settings["horizons"]["med"]["unitduration_hours"]))
@@ -112,7 +112,7 @@ function run_series(config, scenarioyear, dataset)
         dummyshortobjects, dummyshh, dummysph = make_obj(elements, shh, sph)
         dummystorages = getstorages(dummyshortobjects)
         startstates = Dict{String, Float64}()
-        getstartstates!(startstates, settings["problems"]["prognosis"], dataset, dummyshortobjects, dummystorages)
+        getstartstates!(startstates, settings["problems"]["prognosis"], dataset, dummyshortobjects, dummystorages, tnormal)
         startstates_max!(dummystorages, tnormal, startstates)
 
         # Simulation scenario modelling - choose scenarios for the whole simulation
@@ -254,7 +254,7 @@ function run_series(config, scenarioyear, dataset)
 
         # Add detailed startstates
         detailedstorages = getstorages(stochasticmodelobjects)
-        getstartstates!(startstates, settings["problems"]["stochastic"], dataset, stochasticmodelobjects, detailedstorages)
+        getstartstates!(startstates, settings["problems"]["stochastic"], dataset, stochasticmodelobjects, detailedstorages, tnormal)
         startstates_max!(detailedstorages, tnormal, startstates)
 
         # Distribute subsystems with inputs and outputs on different cores
@@ -348,7 +348,7 @@ function run_series(config, scenarioyear, dataset)
         end
     
         # Deterministic long/mid/short - calculate scenarioprices for all 30 
-        if skipmed.value == 0
+        if (prognumscen < simnumscen) && (skipmed.value == 0)
             @time scenariomodelling!(progscenmodmethod, values(dummyshortobjects), prognumscen, simscenmodmethod, progscendelta)
         elseif prognumscen < simnumscen
             increment_scenmodmethod!(progscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
@@ -358,7 +358,7 @@ function run_series(config, scenarioyear, dataset)
         @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr-1)
     
         # Stochastic sub systems - calculate storage value    
-        if skipmed.value == 0
+        if (stochnumscen < prognumscen) && (skipmed.value == 0)
             # Choose new scenarios
             @time scenariomodelling!(stochscenmodmethod, scenarioobjects, stochnumscen, progscenmodmethod, stochscendelta)
             
