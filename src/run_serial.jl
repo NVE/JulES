@@ -159,7 +159,7 @@ function run_series(config, scenarioyear, dataset)
         progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
         
         # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
-        probmethodsprognosis = [parse_methods(settings["problems"]["prognosis"]["long"]["solver"]), parse_methods(settings["problems"]["prognosis"]["med"]["solver"]), (settings["problems"]["prognosis"]["short"]["solver"])]
+        probmethodsprognosis = [parse_methods(settings["problems"]["prognosis"]["long"]["solver"]), parse_methods(settings["problems"]["prognosis"]["med"]["solver"]), parse_methods(settings["problems"]["prognosis"]["short"]["solver"])]
         # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
 
         # Initialize price prognosis models and run for first time step. Run scenarios in parallell
