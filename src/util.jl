@@ -255,12 +255,16 @@ function gettphasein(type, datatime, scenariotime, uncertaintyscenariotime, phas
         return PhaseinPrognosisTime(datatime, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif type == "PhaseinFixedDataTwoTime"
         return PhaseinFixedDataTwoTime(datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+    elseif type == "PrognosisTime"
+        return PrognosisTime(datatime, datatime, scenariotime)
+    elseif type == "FixedDataTwoTime"
+        return FixedDataTwoTime(datatime, scenariotime)
     else
         error("$type not implementet in gettphasein-function")
     end
 end
 
-function getscenariotimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+function getprobtimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
     # Standard time for market clearing - perfect information so simple time type
     datatime = getisoyearstart(datayear) + Week(weekstart-1)
     scenariotime = getisoyearstart(scenarioyear) + Week(weekstart-1)
@@ -335,6 +339,7 @@ end
 function getoutputpath(config)
     method = config["main"]["function"]
     if method == "nve_prognosis"
+        weekstart = config["main"]["weekstart"]
         return joinpath(config["main"]["folder"], "Uke_$weekstart", config["main"]["outputfolder"])
     else
         error("$method not supported")

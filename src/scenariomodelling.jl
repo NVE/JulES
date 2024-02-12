@@ -173,12 +173,18 @@ function scaleinflow!(scenmodmethod::Union{InflowClusteringMethod,SumInflowQuant
     return
 end
 
-# Increment scenariotimes in scenariomodellingmethods
+# # Increment scenariotimes in scenariomodellingmethods
 function increment_scenmodmethod!(scenmodmethod::ScenarioModellingMethod, phaseinoffset::Millisecond, phaseindelta::Millisecond, phaseinsteps::Int)
     for i in 1:length(scenmodmethod.scentimes)
         (scentnormal, scentphasein, scenario) = scenmodmethod.scentimes[i]
         scentnormal += phaseinoffset
-        scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentnormal), phaseinoffset, phaseindelta, phaseinsteps)
+        if scentphasein isa Union{PrognosisTime, FixedDataTwoTime}
+            scentphasein += phaseinoffset
+        elseif scentphasein isa PhaseinPrognosisTime
+            scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentphasein) + phaseinoffset, phaseinoffset, phaseindelta, phaseinsteps)
+        elseif scentphasein isa PhaseinFixedDataTwoTime
+            scentphasein = PhaseinFixedDataTwoTime(getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentphasein) + phaseinoffset, phaseinoffset, phaseindelta, phaseinsteps);
+        end
         scenmodmethod.scentimes[i] = (scentnormal, scentphasein, scenario)
     end
 end
