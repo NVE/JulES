@@ -19,13 +19,13 @@ function run_series(config, scenarioyear, dataset)
         
         # Phasein settings
         phaseinoffset = steplength # phase in straight away from second stage scenarios
-        phaseindelta = Millisecond(Day(settings["time"]["phaseindelta_days"])) # Phase in the second stage scenario over 5 weeks
-        phaseinsteps = settings["time"]["phaseinsteps"] # Phase in second stage scenario in 5 steps
-        
+        phaseindelta = Millisecond(Day(settings["time"]["probtime"]["phaseindelta_days"])) # Phase in the second stage scenario over 5 weeks
+        phaseinsteps = settings["time"]["probtime"]["phaseinsteps"] # Phase in second stage scenario in 5 steps
+
         # Make standard time and scenario uncertainty times
         tnormaltype = settings["time"]["probtime"]["normaltime"]
         tphaseintype =  settings["time"]["probtime"]["phaseintime"]
-        tnormal, datascenmodmethod = getscenariotimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+        tnormal, datascenmodmethod = getprobtimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
         
         # How many time steps to run the simulation for
         steps = Int(ceil((getisoyearstart(datayear + simulationyears) - getisoyearstart(datayear)).value/steplength.value) + extrasteps);
@@ -533,12 +533,12 @@ function run_series(config, scenarioyear, dataset)
 
         sti_output = getoutputpath(config)
         mkpath(sti_output)
-        @time h5open(joinpath(sti_output, "$dim.h5"), "w") do file
+        @time h5open(joinpath(sti_output, "$scenarioyear.h5"), "w") do file
             for (k,v) in data
                 display(k)
                 write(file, k, v)
             end
-        end;
+        end
 
         # # Store as CSV
         # areaprices = rename!(DataFrame(prices, :auto),powerbalancenames)
