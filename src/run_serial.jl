@@ -55,7 +55,7 @@ function run_series(config, scenarioyear, dataset)
         longhorizonduration = Millisecond(Week(settings["horizons"]["long"]["horizonduration_weeks"]))
         longhydroperiodduration = Millisecond(Day(settings["horizons"]["long"]["hydroperiodduration_days"]))
         longrhsdata = getrhsdata(settings["horizons"]["long"]["rhsdata"])
-        longmethod = eval(Meta.parse(settings["horizons"]["long"]["rhsmethod"]))
+        longmethod = parse_methods(settings["horizons"]["long"]["rhsmethod"])
         longclusters = settings["horizons"]["long"]["clusters"]
         longunitduration = Millisecond(Hour(settings["horizons"]["long"]["unitduration_hours"]))
 
@@ -87,7 +87,7 @@ function run_series(config, scenarioyear, dataset)
         medhorizonduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"]))
         medhydroperiodduration = Millisecond(Day(settings["horizons"]["med"]["hydroperiodduration_days"])); @assert medhorizonduration.value % longhydroperiodduration.value == 0
         medrhsdata = getrhsdata(settings["horizons"]["med"]["rhsdata"])
-        medmethod = eval(Meta.parse(settings["horizons"]["med"]["rhsmethod"]))
+        medmethod = parse_methods(settings["horizons"]["med"]["rhsmethod"])
         medclusters = settings["horizons"]["med"]["clusters"]
         medunitduration = Millisecond(Hour(settings["horizons"]["med"]["unitduration_hours"]))
 
@@ -142,9 +142,9 @@ function run_series(config, scenarioyear, dataset)
         progscentimes = distribute(progscenmodmethod.scentimes)
 
         # Problems are built, updated, solved, and stored on a specific core. Moving a problem between cores is expensive, so we want it to only exist on one core. 
-        longprobs = distribute([eval(Meta.parse(settings["problems"]["prognosis"]["long"]["prob"])) for i in 1:length(progscentimes)], progscentimes)
-        medprobs = distribute([eval(Meta.parse(settings["problems"]["prognosis"]["med"]["prob"])) for i in 1:length(progscentimes)], progscentimes)
-        shortprobs = distribute([eval(Meta.parse(settings["problems"]["prognosis"]["short"]["prob"])) for i in 1:length(progscentimes)], progscentimes)
+        longprobs = distribute([parse_methods(settings["problems"]["prognosis"]["long"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
+        medprobs = distribute([parse_methods(settings["problems"]["prognosis"]["med"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
+        shortprobs = distribute([parse_methods(settings["problems"]["prognosis"]["short"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
 
         # Results are moved between cores. These are much smaller than longprobs/medprobs/shortprobs and are inexpensive to move between cores.
         medprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
@@ -159,7 +159,7 @@ function run_series(config, scenarioyear, dataset)
         progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
         
         # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
-        probmethodsprognosis = [eval(Meta.parse(settings["problems"]["prognosis"]["long"]["solver"])), eval(Meta.parse(settings["problems"]["prognosis"]["med"]["solver"])), eval(Meta.parse(settings["problems"]["prognosis"]["short"]["solver"]))]
+        probmethodsprognosis = [parse_methods(settings["problems"]["prognosis"]["long"]["solver"]), parse_methods(settings["problems"]["prognosis"]["med"]["solver"]), (settings["problems"]["prognosis"]["short"]["solver"])]
         # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
 
         # Initialize price prognosis models and run for first time step. Run scenarios in parallell
@@ -259,7 +259,7 @@ function run_series(config, scenarioyear, dataset)
 
         # Distribute subsystems with inputs and outputs on different cores
         storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystems to cores based on how many modelobjects in eac subsystem
-        masters = distribute([eval(Meta.parse(settings["problems"]["stochastic"]["master"]["prob"])) for i in 1:length(storagesystemobjects)], storagesystemobjects)
+        masters = distribute([parse_methods(settings["problems"]["stochastic"]["master"]["prob"]) for i in 1:length(storagesystemobjects)], storagesystemobjects)
         subs = distribute([[] for i in 1:length(storagesystemobjects)], storagesystemobjects)
         states = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(storagesystemobjects)], storagesystemobjects)
         cuts = distribute([SimpleSingleCuts() for i in 1:length(storagesystemobjects)], storagesystemobjects)
@@ -267,7 +267,7 @@ function run_series(config, scenarioyear, dataset)
 
         # Which solver and settings should we use for each problem?
         # probmethodsstochastic = [CPLEXSimplexMethod(), CPLEXSimplexMethod()]
-        probmethodsstochastic = [eval(Meta.parse(settings["problems"]["stochastic"]["master"]["solver"])), eval(Meta.parse(settings["problems"]["stochastic"]["subs"]["solver"]))]
+        probmethodsstochastic = [parse_methods(settings["problems"]["stochastic"]["master"]["solver"]), parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])]
 
         # Initialize subsystem problems and run for first time step. Run subsystems in parallell
         @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod)
@@ -286,7 +286,7 @@ function run_series(config, scenarioyear, dataset)
         cpdh = Millisecond(Hour(settings["horizons"]["clearing"]["hydro"]["periodduration_hours"])) # clearing period duration hydro
         # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
         cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
-        probmethodclearing = eval(Meta.parse(settings["problems"]["clearing"]["solver"]))
+        probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
         # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
         # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
         @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal)

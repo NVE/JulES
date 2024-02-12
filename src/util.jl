@@ -283,6 +283,19 @@ function getprobtimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltyp
     return (tnormal, datascenmodmethod)
 end
 
+# Parse methods (alternative to eval(Meta.parse))
+function parse_methods(s::String)
+    if s == "HiGHS_Prob()"
+        return HiGHS_Prob()
+    elseif s == "HighsSimplexMethod()"
+        return HighsSimplexMethod()
+    elseif s == "HighsSimplexMethod(warmstart=false)"
+        return HighsSimplexMethod(warmstart=false)
+    elseif s == "KMeansAHMethod()"
+        return KMeansAHMethod()
+    end
+end
+
 # Prognosis util functions
 function getrhsdata(rhsdata)
     method = rhsdata["function"]
