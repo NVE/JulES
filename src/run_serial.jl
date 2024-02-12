@@ -65,12 +65,12 @@ function run_series(config, scenarioyear, dataset)
             longshrinkatleast = longhydroperiodduration - phaseinoffset
             longminperiod = steplength
             global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
-        elseif settings["problems"]["prognosis"]["shrinkable"] == "both_ignorephasein"
-                longfirstperiod = shorthorizonduration
-                longstartafter = shorthorizonduration
-                longshrinkatleast = longhydroperiodduration - phaseinoffset
-                longminperiod = steplength
-                global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
+        elseif settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein"
+            longfirstperiod = shorthorizonduration
+            longstartafter = shorthorizonduration
+            longshrinkatleast = longhydroperiodduration - phaseinoffset
+            longminperiod = steplength
+            global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
         elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
             global longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
         end
@@ -91,7 +91,7 @@ function run_series(config, scenarioyear, dataset)
         medclusters = settings["horizons"]["med"]["clusters"]
         medunitduration = Millisecond(Hour(settings["horizons"]["med"]["unitduration_hours"]))
 
-        if (settings["problems"]["prognosis"]["shrinkable"] == "both") || (settings["problems"]["prognosis"]["shrinkable"] == "both_ignorephasein")
+        if (settings["problems"]["prognosis"]["shrinkable"] == "both") || (settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein")
             medfirstperiod = shorthorizonduration
             medstartafter = longstartafter
             medshrinkatleast = longhydroperiodduration - phaseinoffset
