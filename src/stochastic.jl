@@ -65,9 +65,9 @@ function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, M
     masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
-    for (i, (tnormal, tphasein, scenario)) in enumerate(scenarios)
+    for (tnormal, tphasein, scenario) in scenarios
         offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
-        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, i, prices, short, false, false)
+        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false, false)
         push!(subscenarioobjects, subobject)
     end
 
@@ -124,8 +124,9 @@ function removeelements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) # 
             push!(delix,i)
         end
     end
-    deleteat!(elements, delix)
-    
+    for deli in sort(delix; rev=true)
+        popat!(elements, deli)
+    end
     return elements
 end
 
