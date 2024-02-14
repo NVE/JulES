@@ -422,11 +422,15 @@ function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vecto
             localix += 1
         end
     end
-    storagesystemobjects = distribute(storagesystemobjects)
-    shorts = distribute(shorts, storagesystemobjects)
+    storagesystemobjects1 = distribute(storagesystemobjects)
+    shorts1 = distribute(shorts, storagesystemobjects1)
+    return storagesystemobjects1, shorts1
+end
+function distribute_subsystems_flat(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector)
+    storagesystemobjects = distribute(ustoragesystemobjects)
+    shorts = distribute(ushorts, storagesystemobjects)
     return storagesystemobjects, shorts
 end
-
 
 
 

@@ -254,7 +254,11 @@ function run_serial(config, datayear, scenarioyear, dataset)
         startstates_max!(detailedstorages, tnormal, startstates)
 
         # Distribute subsystems with inputs and outputs on different cores
-        storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystems to cores based on how many modelobjects in eac subsystem
+        if settings["problems"]["stochastic"]["onlyagghydro"]
+            storagesystemobjects, shorts = distribute_subsystems_flat(ustoragesystemobjects, ushorts)
+        else
+            storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystems to cores based on how many modelobjects in eac subsystem
+        end
         masters = distribute([parse_methods(settings["problems"]["stochastic"]["master"]["prob"]) for i in 1:length(storagesystemobjects)], storagesystemobjects)
         subs = distribute([[] for i in 1:length(storagesystemobjects)], storagesystemobjects)
         states = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(storagesystemobjects)], storagesystemobjects)
