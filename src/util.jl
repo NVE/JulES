@@ -238,3 +238,124 @@ function getinsideduals(p::Prob, storages::Vector, t::Int)
     end
     return endvalues
 end
+
+# Time util functions
+function gettnormal(type::String, datatime::DateTime, scenariotime::DateTime)
+    if type == "PrognosisTime"
+        return PrognosisTime(datatime, datatime, scenariotime)
+    elseif type == "FixedDataTwoTime"
+        return FixedDataTwoTime(datatime, scenariotime)
+    else
+        error("$type not implementet in getnormal-function")
+    end
+end
+
+function gettphasein(type::String, datatime::DateTime, scenariotime::DateTime, uncertaintyscenariotime::DateTime, phaseinoffset::Millisecond, phaseindelta::Millisecond, phaseinsteps::Int64)
+    if type == "PhaseinPrognosisTime"
+        return PhaseinPrognosisTime(datatime, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+    elseif type == "PhaseinFixedDataTwoTime"
+        return PhaseinFixedDataTwoTime(datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+    elseif type == "PrognosisTime"
+        return PrognosisTime(datatime, datatime, scenariotime)
+    elseif type == "FixedDataTwoTime"
+        return FixedDataTwoTime(datatime, scenariotime)
+    else
+        error("$type not implementet in gettphasein-function")
+    end
+end
+
+function getprobtimes(datayear::Int64, weekstart::Int64, scenarioyear::Int64, datanumscen::Int64, tnormaltype::String, tphaseintype::String, phaseinoffset::Millisecond, phaseindelta::Millisecond, phaseinsteps::Int64)
+    # Standard time for market clearing - perfect information so simple time type
+    datatime = getisoyearstart(datayear) + Week(weekstart-1)
+    scenariotime = getisoyearstart(scenarioyear) + Week(weekstart-1)
+    tnormal = gettnormal(tnormaltype, datatime, scenariotime)
+
+    # Make scenario times for all uncertainty scenarios. List of tuples with tnormal, tphasein and scenarionumber
+    datascentimes = []
+    for scen in 1:datanumscen
+        uncertaintyscenariotime = getisoyearstart(scenarioyear + scen - 1) + Week(weekstart-1)
+        scentnormal = gettnormal(tnormaltype, datatime, uncertaintyscenariotime)
+        scentphasein = gettphasein(tphaseintype, datatime, scenariotime, uncertaintyscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+       
+        push!(datascentimes, (scentnormal, scentphasein, scen))
+    end
+    datascenmodmethod = NoScenarioModellingMethod(datanumscen, datascentimes)
+    return (tnormal, datascenmodmethod)
+end
+
+# Parse methods (alternative to eval(Meta.parse))
+function parse_methods(s::String)
+    if s == "HiGHS_Prob()"
+        return HiGHS_Prob()
+    elseif s == "HighsSimplexMethod()"
+        return HighsSimplexMethod()
+    elseif s == "HighsSimplexMethod(warmstart=false)"
+        return HighsSimplexMethod(warmstart=false)
+    elseif s == "HighsSimplexSIPMethod(warmstart=false)"
+        return HighsSimplexSIPMethod(warmstart=false)
+    elseif s == "KMeansAHMethod()"
+        return KMeansAHMethod()
+    end
+end
+
+# Prognosis util functions
+function getrhsdata(rhsdata::Dict, datayear::Int64, scenarioyearstart::Int64, scenarioyearstop::Int64)
+    method = rhsdata["function"]
+    if method == "DynamicExogenPriceAHData"
+        return DynamicExogenPriceAHData(Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
+    elseif method == "StaticRHSAHData"
+        return StaticRHSAHData("Power", datayear, scenarioyearstart, scenarioyearstop)
+    elseif method == "DynamicRHSAHData"
+        return DynamicRHSAHData("Power")
+    else
+        error("$method not supported")
+    end
+end
+
+function getscenmodmethod(problem::Dict, numscen::Int64)
+    method = problem["function"]
+    if method == "InflowClusteringMethod"
+        parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
+        return InflowClusteringMethod(numscen, parts)
+    else
+        error("$method not supported")
+    end
+end
+
+function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
+    startstorages = problemconfig["startstorages"]
+    if startstorages["function"] == "percentages"
+        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
+        longtermstorages = setdiff(storages, shorttermstorages)
+        merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
+        merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
+    elseif haskey(dataset, startstorages["function"])
+        merge!(startstates, dataset[startstorages["function"]])
+    end
+end
+
+# Get dictionary with each detailed reservoir and their water value for each scenario
+# TODO: Detailed run-of-river reservoirs get water value from aggregated reservoir hydro
+function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvglobaldict::Dict)
+    endvaluesdicts = Dict[];
+    for endvaluesobj in endvaluesobjs
+        instance = [getinstancename(getid(obj)) for obj in endvaluesobj.objects]
+        endvalues = endvaluesobj.values
+        endvaluesdict = Dict(instance .=> endvalues)
+
+        for (k,v) in detailedrescopl
+            endvaluesdict["Reservoir_" * k] = endvaluesdict["Reservoir_" * v * "_hydro_reservoir"] * enekvglobaldict[k]
+        end
+        push!(endvaluesdicts, endvaluesdict)
+    end
+    
+    return endvaluesdicts
+end
+
+function getoutputindex(mainconfig::Dict, datayear::Int64, scenarioyear::Int64)
+    if mainconfig["outputindex"] == "datayear"
+        return datayear
+    elseif mainconfig["outputindex"] == "scenarioyear"
+        return scenarioyear
+    end
+end

@@ -65,9 +65,9 @@ function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, M
     masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
-    for (i, (tnormal, tphasein, scenario)) in enumerate(scenarios)
+    for (tnormal, tphasein, scenario) in scenarios
         offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
-        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, i, prices, short, false, false)
+        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false, false)
         push!(subscenarioobjects, subobject)
     end
 
@@ -124,8 +124,9 @@ function removeelements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) # 
             push!(delix,i)
         end
     end
-    deleteat!(elements, delix)
-    
+    for deli in sort(delix; rev=true)
+        popat!(elements, deli)
+    end
     return elements
 end
 
@@ -374,9 +375,9 @@ function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_:
                 end
             end
         end
-        if skipmed.value == 0
-            GC.gc() # regulary garbage collection, else there is always one processor core for each time step that the others have to wait for
-        end
+        # if skipmed.value == 0
+        #     GC.gc() # regulary garbage collection, else there is always one processor core for each time step that the others have to wait for
+        # end
     end
 end
 
@@ -421,11 +422,15 @@ function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vecto
             localix += 1
         end
     end
-    storagesystemobjects = distribute(storagesystemobjects)
-    shorts = distribute(shorts, storagesystemobjects)
+    storagesystemobjects1 = distribute(storagesystemobjects)
+    shorts1 = distribute(shorts, storagesystemobjects1)
+    return storagesystemobjects1, shorts1
+end
+function distribute_subsystems_flat(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector)
+    storagesystemobjects = distribute(ustoragesystemobjects)
+    shorts = distribute(ushorts, storagesystemobjects)
     return storagesystemobjects, shorts
 end
-
 
 
 
