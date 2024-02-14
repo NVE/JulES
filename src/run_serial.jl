@@ -1,12 +1,10 @@
-using DataFrames, Statistics, JSON, Distributed, Clustering, FileIO, HDF5, CSV
-
-function run_series(config, scenarioyear, dataset)
+function run_serial(config, datayear, scenarioyear, dataset)
     mainconfig = config["main"]
     settings = config[mainconfig["settings"]]
+    numcores = mainconfig["numcores"]
 
     println("Time parameters")
     @time begin
-        datayear = mainconfig["datayear"]
         weekstart = mainconfig["weekstart"]
         
         scenarioyearstart = settings["time"]["scenarioyearstart"]
@@ -24,7 +22,7 @@ function run_series(config, scenarioyear, dataset)
 
         # Make standard time and scenario uncertainty times
         tnormaltype = settings["time"]["probtime"]["normaltime"]
-        tphaseintype =  settings["time"]["probtime"]["phaseintime"]
+        tphaseintype = settings["time"]["probtime"]["phaseintime"]
         tnormal, datascenmodmethod = getprobtimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
         
         # How many time steps to run the simulation for
@@ -35,8 +33,6 @@ function run_series(config, scenarioyear, dataset)
     @time begin
         elements = dataset["elements"]
         detailedelements = dataset["detailedelements"]
-        aggstartmagdict = dataset["aggstartmagdict"]
-        startmagdict = dataset["startmagdict"]
         detailedrescopl = dataset["detailedrescopl"]
         
         addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop)
@@ -238,7 +234,7 @@ function run_series(config, scenarioyear, dataset)
         shortpriceslocal = convert(Vector{Dict}, shortprices)
 
         # Inputs
-        stochasticelements = removeelements!(copy(detailedelements))
+        stochasticelements = removeelements!(copy(detailedelements), aggzone=aggzone)
         storageinfo = (startstates, medendvaluesdicts)
         shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
         medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
@@ -493,11 +489,7 @@ function run_series(config, scenarioyear, dataset)
         end
 
         # Time
-        if mainconfig["function"] == "nve_prognosis"
-            dim = datayear
-        elseif mainconfig["function"] == "nve_la"
-            dim = scenarioyear
-        end
+        dim = getoutputindex(mainconfig, datayear, scenarioyear)
         x1 = [getisoyearstart(dim) + Week(weekstart-1) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
         x2 = [getisoyearstart(dim) + Week(weekstart-1) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
         x3 = [getisoyearstart(dim) + Week(weekstart-1) + steplength*(t-1) for t in 1:steps]; # state resolution
@@ -530,37 +522,7 @@ function run_series(config, scenarioyear, dataset)
         data["prognosistimes"] = prognosistimes1
         data["stochastictimes"] = st1
         data["clearingtimes"] = clearingtimes
-
-        sti_output = getoutputpath(config)
-        mkpath(sti_output)
-        @time h5open(joinpath(sti_output, "$scenarioyear.h5"), "w") do file
-            for (k,v) in data
-                display(k)
-                write(file, k, v)
-            end
-        end
-
-        # # Store as CSV
-        # areaprices = rename!(DataFrame(prices, :auto),powerbalancenames)
-        # areaprices[!,:time] = x1
-        # CSV.write(joinpath(sti_output, "price$scenarioyear.csv"), areaprices)
-
-        # demand = rename!(DataFrame(demandvalues, :auto),demandnames)
-        # demand[!,:time] = x1
-        # demand = stack(demand,Not(:time))
-        # demandcopl = DataFrame(variable=demandnames, area=demandbalancenames)
-        # demand = leftjoin(demand, demandcopl, on=:variable)
-        # CSV.write(joinpath(sti_output, "demand$scenarioyear.csv"), demand)
-
-        # supply = rename!(DataFrame(supplyvalues, :auto),supplynames)
-        # supply[!,:time] = x1
-        # supply = stack(supply,Not(:time))
-        # supplycopl = DataFrame(variable=supplynames, area=supplybalancenames)
-        # supply = leftjoin(supply, supplycopl, on=:variable)
-        # CSV.write(joinpath(sti_output, "supply$scenarioyear.csv"), supply)
-
-        # hydro = rename!(DataFrame(hydrolevels, :auto),hydronames)
-        # hydro[!,:time] = x2
-        # CSV.write(joinpath(sti_output, "hydro$scenarioyear.csv"), hydro);
     end
+
+    return data
 end

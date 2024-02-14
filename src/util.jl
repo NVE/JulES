@@ -352,15 +352,10 @@ function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvgloba
     return endvaluesdicts
 end
 
-# Output util
-function getoutputpath(config::Dict)
-    method = config["main"]["function"]
-    if method == "nve_prognosis"
-        weekstart = config["main"]["weekstart"]
-        return joinpath(config["main"]["folder"], "Uke_$weekstart", config["main"]["outputfolder"])
-    elseif method == "nve_la"
-        return joinpath(config["main"]["folder"], config["main"]["outputfolder"], string(config["main"]["datayear"]))
-    else
-        error("$method not supported")
+function getoutputindex(mainconfig::Dict, datayear::Int64, scenarioyear::Int64)
+    if mainconfig["outputindex"] == "datayear"
+        return datayear
+    elseif mainconfig["outputindex"] == "scenarioyear"
+        return scenarioyear
     end
 end
