@@ -704,7 +704,9 @@ weakdeps = ["Random", "Test"]
 
 [[deps.TuLiPa]]
 deps = ["CSV", "Clustering", "DataFrames", "Dates", "HiGHS", "Interpolations", "JSON", "JuMP", "PrecompileTools", "Random", "Statistics", "Test"]
-path = "x:\\Prosjekter\\2022_FoU_markedsmodell_julia\\jgrc\\TuLiPa"
+git-tree-sha1 = "87c546d8b996f3f637e333bf44ba94f40a2e2a06"
+repo-rev = "master"
+repo-url = "https://github.com/NVE/TuLiPa.git"
 uuid = "970f5c25-cd7d-4f04-b50d-7a4fe2af6639"
 version = "0.1.0"
 
