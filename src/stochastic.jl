@@ -1,5 +1,5 @@
 # Make modelobjects for stochastic subsystems, group into subsystems
-function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Vector{Dict}, short::Bool, master::Bool, validate::Bool)
+function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Union{Vector{Dict},Nothing}, short::Bool, master::Bool, validate::Bool)
     # Add horizons to elements
     battery_horizon = SequentialHorizon(ceil(Int64, problemduration/pdp), pdp; offset) # TODO: Quickfix
     hydro_horizon = SequentialHorizon(ceil(Int64, problemduration/pdh), pdh; offset)
@@ -13,23 +13,25 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
             (HORIZON_CONCEPT, battery_horizon)))
     
     # Add prices to elements
-    price = prices[scenario]
+    if prices != nothing
+        price = prices[scenario]
 
-    push!(elements, DataElement(TIMEINDEX_CONCEPT, "RangeTimeIndex", "ShortTermTimeIndex", price["steprange"]))
-    
-    for (i, area) in enumerate(price["names"])
-        push!(elements, getelement(TIMEVALUES_CONCEPT, "VectorTimeValues", "ValuesPrice_" * area,
-            ("Vector", price["matrix"][:, i])))
-        push!(elements, getelement(TIMEVECTOR_CONCEPT, "MutableInfiniteTimeVector", "ProfilePrice_" * area,
-            (TIMEINDEX_CONCEPT, "ShortTermTimeIndex"), (TIMEVALUES_CONCEPT, "ValuesPrice_" * area)))
-        push!(elements, getelement(PARAM_CONCEPT, "MeanSeriesIgnorePhaseinParam", "SeriesPrice_" * area,
-            ("Level", 1.0),
-            ("Profile", "ProfilePrice_" * area)))
-        push!(elements, getelement(PARAM_CONCEPT, "StatefulParam", "Price_" * area,
-            (PARAM_CONCEPT, "SeriesPrice_" * area)))
-        push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", "PowerBalance_" * area, 
-            (COMMODITY_CONCEPT, "Power"),
-            (PRICE_CONCEPT, "Price_" * area)))
+        push!(elements, DataElement(TIMEINDEX_CONCEPT, "RangeTimeIndex", "ShortTermTimeIndex", price["steprange"]))
+        
+        for (i, area) in enumerate(price["names"])
+            push!(elements, getelement(TIMEVALUES_CONCEPT, "VectorTimeValues", "ValuesPrice_" * area,
+                ("Vector", price["matrix"][:, i])))
+            push!(elements, getelement(TIMEVECTOR_CONCEPT, "MutableInfiniteTimeVector", "ProfilePrice_" * area,
+                (TIMEINDEX_CONCEPT, "ShortTermTimeIndex"), (TIMEVALUES_CONCEPT, "ValuesPrice_" * area)))
+            push!(elements, getelement(PARAM_CONCEPT, "MeanSeriesIgnorePhaseinParam", "SeriesPrice_" * area,
+                ("Level", 1.0),
+                ("Profile", "ProfilePrice_" * area)))
+            push!(elements, getelement(PARAM_CONCEPT, "StatefulParam", "Price_" * area,
+                (PARAM_CONCEPT, "SeriesPrice_" * area)))
+            push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", "PowerBalance_" * area, 
+                (COMMODITY_CONCEPT, "Power"),
+                (PRICE_CONCEPT, "Price_" * area)))
+        end
     end
 
     # Make modelobjets from elements and group into subsystems
@@ -58,7 +60,7 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
 end
 
 # Make master and subproblem objects for each subsystem
-function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Vector{Dict}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
+function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Union{Vector{Dict}, Nothing}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
     # Only validate dataelements once
@@ -182,6 +184,9 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     update!(master, tnormal)
     setstartstates!(master, getstorages(getobjects(master)), startstates)
 
+    # Find price
+    medendvaluesdicts == Dict[] && global exogenprice = findfirstprice(master.objects)
+
     # Update subs
     for (i,sub) in enumerate(subs)
         (tnormalsub, tphaseinsub, scenario) = scenarios.scentimes[i]
@@ -195,8 +200,23 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
             subendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
             subendvaluesobj = EndValues(subendvaluesid, storages)
             push!(getobjects(sub), subendvaluesobj)
-            subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in storages]
-            updateendvalues!(sub, subendvaluesobj, subendvalues)
+            if medendvaluesdicts != Dict[]
+                subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in storages]
+                updateendvalues!(sub, subendvaluesobj, subendvalues)
+            else
+                # Alternative end reservoir conditions:
+                # - Stop equals start reservoir, and long enough horizon (can crash if many start reservoirs full or empty)
+                # - End value = 0, and long enough horizon
+                # - List of endvalues from other calculation, maybe SDP
+                # - End value equals average price in this price area for different scenarios (could also adjust based on reservoir flexibility)
+
+                # setendstoragepercentage!(sub, storages, scentphasein, startstorage) # set end reservoir
+
+                # Set monthly price at end of horizon as end value
+                scenprice = getparamvalue(exogenprice, tnormalsub + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
+                subendvalues = scenprice .* [getbalance(obj).metadata[GLOBALENEQKEY] for obj in storages] # end value also depends on the energy equivalent of the reservoir, the energy equivalent is stored as metadata
+                updateendvalues!(sub, subendvaluesobj, subendvalues)
+            end
         end
     end
 
@@ -311,8 +331,13 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         # Update master
         masterstorages = getstorages(getobjects(master))
         setstartstates!(master, masterstorages, startstates)
-        short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
-        !short && updatestochasticprices!(master, medprices, 1)
+
+        if medendvaluesdicts != Dict[]
+            short && updatestochasticprices!(master, shortprices, 1) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+            !short && updatestochasticprices!(master, medprices, 1)
+        else
+            global exogenprice = findfirstprice(master.objects)
+        end
 
         stochastictimes[stepnr, 1] = @elapsed update!(master, tnormal)
 
@@ -325,10 +350,18 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
                 setendstates!(sub, substorages, startstates) # set end reservoir
                 updatestochasticprices!(sub, shortprices, scenario)
             else
-                subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(sub))]
-                subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
-                updateendvalues!(sub, subendvaluesobj, subendvalues)
-                updatestochasticprices!(sub, medprices, scenario) 
+                if medendvaluesdicts != Dict[]
+                    subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(sub))]
+                    subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
+                    updateendvalues!(sub, subendvaluesobj, subendvalues)
+                    updatestochasticprices!(sub, medprices, scenario) 
+                else
+                    # Set monthly price at end of horizon as end value
+                    scenprice = getparamvalue(exogenprice, tnormalsub + getduration(gethorizon(substorages[1])), MsTimeDelta(Week(4))) 
+                    subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), sub.objects)]
+                    subendvalues = scenprice .* [getbalance(obj).metadata[GLOBALENEQKEY] for obj in substorages] # end value also depends on the energy equivalent of the reservoir, the energy equivalent is stored as metadata
+                    updateendvalues!(sub, subendvaluesobj, subendvalues)
+                end
             end
             
             stochastictimes[stepnr, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario

@@ -41,77 +41,27 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
     end
 
-    println("Init prognosis")
+    println("Make dummy objects") # for use in scenario modelling, validate elements and collect storages
     @time begin
-        # Set horizons for price prognosis models
-        # All
-        shorthorizonduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"]))
+        # Horizons are needed to build modelobjects, but not used in scenario modelling
+        dummyperiods = 10
+        dummyperiodduration = Millisecond(Hour(24))
+        power_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
+        hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
 
-        # Long
-        longhorizonduration = Millisecond(Week(settings["horizons"]["long"]["horizonduration_weeks"]))
-        longhydroperiodduration = Millisecond(Day(settings["horizons"]["long"]["hydroperiodduration_days"]))
-        longrhsdata = getrhsdata(settings["horizons"]["long"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
-        longmethod = parse_methods(settings["horizons"]["long"]["rhsmethod"])
-        longclusters = settings["horizons"]["long"]["clusters"]
-        longunitduration = Millisecond(Hour(settings["horizons"]["long"]["unitduration_hours"]))
+        # Make dummy detailed elements
+        dummydetailedobjects, dummydhh, dummydph = make_obj(detailedelements, hydro_horizon, power_horizon, validate=true)
 
-        if settings["problems"]["prognosis"]["shrinkable"] == "both"
-            longfirstperiod = shorthorizonduration
-            longstartafter = longhydroperiodduration + shorthorizonduration
-            longshrinkatleast = longhydroperiodduration - phaseinoffset
-            longminperiod = steplength
-            global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
-        elseif settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein"
-            longfirstperiod = shorthorizonduration
-            longstartafter = shorthorizonduration
-            longshrinkatleast = longhydroperiodduration - phaseinoffset
-            longminperiod = steplength
-            global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
-        elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
-            global longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
+        # Make dummy aggregated elements
+        if (elements != []) || !settings["problems"]["stochastic"]["onlyagghydro"]
+            dummyprogobjects, dummyphh, dummypph = make_obj(elements, hydro_horizon, power_horizon, validate=true)
+        else
+            dummyprogobjects = dummydetailedobjects
         end
-        lhh, lph = make_horizons(longhorizon...)
+    end
 
-        # Simplify modelobjects
-        aggzone = settings["problems"]["prognosis"]["aggzone"]
-        aggsupplyn = settings["problems"]["prognosis"]["aggsupplyn"]
-        removestoragehours = settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
-        residualarealist = settings["problems"]["prognosis"]["residualarealist"]
-        simplifyinputs = (aggzone, aggsupplyn, removestoragehours, residualarealist)
-
-        # Medium
-        medhorizonduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"]))
-        medhydroperiodduration = Millisecond(Day(settings["horizons"]["med"]["hydroperiodduration_days"])); @assert medhorizonduration.value % longhydroperiodduration.value == 0
-        medrhsdata = getrhsdata(settings["horizons"]["med"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
-        medmethod = parse_methods(settings["horizons"]["med"]["rhsmethod"])
-        medclusters = settings["horizons"]["med"]["clusters"]
-        medunitduration = Millisecond(Hour(settings["horizons"]["med"]["unitduration_hours"]))
-
-        if (settings["problems"]["prognosis"]["shrinkable"] == "both") || (settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein")
-            medfirstperiod = shorthorizonduration
-            medstartafter = longstartafter
-            medshrinkatleast = longhydroperiodduration - phaseinoffset
-            medminperiod = steplength
-            global medhorizon = (medfirstperiod, medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
-        elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
-            global medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
-        end
-        mhh, mph = make_horizons(medhorizon...)
-
-        # Short
-        shorthydroperiodduration = Millisecond(Hour(settings["horizons"]["short"]["hydroperiodduration_hours"])); @assert medhorizonduration.value % shorthorizonduration.value == 0
-        shortpowerparts = settings["horizons"]["short"]["powerparts"]
-        shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
-        shh, sph = make_horizons(shorthorizon...)
-
-        # Start storages
-        dummyshortobjects, dummyshh, dummysph = make_obj(elements, shh, sph)
-        dummystorages = getstorages(dummyshortobjects)
-        startstates = Dict{String, Float64}()
-        getstartstates!(startstates, settings["problems"]["prognosis"], dataset, dummyshortobjects, dummystorages, tnormal)
-        startstates_max!(dummystorages, tnormal, startstates)
-
-        # Simulation scenario modelling - choose scenarios for the whole simulation
+    println("Init scenario modelling for simulation, prognosis and stochastic") # choose scenarios for the whole simulation
+    @time begin
         simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]; @assert simnumscen <= datanumscen
         simscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["simulation"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
         if simnumscen == datanumscen
@@ -119,7 +69,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         else
             global simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen)
         end
-        @time scenariomodelling!(simscenmodmethod, values(dummyshortobjects), simnumscen, datascenmodmethod, simscendelta); # see JulES/scenariomodelling.jl
+        @time scenariomodelling!(simscenmodmethod, values(dummyprogobjects), simnumscen, datascenmodmethod, simscendelta) # see JulES/scenariomodelling.jl
         simnumscen != datanumscen && renumber_scenmodmethod!(simscenmodmethod)
 
         # Prognosis scenario modelling - choose scenarios for the price prognosis models
@@ -130,67 +80,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
         else
             global progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen)
         end
-        @time scenariomodelling!(progscenmodmethod, values(dummyshortobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
+        @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
         prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
-
-        # Preallocate storage for problems and results on different cores. Use package DistributedArrays
-        # Distribute scenarios
-        progscentimes = distribute(progscenmodmethod.scentimes)
-
-        # Problems are built, updated, solved, and stored on a specific core. Moving a problem between cores is expensive, so we want it to only exist on one core. 
-        longprobs = distribute([parse_methods(settings["problems"]["prognosis"]["long"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
-        medprobs = distribute([parse_methods(settings["problems"]["prognosis"]["med"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
-        shortprobs = distribute([parse_methods(settings["problems"]["prognosis"]["short"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
-
-        # Results are moved between cores. These are much smaller than longprobs/medprobs/shortprobs and are inexpensive to move between cores.
-        medprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
-        shortprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
-        medendvaluesobjs = distribute([EndValues() for i in 1:length(progscentimes)], progscentimes)
-        nonstoragestates = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(progscentimes)], progscentimes)
-
-        # Organise inputs and outputs
-        probs = (longprobs, medprobs, shortprobs)
-        horizons = (lhh, lph, mhh, mph, shh, sph)
-        proginput = (numcores, progscentimes, phaseinoffset, startstates, simplifyinputs)
-        progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
-        
-        # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
-        probmethodsprognosis = [parse_methods(settings["problems"]["prognosis"]["long"]["solver"]), parse_methods(settings["problems"]["prognosis"]["med"]["solver"]), parse_methods(settings["problems"]["prognosis"]["short"]["solver"])]
-        # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
-
-        # Initialize price prognosis models and run for first time step. Run scenarios in parallell
-        @time pl_prognosis_init!(probmethodsprognosis, probs, elements, horizons, proginput, progoutput)
-    end
-
-    println("Mapping between aggregated and detailed storages")
-    @time begin
-        # Global energy equivalent detailed reservoirs
-        enekvglobaldict = Dict()
-        for element in detailedelements
-            if element.typename == GLOBALENEQKEY
-                enekvglobaldict[split(element.instancename,"GlobalEneq_")[2]] = element.value["Value"]
-            end
-        end
-
-        medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict);
-    end
-
-    println("Init scenariomodelling for stochastic")
-    @time begin
-        # Modelobjects that can be used to reduce scenarios
-        scenarioelements = copy(detailedelements)
-
-        # Horizons are needed to build modelobjects, but not used in scenario modelling
-        dummyperiods = 10
-        dummyperiodduration = Millisecond(Hour(24))
-        power_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-        hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-
-        set_horizon!(scenarioelements, "Power", power_horizon)
-        set_horizon!(scenarioelements, "Battery", power_horizon)
-        set_horizon!(scenarioelements, "Hydro", hydro_horizon)
-
-        scenarioobjects = collect(values(getmodelobjects(scenarioelements)))
 
         # Stochastic scenario modelling - choose scenarios for the price stochastic models
         stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]; @assert stochnumscen <= prognumscen
@@ -201,7 +92,121 @@ function run_serial(config, datayear, scenarioyear, dataset)
             global stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen)
         end
 
-        @time scenariomodelling!(stochscenmodmethod, scenarioobjects, stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
+        @time scenariomodelling!(stochscenmodmethod, values(dummydetailedobjects), stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
+    end
+
+    medendvaluesdicts = Dict[]
+    startstates = Dict{String, Float64}()
+    if elements != []
+        println("Init prognosis")
+        @time begin
+            # Set horizons for price prognosis models
+            # All
+            shorthorizonduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"]))
+
+            # Long
+            longhorizonduration = Millisecond(Week(settings["horizons"]["long"]["horizonduration_weeks"]))
+            longhydroperiodduration = Millisecond(Day(settings["horizons"]["long"]["hydroperiodduration_days"]))
+            longrhsdata = getrhsdata(settings["horizons"]["long"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
+            longmethod = parse_methods(settings["horizons"]["long"]["rhsmethod"])
+            longclusters = settings["horizons"]["long"]["clusters"]
+            longunitduration = Millisecond(Hour(settings["horizons"]["long"]["unitduration_hours"]))
+
+            if settings["problems"]["prognosis"]["shrinkable"] == "both"
+                longfirstperiod = shorthorizonduration
+                longstartafter = longhydroperiodduration + shorthorizonduration
+                longshrinkatleast = longhydroperiodduration - phaseinoffset
+                longminperiod = steplength
+                global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
+            elseif settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein"
+                longfirstperiod = shorthorizonduration
+                longstartafter = shorthorizonduration
+                longshrinkatleast = longhydroperiodduration - phaseinoffset
+                longminperiod = steplength
+                global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
+            elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
+                global longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
+            end
+            lhh, lph = make_horizons(longhorizon...)
+
+            # Simplify modelobjects
+            aggzone = settings["problems"]["prognosis"]["aggzone"]
+            aggsupplyn = settings["problems"]["prognosis"]["aggsupplyn"]
+            removestoragehours = settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
+            residualarealist = settings["problems"]["prognosis"]["residualarealist"]
+            simplifyinputs = (aggzone, aggsupplyn, removestoragehours, residualarealist)
+
+            # Medium
+            medhorizonduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"]))
+            medhydroperiodduration = Millisecond(Day(settings["horizons"]["med"]["hydroperiodduration_days"])); @assert medhorizonduration.value % longhydroperiodduration.value == 0
+            medrhsdata = getrhsdata(settings["horizons"]["med"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
+            medmethod = parse_methods(settings["horizons"]["med"]["rhsmethod"])
+            medclusters = settings["horizons"]["med"]["clusters"]
+            medunitduration = Millisecond(Hour(settings["horizons"]["med"]["unitduration_hours"]))
+
+            if (settings["problems"]["prognosis"]["shrinkable"] == "both") || (settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein")
+                medfirstperiod = shorthorizonduration
+                medstartafter = longstartafter
+                medshrinkatleast = longhydroperiodduration - phaseinoffset
+                medminperiod = steplength
+                global medhorizon = (medfirstperiod, medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
+            elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
+                global medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
+            end
+            mhh, mph = make_horizons(medhorizon...)
+
+            # Short
+            shorthydroperiodduration = Millisecond(Hour(settings["horizons"]["short"]["hydroperiodduration_hours"])); @assert medhorizonduration.value % shorthorizonduration.value == 0
+            shortpowerparts = settings["horizons"]["short"]["powerparts"]
+            shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
+            shh, sph = make_horizons(shorthorizon...)
+
+            # Start storages
+            dummystorages = getstorages(dummyprogobjects)
+            getstartstates!(startstates, settings["problems"]["prognosis"], dataset, dummyprogobjects, dummystorages, tnormal)
+            startstates_max!(dummystorages, tnormal, startstates)
+
+            # Preallocate storage for problems and results on different cores. Use package DistributedArrays
+            # Distribute scenarios
+            progscentimes = distribute(progscenmodmethod.scentimes)
+
+            # Problems are built, updated, solved, and stored on a specific core. Moving a problem between cores is expensive, so we want it to only exist on one core. 
+            longprobs = distribute([parse_methods(settings["problems"]["prognosis"]["long"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
+            medprobs = distribute([parse_methods(settings["problems"]["prognosis"]["med"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
+            shortprobs = distribute([parse_methods(settings["problems"]["prognosis"]["short"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
+
+            # Results are moved between cores. These are much smaller than longprobs/medprobs/shortprobs and are inexpensive to move between cores.
+            medprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
+            shortprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
+            medendvaluesobjs = distribute([EndValues() for i in 1:length(progscentimes)], progscentimes)
+            nonstoragestates = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(progscentimes)], progscentimes)
+
+            # Organise inputs and outputs
+            probs = (longprobs, medprobs, shortprobs)
+            horizons = (lhh, lph, mhh, mph, shh, sph)
+            proginput = (numcores, progscentimes, phaseinoffset, startstates, simplifyinputs)
+            progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
+            
+            # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
+            probmethodsprognosis = [parse_methods(settings["problems"]["prognosis"]["long"]["solver"]), parse_methods(settings["problems"]["prognosis"]["med"]["solver"]), parse_methods(settings["problems"]["prognosis"]["short"]["solver"])]
+            # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
+
+            # Initialize price prognosis models and run for first time step. Run scenarios in parallell
+            @time pl_prognosis_init!(probmethodsprognosis, probs, elements, horizons, proginput, progoutput)
+        end
+
+        println("Mapping between aggregated and detailed storages")
+        @time begin
+            # Global energy equivalent detailed reservoirs
+            enekvglobaldict = Dict()
+            for element in detailedelements
+                if element.typename == GLOBALENEQKEY
+                    enekvglobaldict[split(element.instancename,"GlobalEneq_")[2]] = element.value["Value"]
+                end
+            end
+
+            medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict);
+        end
     end
 
     println("Init stochastic")
@@ -220,8 +225,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
         mmpdh = Millisecond(Hour(settings["horizons"]["master"]["med"]["hydro"]["periodduration_hours"])) # daily resolution in hydro master problems
         mspdp = Millisecond(Hour(settings["horizons"]["subs"]["med"]["power"]["periodduration_hours"]))
         mspdh = Millisecond(Hour(settings["horizons"]["subs"]["med"]["hydro"]["periodduration_hours"])) # 7-day resolution in hydro subproblems
-        shorttotalduration = shorthorizonduration # total duration of master and subproblem
-        medtotalduration = medhorizonduration - Millisecond(Day(settings["horizons"]["subs"]["shorterthanprognosismed_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
+        shorttotalduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"])) # total duration of master and subproblem
+        medtotalduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"])) - Millisecond(Day(settings["horizons"]["subs"]["shorterthanprognosismed_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
 
         # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
         @assert ceil(Int64, phaseinoffset/smpdp) == ceil(Int64, phaseinoffset/smpdh)
@@ -230,11 +235,14 @@ function run_serial(config, datayear, scenarioyear, dataset)
         @assert ceil(Int64, (medtotalduration-phaseinoffset)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
 
         # Convert DistributedArray of prices to local process
-        medpriceslocal = convert(Vector{Dict}, medprices)
-        shortpriceslocal = convert(Vector{Dict}, shortprices)
+        medpriceslocal = nothing
+        shortpriceslocal = nothing
+        if elements != []
+            medpriceslocal = convert(Vector{Dict}, medprices)
+            shortpriceslocal = convert(Vector{Dict}, shortprices)
 
         # Inputs
-        stochasticelements = removeelements!(copy(detailedelements), aggzone=aggzone)
+        stochasticelements = removeelements!(copy(detailedelements), aggzone=settings["problems"]["prognosis"]["aggzone"])
         storageinfo = (startstates, medendvaluesdicts)
         shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
         medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
@@ -271,54 +279,57 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Initialize subsystem problems and run for first time step. Run subsystems in parallell
         @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod)
-    end
-
-    println("Init clearing")
-    @time begin
-        # Bring data to local core
-        @time masterslocal = convert(Vector{Prob}, masters)
-        @time cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
-        @time nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
-
-        # Initialize market clearing problem and run for first time step
-        cpdp = Millisecond(Hour(settings["horizons"]["clearing"]["power"]["periodduration_hours"])) # clearing period duration power/battery
-        cnpp = ceil(Int64, steplength/cpdp) # clearing numperiods power/battery
-        cpdh = Millisecond(Hour(settings["horizons"]["clearing"]["hydro"]["periodduration_hours"])) # clearing period duration hydro
-        # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
-        cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
-        probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
-        # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
-        # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
-        @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal)
 
         # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
-        getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
+        @time masterslocal = convert(Vector{Prob}, masters)
+        if elements == []
+            @assert length(masterslocal) == 1
+            getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
+        end
     end
+
+    if elements != []:
+        println("Init clearing")
+        @time begin
+            # Bring data to local core
+            @time cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
+            @time nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
+
+            # Initialize market clearing problem and run for first time step
+            cpdp = Millisecond(Hour(settings["horizons"]["clearing"]["power"]["periodduration_hours"])) # clearing period duration power/battery
+            cnpp = ceil(Int64, steplength/cpdp) # clearing numperiods power/battery
+            cpdh = Millisecond(Hour(settings["horizons"]["clearing"]["hydro"]["periodduration_hours"])) # clearing period duration hydro
+            # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
+            cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
+            probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
+            # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
+            # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
+            @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, detailedelements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal)
+
+            # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
+            getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
+        end
 
     println("Init results")
     @time begin
-        # Initialize and collect prices and start states
-        price = Dict()
-        powerhorizonix = argmax(getnumperiods(h) for h in gethorizons(clearing))
-        getareaprices!(price, clearing, gethorizons(clearing)[powerhorizonix], tnormal)
-        areanames = price["names"]
-
-        ix = Vector{DateTime}(undef,Int(length(price["steprange"])*steps))
-        ix[1:length(price["steprange"])] .= price["steprange"]
-
-        (pricex,pricey) = size(price["matrix"])
-        pricematrix = zeros(Int(pricex*steps),pricey)
-        pricematrix[1:pricex,:] .= price["matrix"]
-
+        # Initialize and collect start states
         statenames = collect(keys(startstates))
         statematrix = zeros(length(values(startstates)), Int(steps))
         statematrix[:,1] .= collect(values(startstates));
 
-        clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
-        # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
-        resultobjects = getobjects(clearing) # collect results for all areas
-        
-        prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
+        if elements == []
+            clearingobjects = Dict(zip([getid(obj) for obj in getobjects(masterslocal[1])],getobjects(masterslocal[1]))) # collect results from all areas
+            # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
+            resultobjects = getobjects(masterslocal[1]) # collect results for all areas
+            
+            prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, masterslocal[1], clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
+        else
+            clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
+            # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
+            resultobjects = getobjects(clearing) # collect results for all areas
+            
+            prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
+        end
 
         # Time problems
         prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
@@ -349,42 +360,51 @@ function run_serial(config, datayear, scenarioyear, dataset)
     
         # Deterministic long/mid/short - calculate scenarioprices for all 30 
         if (prognumscen < simnumscen) && (skipmed.value == 0)
-            @time scenariomodelling!(progscenmodmethod, values(dummyshortobjects), prognumscen, simscenmodmethod, progscendelta)
+            @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta)
         elseif prognumscen < simnumscen
             increment_scenmodmethod!(progscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
         end
         prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
-        progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
-        @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr-1)
-    
+
+        if elements != []
+            progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
+            @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr-1)
+        end
+
         # Stochastic sub systems - calculate storage value    
         if (stochnumscen < prognumscen) && (skipmed.value == 0)
             # Choose new scenarios
-            @time scenariomodelling!(stochscenmodmethod, scenarioobjects, stochnumscen, progscenmodmethod, stochscendelta)
+            @time scenariomodelling!(stochscenmodmethod, values(dummydetailedobjects), stochnumscen, progscenmodmethod, stochscendelta)
             
-            medpriceslocal = convert(Vector{Dict}, medprices)
-            medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict)
+            if elements != []
+                medpriceslocal = convert(Vector{Dict}, medprices)
+                medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict)
+            end
         elseif stochnumscen < prognumscen
             increment_scenmodmethod!(stochscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
         end
-        shortpriceslocal = convert(Vector{Dict}, shortprices)
+        if elements != []
+            shortpriceslocal = convert(Vector{Dict}, shortprices)
+        end
     
         @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1)
     
-        # Market clearing
+        # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
         @time masterslocal = convert(Vector{Prob}, masters)
-        cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
-        nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
-    
-        @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr-1)
+        if elements == []
+            getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
+
+            update_results!(stepnr, masterslocal[1], prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+        else
+            # Market clearing
+            cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
+            nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
         
-        # Results
-        updateareaprices!(price, clearing, gethorizons(clearing)[powerhorizonix], tnormal)
-        ix[Int(length(price["steprange"])*(stepnr-1)+1):Int(length(price["steprange"])*stepnr)] .= price["steprange"]
-        pricematrix[Int(pricex*(stepnr-1)+1):Int(pricex*(stepnr)),:] .= price["matrix"]
+            @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr-1)
+
+            update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+        end
         statematrix[:,Int(stepnr)] .= collect(values(startstates))
-        
-        update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
         
         # Increment step
         stepnr += 1
