@@ -53,7 +53,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         dummydetailedobjects, dummydhh, dummydph = make_obj(detailedelements, hydro_horizon, power_horizon, validate=true)
 
         # Make dummy aggregated elements
-        if (elements != []) || !settings["problems"]["stochastic"]["onlyagghydro"]
+        if (elements != []) && !settings["problems"]["stochastic"]["onlyagghydro"]
             dummyprogobjects, dummyphh, dummypph = make_obj(elements, hydro_horizon, power_horizon, validate=true)
         else
             dummyprogobjects = dummydetailedobjects
@@ -240,6 +240,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         if elements != []
             medpriceslocal = convert(Vector{Dict}, medprices)
             shortpriceslocal = convert(Vector{Dict}, shortprices)
+        end
 
         # Inputs
         stochasticelements = removeelements!(copy(detailedelements), aggzone=settings["problems"]["prognosis"]["aggzone"])
@@ -288,7 +289,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
     end
 
-    if elements != []:
+    if elements != []
         println("Init clearing")
         @time begin
             # Bring data to local core
@@ -309,6 +310,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
             getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
         end
+    end
 
     println("Init results")
     @time begin
