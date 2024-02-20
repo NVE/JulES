@@ -23,7 +23,7 @@ function make_horizons(horizonduration::Millisecond, hydroperiodduration::Millis
     return (hydro_horizon, power_horizon)
 end
 
-function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon; validate::Bool=true)
+function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon; validate::Bool=false)
     elements1 = copy(elements)
     power_horizon1 = deepcopy(power_horizon)
     hydro_horizon1 = deepcopy(hydro_horizon)
@@ -102,7 +102,7 @@ function prognosis_init!(probmethods::Vector, elements::Vector{DataElement}, hor
     # Collect prices that will be used in stochastic subsystem problems
     getareaprices!(medprice, medprob, newmph, tnormal)
     
-    shortobjects, newshh, newsph = make_obj(elements, shh, sph; validate=false) # already validated when making dummyshortobjects
+    shortobjects, newshh, newsph = make_obj(elements, shh, sph)
     simplify!(shortobjects; aggzone=aggzone, removestartup=false)
     addPowerUpperSlack!(shortobjects)
     shortprob = buildprob(probmethods[3], shortobjects)

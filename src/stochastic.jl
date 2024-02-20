@@ -62,7 +62,7 @@ function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, M
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
     # Only validate dataelements once
-    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, true) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, false) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
     for (tnormal, tphasein, scenario) in scenarios
