@@ -359,3 +359,12 @@ function getoutputindex(mainconfig::Dict, datayear::Int64, scenarioyear::Int64)
         return scenarioyear
     end
 end
+
+# Find first exogen price in a vector of model objects
+function findfirstprice(objects)
+    for obj in objects
+        if obj isa ExogenBalance
+            return getprice(obj)
+        end
+    end
+end;
