@@ -35,9 +35,13 @@ function run_serial(config, datayear, scenarioyear, dataset)
         detailedelements = dataset["detailedelements"]
         detailedrescopl = dataset["detailedrescopl"]
         
-        addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop)
-        if !settings["problems"]["stochastic"]["onlyagghydro"]
-            addscenariotimeperiod_vector!(detailedelements, scenarioyearstart, scenarioyearstop)
+        addscenariotimeperiod_vector!(detailedelements, scenarioyearstart, scenarioyearstop)
+        subsystemmodel = false
+        if elements == []
+            subsystemmodel = true
+        end
+        if !subsystemmodel && !settings["problems"]["stochastic"]["onlyagghydro"]
+            addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop)
         end
     end
 
@@ -53,51 +57,53 @@ function run_serial(config, datayear, scenarioyear, dataset)
         dummydetailedobjects, dummydhh, dummydph = make_obj(detailedelements, hydro_horizon, power_horizon, validate=true)
 
         # Make dummy aggregated elements
-        if (elements != []) && !settings["problems"]["stochastic"]["onlyagghydro"]
+        if !subsystemmodel && !settings["problems"]["stochastic"]["onlyagghydro"]
             dummyprogobjects, dummyphh, dummypph = make_obj(elements, hydro_horizon, power_horizon, validate=true)
         else
             dummyprogobjects = dummydetailedobjects
         end
     end
 
-    println("Init scenario modelling for simulation, prognosis and stochastic") # choose scenarios for the whole simulation
+    println("Init scenario modelling for simulation, prognosis and stochastic") 
     @time begin
+        # Simulation scenario modelling - choose scenarios for the whole simulation
         simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]; @assert simnumscen <= datanumscen
-        simscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["simulation"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
         if simnumscen == datanumscen
             simscenmodmethod = datascenmodmethod
         else
             global simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen)
+            simscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["simulation"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+            @time scenariomodelling!(simscenmodmethod, values(dummyprogobjects), simnumscen, datascenmodmethod, simscendelta) # see JulES/scenariomodelling.jl
+            renumber_scenmodmethod!(simscenmodmethod)
         end
-        @time scenariomodelling!(simscenmodmethod, values(dummyprogobjects), simnumscen, datascenmodmethod, simscendelta) # see JulES/scenariomodelling.jl
-        simnumscen != datanumscen && renumber_scenmodmethod!(simscenmodmethod)
+
 
         # Prognosis scenario modelling - choose scenarios for the price prognosis models
         prognumscen = settings["scenariogeneration"]["prognosis"]["numscen"]; @assert prognumscen <= simnumscen
-        progscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["prognosis"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
         if prognumscen == simnumscen
             progscenmodmethod = simscenmodmethod
         else
             global progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen)
+            progscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["prognosis"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+            @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
+            prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
         end
-        @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
-        prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
 
         # Stochastic scenario modelling - choose scenarios for the price stochastic models
         stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]; @assert stochnumscen <= prognumscen
-        stochscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["stochastic"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
         if stochnumscen == prognumscen
             stochscenmodmethod = progscenmodmethod
         else
+            stochscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["stochastic"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
             global stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen)
+            @time scenariomodelling!(stochscenmodmethod, values(dummydetailedobjects), stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
         end
-
-        @time scenariomodelling!(stochscenmodmethod, values(dummydetailedobjects), stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
     end
 
     medendvaluesdicts = Dict[]
     startstates = Dict{String, Float64}()
-    if elements != []
+    enekvglobaldict = Dict()
+    if !subsystemmodel
         println("Init prognosis")
         @time begin
             # Set horizons for price prognosis models
@@ -198,7 +204,6 @@ function run_serial(config, datayear, scenarioyear, dataset)
         println("Mapping between aggregated and detailed storages")
         @time begin
             # Global energy equivalent detailed reservoirs
-            enekvglobaldict = Dict()
             for element in detailedelements
                 if element.typename == GLOBALENEQKEY
                     enekvglobaldict[split(element.instancename,"GlobalEneq_")[2]] = element.value["Value"]
@@ -216,57 +221,63 @@ function run_serial(config, datayear, scenarioyear, dataset)
         lb = settings["problems"]["stochastic"]["lb"] # lower bound of the future value in the first iteration
         reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
-        # Parameters for stochastic subsystem problems (could also split totalduration into master- and subduration)
-        smpdp = Millisecond(Hour(settings["horizons"]["master"]["short"]["power"]["periodduration_hours"])) # short/med - master/sub - period duration - power/hydro (commodity)
-        smpdh = Millisecond(Hour(settings["horizons"]["master"]["short"]["hydro"]["periodduration_hours"]))
-        sspdp = Millisecond(Hour(settings["horizons"]["subs"]["short"]["power"]["periodduration_hours"]))
-        sspdh = Millisecond(Hour(settings["horizons"]["subs"]["short"]["hydro"]["periodduration_hours"])) # both master and subproblems for PHS and batteries has 2 hour resolution
-        mmpdp = Millisecond(Hour(settings["horizons"]["master"]["med"]["power"]["periodduration_hours"]))
-        mmpdh = Millisecond(Hour(settings["horizons"]["master"]["med"]["hydro"]["periodduration_hours"])) # daily resolution in hydro master problems
-        mspdp = Millisecond(Hour(settings["horizons"]["subs"]["med"]["power"]["periodduration_hours"]))
-        mspdh = Millisecond(Hour(settings["horizons"]["subs"]["med"]["hydro"]["periodduration_hours"])) # 7-day resolution in hydro subproblems
-        shorttotalduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"])) # total duration of master and subproblem
-        medtotalduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"])) - Millisecond(Day(settings["horizons"]["subs"]["shorterthanprognosismed_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
-
-        # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
-        @assert ceil(Int64, phaseinoffset/smpdp) == ceil(Int64, phaseinoffset/smpdh)
-        @assert ceil(Int64, (shorttotalduration-phaseinoffset)/sspdp) == ceil(Int64, (shorttotalduration-phaseinoffset)/sspdh)
-        @assert ceil(Int64, phaseinoffset/mmpdp) == ceil(Int64, phaseinoffset/mmpdh)
-        @assert ceil(Int64, (medtotalduration-phaseinoffset)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
-
         # Convert DistributedArray of prices to local process
         medpriceslocal = nothing
         shortpriceslocal = nothing
-        if elements != []
+        if !subsystemmodel
             medpriceslocal = convert(Vector{Dict}, medprices)
             shortpriceslocal = convert(Vector{Dict}, shortprices)
         end
 
         # Inputs
-        stochasticelements = removeelements!(copy(detailedelements), aggzone=settings["problems"]["prognosis"]["aggzone"])
+        stochasticelements = removeelements!(copy(detailedelements), aggzone=settings["problems"]["prognosis"]["aggzone"], rm_basebalances=!subsystemmodel)
         storageinfo = (startstates, medendvaluesdicts)
-        shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
-        medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
-
+        
         ustoragesystemobjects = Tuple{Vector, Vector{Vector}}[]
         ushorts = Bool[]
-        # Make modelobjects for short-term subsystems
-        @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts)
-        # TODO: Print info about number of short and long term systems
 
-        # Make modelobjects for medium-term subsystems
-        @time makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts)
+        # Make modelobjects for short-term subsystemmodels
+        if haskey(settings["horizons"]["master"], "short")
+            # Parameters for stochastic subsystemmodel problems (could also split totalduration into master- and subduration)
+            smpdp = Millisecond(Hour(settings["horizons"]["master"]["short"]["power"]["periodduration_hours"])) # short/med - master/sub - period duration - power/hydro (commodity)
+            smpdh = Millisecond(Hour(settings["horizons"]["master"]["short"]["hydro"]["periodduration_hours"]))
+            sspdp = Millisecond(Hour(settings["horizons"]["subs"]["short"]["power"]["periodduration_hours"]))
+            sspdh = Millisecond(Hour(settings["horizons"]["subs"]["short"]["hydro"]["periodduration_hours"])) # both master and subproblems for PHS and batteries has 2 hour resolution
+            shorttotalduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"])) # total duration of master and subproblem
+            shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
+            
+            # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
+            @assert ceil(Int64, phaseinoffset/smpdp) == ceil(Int64, phaseinoffset/smpdh)
+            @assert ceil(Int64, (shorttotalduration-phaseinoffset)/sspdp) == ceil(Int64, (shorttotalduration-phaseinoffset)/sspdh)
+
+            @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts)
+        end
+        
+        if haskey(settings["horizons"]["master"], "med") # Make modelobjects for medium-term subsystemmodels
+            mmpdp = Millisecond(Hour(settings["horizons"]["master"]["med"]["power"]["periodduration_hours"]))
+            mmpdh = Millisecond(Hour(settings["horizons"]["master"]["med"]["hydro"]["periodduration_hours"])) # daily resolution in hydro master problems
+            mspdp = Millisecond(Hour(settings["horizons"]["subs"]["med"]["power"]["periodduration_hours"]))
+            mspdh = Millisecond(Hour(settings["horizons"]["subs"]["med"]["hydro"]["periodduration_hours"])) # 7-day resolution in hydro subproblems
+            medtotalduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"])) - Millisecond(Day(settings["horizons"]["subs"]["shorterthanprognosismed_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
+            medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
+
+            @assert ceil(Int64, phaseinoffset/mmpdp) == ceil(Int64, phaseinoffset/mmpdh)
+            @assert ceil(Int64, (medtotalduration-phaseinoffset)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
+
+            @time stochasticmodelobjects = makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts)
+        end
+        # TODO: Print info about number of short and long term systems
 
         # Add detailed startstates
         detailedstorages = getstorages(stochasticmodelobjects)
         getstartstates!(startstates, settings["problems"]["stochastic"], dataset, stochasticmodelobjects, detailedstorages, tnormal)
         startstates_max!(detailedstorages, tnormal, startstates)
 
-        # Distribute subsystems with inputs and outputs on different cores
+        # Distribute subsystemmodels with inputs and outputs on different cores
         if settings["problems"]["stochastic"]["onlyagghydro"]
             storagesystemobjects, shorts = distribute_subsystems_flat(ustoragesystemobjects, ushorts)
         else
-            storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystems to cores based on how many modelobjects in eac subsystem
+            storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystemmodels to cores based on how many modelobjects in eac subsystemmodel
         end
         masters = distribute([parse_methods(settings["problems"]["stochastic"]["master"]["prob"]) for i in 1:length(storagesystemobjects)], storagesystemobjects)
         subs = distribute([[] for i in 1:length(storagesystemobjects)], storagesystemobjects)
@@ -278,18 +289,18 @@ function run_serial(config, datayear, scenarioyear, dataset)
         # probmethodsstochastic = [CPLEXSimplexMethod(), CPLEXSimplexMethod()]
         probmethodsstochastic = [parse_methods(settings["problems"]["stochastic"]["master"]["solver"]), parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])]
 
-        # Initialize subsystem problems and run for first time step. Run subsystems in parallell
+        # Initialize subsystemmodel problems and run for first time step. Run subsystemmodels in parallell
         @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod)
 
         # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
         @time masterslocal = convert(Vector{Prob}, masters)
-        if elements == []
+        if subsystemmodel
             @assert length(masterslocal) == 1
             getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
         end
     end
 
-    if elements != []
+    if !subsystemmodel
         println("Init clearing")
         @time begin
             # Bring data to local core
@@ -319,11 +330,23 @@ function run_serial(config, datayear, scenarioyear, dataset)
         statematrix = zeros(length(values(startstates)), Int(steps))
         statematrix[:,1] .= collect(values(startstates));
 
-        if elements == []
+        if subsystemmodel
             clearingobjects = Dict(zip([getid(obj) for obj in getobjects(masterslocal[1])],getobjects(masterslocal[1]))) # collect results from all areas
             # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
             resultobjects = getobjects(masterslocal[1]) # collect results for all areas
             
+            if haskey(settings["horizons"]["master"], "short")
+                cpdp = smpdp
+                cnpp = ceil(Int64, steplength/cpdp)
+                cpdh = smpdh
+                cnph = ceil(Int64, steplength/cpdh)
+            else
+                @assert haskey(settings["horizons"]["master"], "med")
+                cpdp = mmpdp
+                cnpp = ceil(Int64, steplength/cpdp)
+                cpdh = mmpdh
+                cnph = ceil(Int64, steplength/cpdh)
+            end
             prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, masterslocal[1], clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
         else
             clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
@@ -334,9 +357,11 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
 
         # Time problems
-        prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
+        if !subsystemmodel
+            prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
+            clearingtimes = zeros(steps-1, 3); # update, solve, total
+        end
         stochastictimes = distribute([zeros(steps-1, 7) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
-        clearingtimes = zeros(steps-1, 3); # update, solve, total
     end
 
     # Only do scenario modelling and calculate new cuts every 8 days (other reuse scenarios and cuts)
@@ -350,7 +375,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Increment simulation/main scenario and uncertainty scenarios
         tnormal += phaseinoffset
-        println(tnormal)
+        # println(tnormal)
     
         increment_scenmodmethod!(simscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
     
@@ -368,7 +393,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
         prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
 
-        if elements != []
+        if !subsystemmodel
             progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
             @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr-1)
         end
@@ -378,22 +403,22 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # Choose new scenarios
             @time scenariomodelling!(stochscenmodmethod, values(dummydetailedobjects), stochnumscen, progscenmodmethod, stochscendelta)
             
-            if elements != []
+            if !subsystemmodel
                 medpriceslocal = convert(Vector{Dict}, medprices)
                 medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict)
             end
         elseif stochnumscen < prognumscen
             increment_scenmodmethod!(stochscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
         end
-        if elements != []
+        if !subsystemmodel
             shortpriceslocal = convert(Vector{Dict}, shortprices)
         end
     
-        @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1)
+        pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1)
     
         # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
-        @time masterslocal = convert(Vector{Prob}, masters)
-        if elements == []
+        masterslocal = convert(Vector{Prob}, masters)
+        if subsystemmodel
             getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
 
             update_results!(stepnr, masterslocal[1], prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
@@ -418,19 +443,21 @@ function run_serial(config, datayear, scenarioyear, dataset)
     
     println("Handle output")
     @time begin
-        # Prognosis and clearing times
-        clearingtimes1 = mean(clearingtimes, dims=1)
-        
         skipfactor = (skipmax+Millisecond(phaseinoffset))/Millisecond(phaseinoffset)
-        factors = [skipfactor,skipfactor,1]
-        dims = size(prognosistimes[1])
-        dims = (dims..., length(prognosistimes))
-        prognosistimes1 = reshape(cat(prognosistimes..., dims=4), dims)
-        prognosistimes2 = transpose(dropdims(mean(prognosistimes1,dims=(1,4)),dims=(1,4))).*factors
-        progclear = vcat(prognosistimes2, mean(clearingtimes, dims=1))
-        df = DataFrame(model=["long","med","short","clearing"], update=progclear[:,1], solve=progclear[:,2], total=progclear[:,3])
-        df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
-        display(df[!, [1, 2, 3, 5, 4]])
+        if !subsystemmodel
+            # Prognosis and clearing times
+            clearingtimes1 = mean(clearingtimes, dims=1)
+            
+            factors = [skipfactor,skipfactor,1]
+            dims = size(prognosistimes[1])
+            dims = (dims..., length(prognosistimes))
+            prognosistimes1 = reshape(cat(prognosistimes..., dims=4), dims)
+            prognosistimes2 = transpose(dropdims(mean(prognosistimes1,dims=(1,4)),dims=(1,4))).*factors
+            progclear = vcat(prognosistimes2, mean(clearingtimes, dims=1))
+            df = DataFrame(model=["long","med","short","clearing"], update=progclear[:,1], solve=progclear[:,2], total=progclear[:,3])
+            df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
+            display(df[!, [1, 2, 3, 5, 4]])
+        end
         
         # Stochastic times
         core_dists = distribute([0 for i in 1:length(storagesystemobjects)], storagesystemobjects)
@@ -545,9 +572,11 @@ function run_serial(config, datayear, scenarioyear, dataset)
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
 
-        data["prognosistimes"] = prognosistimes1
+        if !subsystemmodel
+            data["prognosistimes"] = prognosistimes1
+            data["clearingtimes"] = clearingtimes
+        end
         data["stochastictimes"] = st1
-        data["clearingtimes"] = clearingtimes
     end
 
     return data

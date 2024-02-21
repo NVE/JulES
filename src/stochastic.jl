@@ -32,31 +32,35 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
                 (COMMODITY_CONCEPT, "Power"),
                 (PRICE_CONCEPT, "Price_" * area)))
         end
-    end
 
-    # Make modelobjets from elements and group into subsystems
-    modelobjects = getmodelobjects(elements, validate=validate)
-    if short
-        if master # removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
-            for id in keys(modelobjects)
-                instance = getinstancename(id)
-                if occursin("Spill", instance) && occursin("_PHS_", instance)
-                    delete!(modelobjects, id)
+        # Make modelobjets from elements and group into subsystems
+        modelobjects = getmodelobjects(elements, validate=validate)
+        if short
+            if master # removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
+                for id in keys(modelobjects)
+                    instance = getinstancename(id)
+                    if occursin("Spill", instance) && occursin("_PHS_", instance)
+                        delete!(modelobjects, id)
+                    end
                 end
             end
+            storagesystems = getstoragesystems_full!(getshorttermstoragesystems(getstoragesystems(modelobjects), Hour(10)))
+        else
+            storagesystems = getstoragesystems_full!(getlongtermstoragesystems(getstoragesystems(modelobjects), Hour(10)))
         end
-        storagesystems = getstoragesystems_full!(getshorttermstoragesystems(getstoragesystems(modelobjects), Hour(10)))
+
+        # Sort storagesystems
+        for storagesystem in storagesystems
+            sort!(storagesystem, by = x -> getinstancename(getid(x)))
+        end
+        sort!(storagesystems, by = x -> getinstancename(getid(first(x))))
+
+        return storagesystems, modelobjects
     else
-        storagesystems = getstoragesystems_full!(getlongtermstoragesystems(getstoragesystems(modelobjects), Hour(10)))
+        modelobjects = getmodelobjects(elements, validate=validate)
+        storagesystems = [collect(values(modelobjects))]
+        return storagesystems, modelobjects
     end
-
-    # Sort storagesystems
-    for storagesystem in storagesystems
-        sort!(storagesystem, by = x -> getinstancename(getid(x)))
-    end
-    sort!(storagesystems, by = x -> getinstancename(getid(first(x))))
-
-    return storagesystems, modelobjects
 end
 
 # Make master and subproblem objects for each subsystem
@@ -82,7 +86,7 @@ function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, M
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
-function removeelements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) # TODO: Replace with more user settings
+function removeelements!(elements::Vector{DataElement}; aggzone::Dict=Dict(), rm_basebalances::Bool=true) # TODO: Replace with more user settings
     aggzonecopl = Dict()
     for (k,v) in aggzone
         for vv in v
@@ -93,22 +97,24 @@ function removeelements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) # 
     delix = []
     powerbasebalances = []
     for (i,element) in enumerate(elements)
-        # BaseBalances
-        if element.typename == "BaseBalance"
-            if element.value["Commodity"] == "Power"
-                push!(delix,i)
-                push!(powerbasebalances, element.instancename)
+        if rm_basebalances
+            # BaseBalances
+            if element.typename == "BaseBalance"
+                if element.value["Commodity"] == "Power"
+                    push!(delix,i)
+                    push!(powerbasebalances, element.instancename)
+                end
             end
-        end
-        
-        # Residualhints
-        if element.typename == "Residualhint"
-            push!(delix,i)
-        end
-        
-        # Power balance RHSTerms
-        if element.conceptname == "RHSTerm"
-            if element.value["Balance"] in powerbasebalances
+
+            # Power balance RHSTerms
+            if element.conceptname == "RHSTerm"
+                if element.value["Balance"] in powerbasebalances
+                    push!(delix,i)
+                end
+            end
+            
+            # Residualhints
+            if element.typename == "Residualhint"
                 push!(delix,i)
             end
         end
@@ -190,8 +196,8 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     # Update subs
     for (i,sub) in enumerate(subs)
         (tnormalsub, tphaseinsub, scenario) = scenarios.scentimes[i]
-        update!(sub, tphaseinsub) # update parameters given problem start time of scenario
         scaleinflow!(scenarios, i, getobjects(sub)) # scale inflow to average of represented scenarios
+        update!(sub, tphaseinsub) # update parameters given problem start time of scenario
 
         storages = getstorages(getobjects(sub))
         if short
@@ -323,7 +329,7 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int)
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int)
     stochastictimes[stepnr, 7] = @elapsed begin   
         # Init cutparameters
         cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
@@ -348,13 +354,13 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             
             if short
                 setendstates!(sub, substorages, startstates) # set end reservoir
-                updatestochasticprices!(sub, shortprices, scenario)
+                medendvaluesdicts != Dict[] && updatestochasticprices!(sub, shortprices, scenario)
             else
                 if medendvaluesdicts != Dict[]
                     subendvaluesobj = getobjects(sub)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(sub))]
                     subendvalues = [medendvaluesdicts[scenario][getinstancename(getid(obj))] for obj in substorages]
                     updateendvalues!(sub, subendvaluesobj, subendvalues)
-                    updatestochasticprices!(sub, medprices, scenario) 
+                    medendvaluesdicts != Dict[] && updatestochasticprices!(sub, medprices, scenario) 
                 else
                     # Set monthly price at end of horizon as end value
                     scenprice = getparamvalue(exogenprice, tnormalsub + getduration(gethorizon(substorages[1])), MsTimeDelta(Week(4))) 
@@ -364,8 +370,8 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
                 end
             end
             
-            stochastictimes[stepnr, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
             scaleinflow!(scenarios, i, getobjects(sub)) # scale inflow to average of represented scenarios
+            stochastictimes[stepnr, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
         end
 
         cuts.probabilities = scenarios.weights
@@ -390,7 +396,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     end
 end
 
-function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Vector{Dict}, shortprices::Vector{Dict}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int)
     @sync @distributed for core in 1:max(numcores-1,1)
         stochastictime = localpart(stochastictimes)
         masters = localpart(masters_)
