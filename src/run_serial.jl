@@ -252,7 +252,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 @assert ceil(Int64, phaseinoffset/smpdp) == ceil(Int64, phaseinoffset/smpdh)
                 @assert ceil(Int64, (shorttotalduration-phaseinoffset)/sspdp) == ceil(Int64, (shorttotalduration-phaseinoffset)/sspdh)
 
-                @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts)
+                @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts, settings)
             end
             
             if haskey(settings["horizons"]["stochastic"], "med") # Make modelobjects for medium-term subsystemmodels
@@ -266,7 +266,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 @assert ceil(Int64, phaseinoffset/mmpdp) == ceil(Int64, phaseinoffset/mmpdh)
                 @assert ceil(Int64, (medtotalduration-phaseinoffset)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
 
-                @time stochasticmodelobjects = makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts)
+                @time stochasticmodelobjects = makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts, settings)
             end
             # TODO: Print info about number of short and med term systems
 

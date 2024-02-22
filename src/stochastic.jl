@@ -1,5 +1,5 @@
 # Make modelobjects for stochastic subsystems, group into subsystems
-function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Union{Vector{Dict},Nothing}, short::Bool, master::Bool, validate::Bool)
+function makestochasticobjects(elements::Vector{DataElement}, problemduration::Millisecond, pdp::Millisecond, pdh::Millisecond, offset::Union{Offset,Nothing}, scenario::Int, prices::Union{Vector{Dict},Nothing}, short::Bool, master::Bool, validate::Bool, settings::Dict)
     # Add horizons to elements
     battery_horizon = SequentialHorizon(ceil(Int64, problemduration/pdp), pdp; offset) # TODO: Quickfix
     hydro_horizon = SequentialHorizon(ceil(Int64, problemduration/pdh), pdh; offset)
@@ -44,9 +44,9 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
                     end
                 end
             end
-            storagesystems = getstoragesystems_full!(getshorttermstoragesystems(getstoragesystems(modelobjects), Hour(10)))
+            storagesystems = getstoragesystems_full!(getshorttermstoragesystems(getstoragesystems(modelobjects), Hour(settings["problems"]["shorttermstoragecutoff_hours"])))
         else
-            storagesystems = getstoragesystems_full!(getlongtermstoragesystems(getstoragesystems(modelobjects), Hour(10)))
+            storagesystems = getstoragesystems_full!(getlongtermstoragesystems(getstoragesystems(modelobjects), Hour(settings["problems"]["shorttermstoragecutoff_hours"])))
         end
 
         # Sort storagesystems
@@ -64,16 +64,16 @@ function makestochasticobjects(elements::Vector{DataElement}, problemduration::M
 end
 
 # Make master and subproblem objects for each subsystem
-function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Union{Vector{Dict}, Nothing}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool})
+function makemastersubobjects!(inputs::Tuple{Vector{DataElement}, Millisecond, Millisecond, Millisecond, Millisecond, Millisecond, Vector{Tuple{Any, Any, Int64}}, Millisecond, Union{Vector{Dict}, Nothing}, Bool}, mastersubobjects::Vector{Tuple{Vector, Vector{Vector}}}, shorts::Vector{Bool}, settings::Dict)
     (elements, totalduration, mpdp, mpdh, spdp, spdh, scenarios, phaseinoffset, prices, short) = inputs
 
     # Only validate dataelements once
-    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, false) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
+    masterobjects, modelobjects = makestochasticobjects(copy(elements), phaseinoffset, mpdp, mpdh, nothing, 1, prices, short, true, false, settings) # TODO: what price scenario price to use here? random? now 1, use of phasein of scenarios gives similar prices in the start of all scenarios?
 
     subscenarioobjects = []
     for (tnormal, tphasein, scenario) in scenarios
         offset = TimeDeltaOffset(MsTimeDelta(phaseinoffset))
-        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false, false)
+        subobject, dummyobjects = makestochasticobjects(copy(elements), totalduration - phaseinoffset, spdp, spdh, offset, scenario, prices, short, false, false, settings)
         push!(subscenarioobjects, subobject)
     end
 
