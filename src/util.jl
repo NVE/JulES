@@ -377,3 +377,12 @@ function getaggzone(settings::Dict)
         return Dict()
     end
 end
+
+# Get if onlyagghydro
+function getaggzone(settings::Dict)
+    if haskey(settings["problems"], "onlyagghydro")
+        return settings["problems"]["onlyagghydro"]
+    else
+        return false
+    end
+end
