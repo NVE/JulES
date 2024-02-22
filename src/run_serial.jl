@@ -239,13 +239,13 @@ function run_serial(config, datayear, scenarioyear, dataset)
             ushorts = Bool[]
 
             # Make modelobjects for short-term subsystemmodels
-            if haskey(settings["horizons"]["master"], "short")
+            if haskey(settings["horizons"]["stochastic"], "short")
                 # Parameters for stochastic subsystemmodel problems (could also split totalduration into master- and subduration)
-                smpdp = Millisecond(Hour(settings["horizons"]["master"]["short"]["power"]["periodduration_hours"])) # short/med - master/sub - period duration - power/hydro (commodity)
-                smpdh = Millisecond(Hour(settings["horizons"]["master"]["short"]["hydro"]["periodduration_hours"]))
-                sspdp = Millisecond(Hour(settings["horizons"]["subs"]["short"]["power"]["periodduration_hours"]))
-                sspdh = Millisecond(Hour(settings["horizons"]["subs"]["short"]["hydro"]["periodduration_hours"])) # both master and subproblems for PHS and batteries has 2 hour resolution
-                shorttotalduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"])) # total duration of master and subproblem
+                smpdp = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["master"]["power"]["periodduration_hours"])) # short/med - master/sub - period duration - power/hydro (commodity)
+                smpdh = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["master"]["hydro"]["periodduration_hours"]))
+                sspdp = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["subs"]["power"]["periodduration_hours"]))
+                sspdh = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["subs"]["hydro"]["periodduration_hours"])) # both master and subproblems for PHS and batteries has 2 hour resolution
+                shorttotalduration = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["horizonduration_hours"])) # total duration of master and subproblem
                 shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
                 
                 # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
@@ -255,12 +255,12 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts)
             end
             
-            if haskey(settings["horizons"]["master"], "med") # Make modelobjects for medium-term subsystemmodels
-                mmpdp = Millisecond(Hour(settings["horizons"]["master"]["med"]["power"]["periodduration_hours"]))
-                mmpdh = Millisecond(Hour(settings["horizons"]["master"]["med"]["hydro"]["periodduration_hours"])) # daily resolution in hydro master problems
-                mspdp = Millisecond(Hour(settings["horizons"]["subs"]["med"]["power"]["periodduration_hours"]))
-                mspdh = Millisecond(Hour(settings["horizons"]["subs"]["med"]["hydro"]["periodduration_hours"])) # 7-day resolution in hydro subproblems
-                medtotalduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"])) - Millisecond(Day(settings["horizons"]["subs"]["shorterthanprognosismed_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
+            if haskey(settings["horizons"]["stochastic"], "med") # Make modelobjects for medium-term subsystemmodels
+                mmpdp = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["master"]["power"]["periodduration_hours"]))
+                mmpdh = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["master"]["hydro"]["periodduration_hours"])) # daily resolution in hydro master problems
+                mspdp = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["subs"]["power"]["periodduration_hours"]))
+                mspdh = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["subs"]["hydro"]["periodduration_hours"])) # 7-day resolution in hydro subproblems
+                medtotalduration = Millisecond(Day(settings["horizons"]["stochastic"]["med"]["horizonduration_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
                 medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
 
                 @assert ceil(Int64, phaseinoffset/mmpdp) == ceil(Int64, phaseinoffset/mmpdh)
@@ -344,13 +344,13 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
             resultobjects = getobjects(masterslocal[1]) # collect results for all areas
             
-            if haskey(settings["horizons"]["master"], "short")
+            if haskey(settings["horizons"]["stochastic"], "short")
                 cpdp = smpdp
                 cnpp = ceil(Int64, steplength/cpdp)
                 cpdh = smpdh
                 cnph = ceil(Int64, steplength/cpdh)
             else
-                @assert haskey(settings["horizons"]["master"], "med")
+                @assert haskey(settings["horizons"]["stochastic"], "med")
                 cpdp = mmpdp
                 cnpp = ceil(Int64, steplength/cpdp)
                 cpdh = mmpdh
