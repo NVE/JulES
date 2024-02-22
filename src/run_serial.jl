@@ -136,7 +136,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             lhh, lph = make_horizons(longhorizon...)
 
             # Simplify modelobjects
-            aggzone = settings["problems"]["prognosis"]["aggzone"]
+            aggzone = getaggzone(settings)
             aggsupplyn = settings["problems"]["prognosis"]["aggsupplyn"]
             removestoragehours = settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
             residualarealist = settings["problems"]["prognosis"]["residualarealist"]
@@ -230,7 +230,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
 
         # Inputs
-        stochasticelements = removeelements!(copy(detailedelements), aggzone=settings["problems"]["prognosis"]["aggzone"], rm_basebalances=!subsystemmodel)
+        stochasticelements = removeelements!(copy(detailedelements), aggzone=getaggzone(settings), rm_basebalances=!subsystemmodel)
         storageinfo = (startstates, medendvaluesdicts)
         
         ustoragesystemobjects = Tuple{Vector, Vector{Vector}}[]

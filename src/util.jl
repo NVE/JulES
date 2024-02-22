@@ -368,3 +368,12 @@ function findfirstprice(objects)
         end
     end
 end;
+
+# Get aggzone from config
+function getaggzone(settings::Dict)
+    if haskey(settings["problems"], "aggzone")
+        return settings["problems"]["aggzone"]
+    else
+        return Dict()
+    end
+end
