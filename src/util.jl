@@ -322,13 +322,15 @@ function getscenmodmethod(problem::Dict, numscen::Int64)
     end
 end
 
-function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
-    startstorages = problemconfig["startstorages"]
+function getstartstates!(startstates::Dict, problemsconfig::Dict, problem::String, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
+    startstorages = problemsconfig[problem]["startstorages"]
     if startstorages["function"] == "percentages"
-        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
+        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemsconfig["shorttermstoragecutoff_hours"]))
         longtermstorages = setdiff(storages, shorttermstorages)
         merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
         merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
+    elseif startstorages["function"] == "percentage"
+        merge!(startstates, getstartstoragepercentage(storages, tnormal, startstorages["percentage"]))
     elseif haskey(dataset, startstorages["function"])
         merge!(startstates, dataset[startstorages["function"]])
     end
@@ -379,7 +381,7 @@ function getaggzone(settings::Dict)
 end
 
 # Get if onlyagghydro
-function getaggzone(settings::Dict)
+function getonlyagghydro(settings::Dict)
     if haskey(settings["problems"], "onlyagghydro")
         return settings["problems"]["onlyagghydro"]
     else

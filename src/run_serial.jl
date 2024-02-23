@@ -106,7 +106,9 @@ function run_serial(config, datayear, scenarioyear, dataset)
     medendvaluesdicts = Dict[]
     startstates = Dict{String, Float64}()
     enekvglobaldict = Dict()
-    if haskey(settings["problems"]["prognosis"])
+    medpriceslocal = nothing
+    shortpriceslocal = nothing
+    if haskey(settings["problems"], "prognosis")
         println("Init prognosis")
         @time begin
             # Set horizons for price prognosis models
@@ -141,7 +143,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # Simplify modelobjects
             aggzone = getaggzone(settings)
             aggsupplyn = settings["problems"]["prognosis"]["aggsupplyn"]
-            removestoragehours = settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
+            removestoragehours = settings["problems"]["shorttermstoragecutoff_hours"]
             residualarealist = settings["problems"]["prognosis"]["residualarealist"]
             simplifyinputs = (aggzone, aggsupplyn, removestoragehours, residualarealist)
 
@@ -172,7 +174,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
             # Start storages
             dummyprogstorages = getstorages(dummyprogobjects)
-            getstartstates!(startstates, settings["problems"]["prognosis"], dataset, dummyprogobjects, dummyprogstorages, tnormal)
+            getstartstates!(startstates, settings["problems"], "prognosis", dataset, dummyprogobjects, dummyprogstorages, tnormal)
             startstates_max!(dummyprogstorages, tnormal, startstates)
 
             # Preallocate storage for problems and results on different cores. Use package DistributedArrays
@@ -202,6 +204,10 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
             # Initialize price prognosis models and run for first time step. Run scenarios in parallell
             @time pl_prognosis_init!(probmethodsprognosis, probs, progelements, horizons, proginput, progoutput)
+
+            # Convert DistributedArray of prices to local process
+            medpriceslocal = convert(Vector{Dict}, medprices)
+            shortpriceslocal = convert(Vector{Dict}, shortprices)
         end
 
         println("Mapping between aggregated and detailed storages")
@@ -217,19 +223,13 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
     end
 
-    medpriceslocal = nothing
-    shortpriceslocal = nothing
-    if haskey(settings["problems"]["stochastic"])
+    if haskey(settings["problems"], "stochastic")
         println("Init stochastic")
         @time begin
             # Cut parameters
             maxcuts = settings["problems"]["stochastic"]["maxcuts"] # preallocate fixed number of cuts, no cut selection
             lb = settings["problems"]["stochastic"]["lb"] # lower bound of the future value in the first iteration
             reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-
-            # Convert DistributedArray of prices to local process
-            medpriceslocal = convert(Vector{Dict}, medprices)
-            shortpriceslocal = convert(Vector{Dict}, shortprices)
 
             # Inputs
             stochasticelements = removeelements!(copy(elements), aggzone=getaggzone(settings), rm_basebalances=!onlysubsystemmodel)
@@ -272,7 +272,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
             # Add detailed startstates
             stochasticstorages = getstorages(stochasticmodelobjects)
-            getstartstates!(startstates, settings["problems"]["stochastic"], dataset, stochasticmodelobjects, stochasticstorages, tnormal)
+            getstartstates!(startstates, settings["problems"], "stochastic", dataset, stochasticmodelobjects, stochasticstorages, tnormal)
             startstates_max!(stochasticstorages, tnormal, startstates)
 
             # Distribute subsystemmodels with inputs and outputs on different cores
@@ -382,7 +382,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Increment simulation/main scenario and uncertainty scenarios
         tnormal += phaseinoffset
-        # println(tnormal)
+        println(tnormal)
     
         increment_scenmodmethod!(simscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
 
@@ -580,9 +580,15 @@ function run_serial(config, datayear, scenarioyear, dataset)
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
 
-        haskey(settings["problems"], "prognosis") && data["prognosistimes"] = prognosistimes1
-        haskey(settings["problems"], "stochastic") && data["stochastictimes"] = st1
-        haskey(settings["problems"], "clearing") && data["clearingtimes"] = clearingtimes
+        if haskey(settings["problems"], "prognosis") 
+            data["prognosistimes"] = prognosistimes1
+        end
+        if haskey(settings["problems"], "stochastic") 
+            data["stochastictimes"] = st1
+        end
+        if haskey(settings["problems"], "clearing")
+            data["clearingtimes"] = clearingtimes
+        end
     end
 
     return data
