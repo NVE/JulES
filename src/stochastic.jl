@@ -173,7 +173,7 @@ function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVari
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod)
+function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, settings::Dict)
     startstates, medendvaluesdicts = storageinfo
 
     cutobjects = getcutobjects(masterobjects)
@@ -185,6 +185,9 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
 
     # Init cutparameters
     cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
+
+    getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(master, startstates, init=true)
+    getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(master, startstates)
 
     # Update master
     update!(master, tnormal)
@@ -229,6 +232,13 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     ub = 0
     cutreuse = false
     count, mastertime, subtime = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+
+    # Final master run with headloss adjusted watervalues 
+    if getheadlosscost(settings["problems"]["stochastic"]["master"])
+        updateheadlosscosts!(ReservoirCurveSlopeMethod(), master, [master], tnormal)
+        solve!(master)
+        resetheadlosscosts!(master)
+    end
 
     # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
     # HiGHS API cannot be used when master is moved to local process.
@@ -295,7 +305,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod)
+function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, settings::Dict)
     @sync @distributed for core in 1:max(numcores-1,1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
@@ -309,7 +319,7 @@ function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemob
             for ix in range
                 localix += 1
                 masterobjects, subobjects = storagesystemobject[localix]
-                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(probmethods, masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, tnormal, scenarios)
+                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(probmethods, masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, tnormal, scenarios, settings)
             end
         end
     end
@@ -329,8 +339,8 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int)
-    stochastictimes[stepnr, 7] = @elapsed begin   
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int, settings::Dict)
+    stochastictimes[stepnr, 8] = @elapsed begin   
         # Init cutparameters
         cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
 
@@ -344,6 +354,9 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         else
             global exogenprice = findfirstprice(master.objects)
         end
+
+        getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(master, startstates)
+        getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(master, startstates)
 
         stochastictimes[stepnr, 1] = @elapsed update!(master, tnormal)
 
@@ -385,6 +398,15 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         stochastictimes[stepnr, 5] = mastertime
         stochastictimes[stepnr, 6] = subtime
 
+        # Final master run with headloss adjusted watervalues 
+        stochastictimes[stepnr, 7] = @elapsed begin
+            if getheadlosscost(settings["problems"]["stochastic"]["master"])
+                updateheadlosscosts!(ReservoirCurveSlopeMethod(), master, [master], tnormal)
+                solve!(master)
+                resetheadlosscosts!(master)
+            end
+        end
+
         # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
         # HiGHS API cannot be used when master is moved to local process.
         # We use the dual values of the master problem to calculate the headloss costs
@@ -396,7 +418,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     end
 end
 
-function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int, settings::Dict)
     @sync @distributed for core in 1:max(numcores-1,1)
         stochastictime = localpart(stochastictimes)
         masters = localpart(masters_)
@@ -410,7 +432,7 @@ function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_:
             for ix in range
                 localix += 1
                 if !(!short[localix] && (skipmed.value > 0))
-                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, tnormal, scenarios, stochastictime[localix], stepnr)
+                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, tnormal, scenarios, stochastictime[localix], stepnr, settings::Dict)
                 end
             end
         end

@@ -126,13 +126,13 @@ function run_serial(config, datayear, scenarioyear, dataset)
             if settings["problems"]["prognosis"]["shrinkable"] == "both"
                 longfirstperiod = shorthorizonduration
                 longstartafter = longhydroperiodduration + shorthorizonduration
-                longshrinkatleast = longhydroperiodduration - phaseinoffset
+                longshrinkatleast = longhydroperiodduration - steplength
                 longminperiod = steplength
                 global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
             elseif settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein"
                 longfirstperiod = shorthorizonduration
                 longstartafter = shorthorizonduration
-                longshrinkatleast = longhydroperiodduration - phaseinoffset
+                longshrinkatleast = longhydroperiodduration - steplength
                 longminperiod = steplength
                 global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
             elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
@@ -158,7 +158,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             if (settings["problems"]["prognosis"]["shrinkable"] == "both") || (settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein")
                 medfirstperiod = shorthorizonduration
                 medstartafter = longstartafter
-                medshrinkatleast = longhydroperiodduration - phaseinoffset
+                medshrinkatleast = longhydroperiodduration - steplength
                 medminperiod = steplength
                 global medhorizon = (medfirstperiod, medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
             elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
@@ -195,7 +195,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # Organise inputs and outputs
             probs = (longprobs, medprobs, shortprobs)
             horizons = (lhh, lph, mhh, mph, shh, sph)
-            proginput = (numcores, progscentimes, phaseinoffset, startstates, simplifyinputs)
+            proginput = (numcores, progscentimes, steplength, startstates, simplifyinputs)
             progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
             
             # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
@@ -249,8 +249,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
                 
                 # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
-                @assert ceil(Int64, phaseinoffset/smpdp) == ceil(Int64, phaseinoffset/smpdh)
-                @assert ceil(Int64, (shorttotalduration-phaseinoffset)/sspdp) == ceil(Int64, (shorttotalduration-phaseinoffset)/sspdh)
+                @assert ceil(Int64, steplength/smpdp) == ceil(Int64, steplength/smpdh)
+                @assert ceil(Int64, (shorttotalduration-steplength)/sspdp) == ceil(Int64, (shorttotalduration-steplength)/sspdh)
 
                 @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts, settings)
             end
@@ -263,8 +263,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 medtotalduration = Millisecond(Day(settings["horizons"]["stochastic"]["med"]["horizonduration_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
                 medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
 
-                @assert ceil(Int64, phaseinoffset/mmpdp) == ceil(Int64, phaseinoffset/mmpdh)
-                @assert ceil(Int64, (medtotalduration-phaseinoffset)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
+                @assert ceil(Int64, steplength/mmpdp) == ceil(Int64, steplength/mmpdh)
+                @assert ceil(Int64, (medtotalduration-steplength)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
 
                 @time stochasticmodelobjects = makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts, settings)
             end
@@ -292,7 +292,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             probmethodsstochastic = [parse_methods(settings["problems"]["stochastic"]["master"]["solver"]), parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])]
 
             # Initialize subsystemmodel problems and run for first time step. Run subsystemmodels in parallell
-            @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod)
+            @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
             @time masterslocal = convert(Vector{Prob}, masters)
@@ -315,11 +315,11 @@ function run_serial(config, datayear, scenarioyear, dataset)
             cnpp = ceil(Int64, steplength/cpdp) # clearing numperiods power/battery
             cpdh = Millisecond(Hour(settings["horizons"]["clearing"]["hydro"]["periodduration_hours"])) # clearing period duration hydro
             # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
-            cnph = ceil(Int64, phaseinoffset/cpdh) # clearing numperiods hydro
+            cnph = ceil(Int64, steplength/cpdh) # clearing numperiods hydro
             probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
             # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
             # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
-            @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, elements, tnormal, phaseinoffset, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal)
+            @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
             getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
@@ -364,7 +364,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
         end
         if haskey(settings["problems"], "stochastic")
-            stochastictimes = distribute([zeros(steps-1, 7) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
+            stochastictimes = distribute([zeros(steps-1, 8) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
         end
         if haskey(settings["problems"], "clearing")
             clearingtimes = zeros(steps-1, 3); # update, solve, total
@@ -381,7 +381,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
     totaltime = @elapsed while stepnr <= steps # while step <= steps and count elapsed time
 
         # Increment simulation/main scenario and uncertainty scenarios
-        tnormal += phaseinoffset
+        tnormal += steplength
         println(tnormal)
     
         increment_scenmodmethod!(simscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
@@ -401,7 +401,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
     
         # Increment skipmed - should we reuse watervalues this time step?
-        skipmed += Millisecond(phaseinoffset)
+        skipmed += Millisecond(steplength)
         if skipmed > skipmax
             skipmed = Millisecond(0)
         end
@@ -419,7 +419,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Stochastic sub systems - calculate storage value
         if haskey(settings["problems"], "stochastic")
-            @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1)
+            @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1, settings)
             masterslocal = convert(Vector{Prob}, masters)
         end
     
@@ -429,7 +429,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
             nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
         
-            @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr-1)
+            @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr-1, settings)
 
             update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
         else
@@ -449,7 +449,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
     
     println("Handle output")
     @time begin
-        skipfactor = (skipmax+Millisecond(phaseinoffset))/Millisecond(phaseinoffset)
+        skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
         if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing") # TODO: Split up
             # Prognosis and clearing times
             clearingtimes1 = mean(clearingtimes, dims=1)
@@ -484,8 +484,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
             dims = (dims..., length(stochastictimes))
             st1 = reshape(cat(stochastictimes..., dims=4), dims)
             st2 = transpose(dropdims(mean(st1, dims=1), dims=1))
-            df = DataFrame(umaster=st2[:,1], usub=st2[:,2], conv=st2[:,3], count=st2[:,4], smaster=st2[:,5], ssub=st2[:,6], total=st2[:,7], short=ushorts, core=core_dists)
-            df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :total]] .= df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :total]] .* skipfactor
+            df = DataFrame(umaster=st2[:,1], usub=st2[:,2], conv=st2[:,3], count=st2[:,4], smaster=st2[:,5], ssub=st2[:,6], hlmaster=st2[:,7], total=st2[:,8], short=ushorts, core=core_dists)
+            df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :total]] .= df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :total]] .* skipfactor
             dfsort = sort(df, :total, rev=true)
             display(dfsort)
             # display(plot(dfsort[!, :total]))
@@ -496,7 +496,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
                         :conv => sum, 
                         :count => sum, 
                         :smaster => sum, 
-                        :ssub => sum, 
+                        :ssub => sum,
+                        :hlmaster => sum,
                         :total => sum)
             dfsort = sort(df1, :total_sum, rev=true)
             display(dfsort)

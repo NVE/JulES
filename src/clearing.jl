@@ -1,5 +1,5 @@
 # Initialize market clearing problem and solve for first time step
-function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t::ProbTime, clearingduration::Millisecond, cpdp::Millisecond, cpdh::Millisecond, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict})
+function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t::ProbTime, clearingduration::Millisecond, cpdp::Millisecond, cpdh::Millisecond, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, settings::Dict)
     elements1 = copy(elements)
 
     # Add horizon to dataelements
@@ -33,13 +33,6 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
         modelobjects[cutid] = cuts
     end
 
-    # # Make softbounds fixable
-    # for (k, v) in modelobjects
-    #     if v isa BaseSoftBound
-    #         v.fixable = true
-    #     end
-    # end
-
     # Build problem from modelobjects and optimizer
     clearing = buildprob(probmethod, modelobjects)
 
@@ -63,12 +56,12 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
     setoutgoingstates!(clearing, nonstoragestateslocal[1])
 
     # State dependent hydropower production and pumping.
-    statedependentprod!(clearing, startstates, init=true)
-    statedependentpump!(clearing, startstates)
+    getstatedependentprod(settings["problems"]["clearing"]) && statedependentprod!(clearing, startstates, init=true)
+    getstatedependentpump(settings["problems"]["clearing"]) && statedependentpump!(clearing, startstates)
 
     # Update and solve
     update!(clearing, t)
-    updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
+    getheadlosscost(settings["problems"]["clearing"]) && updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
     setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
 
     solve!(clearing)
@@ -77,7 +70,7 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 end
 
 # Run market clearing for new time step
-function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict, clearingtimes::Matrix{Float64}, step::Int)
+function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict, clearingtimes::Matrix{Float64}, step::Int, settings::Dict)
     clearingtimes[step, 3] = @elapsed begin
         # Update startstates for all state variables, equals end state of last market clearing
         setstartstates!(clearing, getobjects(clearing), startstates) # TODO: Also store actual statevariables to update more efficiently?
@@ -98,12 +91,12 @@ function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float6
         setoutgoingstates!(clearing, nonstoragestateslocal[1])
 
         # Statedependent hydropower production
-        statedependentprod!(clearing, startstates)
-        statedependentpump!(clearing, startstates)
+        getstatedependentprod(settings["problems"]["clearing"]) && statedependentprod!(clearing, startstates)
+        getstatedependentpump(settings["problems"]["clearing"]) && statedependentpump!(clearing, startstates)
 
         # Update and solve
         clearingtimes[step, 1] = @elapsed update!(clearing, t)
-        updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
+        getheadlosscost(settings["problems"]["clearing"]) && updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
         setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
 
         clearingtimes[step, 2] = @elapsed solve!(clearing)

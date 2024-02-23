@@ -388,3 +388,30 @@ function getonlyagghydro(settings::Dict)
         return false
     end
 end
+
+# Get if statedependentprod
+function getstatedependentprod(settings::Dict)
+    if haskey(settings, "statedependentprod")
+        return settings["statedependentprod"]
+    else
+        return false
+    end
+end
+
+# Get if statedependentpump
+function getstatedependentpump(settings::Dict)
+    if haskey(settings, "statedependentpump")
+        return settings["statedependentpump"]
+    else
+        return false
+    end
+end
+
+# Get if statedependentpump
+function getheadlosscost(settings::Dict)
+    if haskey(settings, "headlosscost")
+        return settings["headlosscost"]
+    else
+        return false
+    end
+end
