@@ -20,12 +20,15 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 
     # Initialize cuts (has to be added to modelobjects so that all the variables are built at the same time)
     varendperiod = Dict()
-    for cuts in cutslocal
+    clearingcuts = deepcopy(cutslocal) # Avoid changing localcuts objects, needed to collect watervalues for example
+    clearingcutobjects = []
+    for cuts in clearingcuts
         # Replace local stochastic object with version from clearing, also store numperiods of clearingobject
         for (i,obj) in enumerate(cuts.objects)
             objid = getid(obj)
             clearingobj = modelobjects[objid]
             cuts.objects[i] = clearingobj # needed for setconstants!
+            push!(clearingcutobjects, clearingobj)
             varendperiod[objid] = getnumperiods(gethorizon(clearingobj))
         end
 
@@ -66,12 +69,12 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 
     solve!(clearing)
     
-    return clearing, nonstoragestatesmean, varendperiod
+    return clearing, nonstoragestatesmean, varendperiod, clearingcutobjects
 end
 
 # Run market clearing for new time step
 function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float64}, masterslocal::Vector{Prob}, cutslocal::Vector{SimpleSingleCuts}, nonstoragestateslocal::Vector{Dict}, nonstoragestatesmean, detailedrescopl::Dict, enekvglobaldict::Dict, varendperiod::Dict, clearingtimes::Matrix{Float64}, step::Int, settings::Dict)
-    clearingtimes[step, 3] = @elapsed begin
+    clearingtimes[step-1, 3] = @elapsed begin
         # Update startstates for all state variables, equals end state of last market clearing
         setstartstates!(clearing, getobjects(clearing), startstates) # TODO: Also store actual statevariables to update more efficiently?
 
@@ -95,11 +98,11 @@ function clearing!(clearing::Prob, t::ProbTime, startstates::Dict{String, Float6
         getstatedependentpump(settings["problems"]["clearing"]) && statedependentpump!(clearing, startstates)
 
         # Update and solve
-        clearingtimes[step, 1] = @elapsed update!(clearing, t)
+        clearingtimes[step-1, 1] = @elapsed update!(clearing, t)
         getheadlosscost(settings["problems"]["clearing"]) && updateheadlosscosts!(ReservoirCurveSlopeMethod(), clearing, masterslocal, t)
         setminstoragevalue!(clearing, minstoragevaluerule) # add spill cost to water value so that the reservoir is not emptied when watervalue = 0
 
-        clearingtimes[step, 2] = @elapsed solve!(clearing)
+        clearingtimes[step-1, 2] = @elapsed solve!(clearing)
 
         # Get start states for next iteration
         getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
