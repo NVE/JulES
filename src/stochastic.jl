@@ -173,7 +173,7 @@ function transferboundarystates!(master::Prob, sub::Prob, states::Dict{StateVari
 end
 
 # Initialize stochastic subsystem problems and solve for first time step
-function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, settings::Dict)
+function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects::Vector{Vector}, storagevalues::Array, short::Bool, storageinfo::Tuple{Dict{String, Float64},Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, settings::Dict)
     startstates, medendvaluesdicts = storageinfo
 
     cutobjects = getcutobjects(masterobjects)
@@ -233,11 +233,46 @@ function stochastic_init(probmethods::Vector, masterobjects::Vector, subobjects:
     cutreuse = false
     count, mastertime, subtime = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
 
-    # Final master run with headloss adjusted watervalues 
+    # Init storagevalues results # TODO move to function
+    wwcount = 0
+    if settings["results"]["storagevalues"]
+        for i in 1:length(subs)
+            wwcount += 1
+
+            (constant, slopes) = cutparameters[i]
+            for (j, (state, value)) in enumerate(cuts.slopes[getcutix(cuts)])
+                storagevalues[1, i, j] = slopes[state]
+                balance = getbalance(cuts.objects[j])
+                if haskey(balance.metadata, GLOBALENEQKEY)
+                    storagevalues[1, i, j] = storagevalues[1, i, j] / balance.metadata[GLOBALENEQKEY]
+                end
+            end
+        end
+
+        for (j, obj) in enumerate(cuts.objects) # operative water values
+            balance = getbalance(obj)
+            storagevalues[1, wwcount + 1, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+            if haskey(balance.metadata, GLOBALENEQKEY)
+                storagevalues[1, wwcount + 1, j] = storagevalues[1, wwcount + 1, j] / balance.metadata[GLOBALENEQKEY]
+            end
+        end
+    end
+
+    # Final master run with headloss adjusted storagevalues 
     if getheadlosscost(settings["problems"]["stochastic"]["master"])
         updateheadlosscosts!(ReservoirCurveSlopeMethod(), master, [master], tnormal)
         solve!(master)
         resetheadlosscosts!(master)
+
+        if storagevalues != [0]
+            for (j, obj) in enumerate(cuts.objects) # operative water values after headlosscost
+                balance = getbalance(obj)
+                storagevalues[1, wwcount + 2, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+                if haskey(balance.metadata, GLOBALENEQKEY)
+                    storagevalues[1, wwcount + 2, j] = storagevalues[1, wwcount + 2, j] / balance.metadata[GLOBALENEQKEY]
+                end
+            end
+        end
     end
 
     # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
@@ -305,7 +340,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
 end
 
 # Initialize stochastic subsystem problems in parallel
-function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, settings::Dict)
+function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemobjects::DArray, shorts::DArray, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storagevalues_::DArray, storageinfo::Tuple{Dict{String, Float64}, Vector{Dict}}, lb::Float64, maxcuts::Int, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, settings::Dict)
     @sync @distributed for core in 1:max(numcores-1,1)
         storagesystemobject = localpart(storagesystemobjects)
         short = localpart(shorts)
@@ -313,13 +348,14 @@ function pl_stochastic_init!(probmethods::Vector, numcores::Int, storagesystemob
         subs = localpart(subs_)
         states = localpart(states_)
         cuts = localpart(cuts_)
+        storagevalues = localpart(storagevalues_)
 
         localix = 0
         for range in localindices(storagesystemobjects)
             for ix in range
                 localix += 1
                 masterobjects, subobjects = storagesystemobject[localix]
-                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init(probmethods, masterobjects, subobjects, short[localix], storageinfo, lb, maxcuts, reltol, tnormal, scenarios, settings)
+                masters[localix], subs[localix], states[localix], cuts[localix] = stochastic_init!(probmethods, masterobjects, subobjects, storagevalues[localix], short[localix], storageinfo, lb, maxcuts, reltol, tnormal, scenarios, settings)
             end
         end
     end
@@ -339,8 +375,8 @@ function updatestochasticprices!(prob::Prob, prices::Vector{Dict}, scenario::Int
 end
 
 # Run stochastic subsystem problem
-function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, startstates::Dict, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int, settings::Dict)
-    stochastictimes[stepnr, 8] = @elapsed begin   
+function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, storagevalues::Array, startstates::Dict, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int, settings::Dict)
+    stochastictimes[stepnr-1, 9] = @elapsed begin   
         # Init cutparameters
         cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
 
@@ -358,7 +394,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(master, startstates)
         getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(master, startstates)
 
-        stochastictimes[stepnr, 1] = @elapsed update!(master, tnormal)
+        stochastictimes[stepnr-1, 1] = @elapsed update!(master, tnormal)
 
         # Update subs
         for (i,sub) in enumerate(subs)
@@ -384,28 +420,70 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             end
             
             scaleinflow!(scenarios, i, getobjects(sub)) # scale inflow to average of represented scenarios
-            stochastictimes[stepnr, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
+            stochastictimes[stepnr-1, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
         end
 
         cuts.probabilities = scenarios.weights
         lb = cuts.lower_bound
         ub = 0
         cutreuse = true
-        stochastictimes[stepnr, 3] = @elapsed begin
+        stochastictimes[stepnr-1, 3] = @elapsed begin
             (count, mastertime, subtime) = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
         end
-        stochastictimes[stepnr, 4] = count
-        stochastictimes[stepnr, 5] = mastertime
-        stochastictimes[stepnr, 6] = subtime
+        stochastictimes[stepnr-1, 4] = count
+        stochastictimes[stepnr-1, 5] = mastertime
+        stochastictimes[stepnr-1, 6] = subtime
 
-        # Final master run with headloss adjusted watervalues 
-        stochastictimes[stepnr, 7] = @elapsed begin
+        firstwwtime = @elapsed begin
+            # Init storagevalues results
+            wwcount = 0
+            if storagevalues != [0]
+                for i in 1:length(subs)
+                    wwcount += 1
+
+                    (constant, slopes) = cutparameters[i]
+                    for (j, (state, value)) in enumerate(cuts.slopes[getcutix(cuts)])
+                        storagevalues[stepnr, i, j] = slopes[state]
+                        balance = getbalance(cuts.objects[j])
+                        if haskey(balance.metadata, GLOBALENEQKEY)
+                            storagevalues[stepnr, i, j] = storagevalues[stepnr, i, j] / balance.metadata[GLOBALENEQKEY]
+                        end
+                    end
+                end
+
+                for (j, obj) in enumerate(cuts.objects) # operative water values
+                    balance = getbalance(obj)
+                    storagevalues[stepnr, wwcount + 1, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+                    if haskey(balance.metadata, GLOBALENEQKEY)
+                        storagevalues[stepnr, wwcount + 1, j] = storagevalues[stepnr, wwcount + 1, j] / balance.metadata[GLOBALENEQKEY]
+                    end
+                end
+            end
+        end
+
+        # Final master run with headloss adjusted storagevalues 
+        stochastictimes[stepnr-1, 7] = @elapsed begin
             if getheadlosscost(settings["problems"]["stochastic"]["master"])
                 updateheadlosscosts!(ReservoirCurveSlopeMethod(), master, [master], tnormal)
                 solve!(master)
                 resetheadlosscosts!(master)
             end
         end
+
+        secondwwtime = @elapsed begin
+            if getheadlosscost(settings["problems"]["stochastic"]["master"])
+                if storagevalues != [0]
+                    for (j, obj) in enumerate(cuts.objects) # operative water values
+                        balance = getbalance(obj)
+                        storagevalues[stepnr, wwcount + 2, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+                        if haskey(balance.metadata, GLOBALENEQKEY)
+                            storagevalues[stepnr, wwcount + 2, j] = storagevalues[stepnr, wwcount + 2, j] / balance.metadata[GLOBALENEQKEY]
+                        end
+                    end
+                end
+            end
+        end
+        stochastictimes[stepnr-1, 8] = firstwwtime + secondwwtime
 
         # Move solution from HiGHS instance to HiGHS_Prob. Has to be done on parallel processor because 
         # HiGHS API cannot be used when master is moved to local process.
@@ -418,13 +496,14 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
     end
 end
 
-function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, startstates::Dict{String, Float64}, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int, settings::Dict)
+function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_::DArray, cuts_::DArray, storagevalues_::DArray, startstates::Dict{String, Float64}, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, shorts::DArray, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, skipmed::Millisecond, stochastictimes::DArray, stepnr::Int, settings::Dict)
     @sync @distributed for core in 1:max(numcores-1,1)
         stochastictime = localpart(stochastictimes)
         masters = localpart(masters_)
         subs = localpart(subs_)
         states = localpart(states_)
         cuts = localpart(cuts_)
+        storagevalues = localpart(storagevalues_)
         short = localpart(shorts)
 
         localix = 0
@@ -432,7 +511,7 @@ function pl_stochastic!(numcores::Int, masters_::DArray, subs_::DArray, states_:
             for ix in range
                 localix += 1
                 if !(!short[localix] && (skipmed.value > 0))
-                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, tnormal, scenarios, stochastictime[localix], stepnr, settings::Dict)
+                    stochastic!(masters[localix], subs[localix], states[localix], cuts[localix], storagevalues[localix], startstates, medprices, shortprices, medendvaluesdicts, short[localix], reltol, tnormal, scenarios, stochastictime[localix], stepnr, settings)
                 end
             end
         end
@@ -452,12 +531,13 @@ end
 #       -  Core 2: Index 2 and 5
 #       -  Core 3: Index 3 and 4
 # TODO: Replace with low level Distributed functions that are more flexible than DistributedArrays
-function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector)
+function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector, ustoragevalues::Vector)
     objectcount = [length(first(objs)) for objs in ustoragesystemobjects]
     sortedindex = sortperm(objectcount, rev=true)
     testsort = distribute(collect(1:length(ustoragesystemobjects)))
     storagesystemobjects = Vector(undef,length(objectcount))
     shorts = Vector(undef,length(ushorts))
+    storagevalues = Vector(undef,length(ustoragevalues))
     direction = 1
     rangeix = 1
     localix = 1
@@ -471,6 +551,7 @@ function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vecto
 
         storagesystemobjects[collect(range)[localix]] = ustoragesystemobjects[sortedindex][i]
         shorts[collect(range)[localix]] = ushorts[sortedindex][i]
+        storagevalues[collect(range)[localix]] = ustoragevalues[sortedindex][i]
         rangeix += direction
 
         if rangeix > length(testsort.indices)
@@ -485,12 +566,14 @@ function distribute_subsystems(ustoragesystemobjects::Vector{Tuple{Vector, Vecto
     end
     storagesystemobjects1 = distribute(storagesystemobjects)
     shorts1 = distribute(shorts, storagesystemobjects1)
-    return storagesystemobjects1, shorts1
+    storagevalues1 = distribute(storagevalues, storagesystemobjects1)
+    return storagesystemobjects1, shorts1, storagevalues1
 end
-function distribute_subsystems_flat(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector)
+function distribute_subsystems_flat(ustoragesystemobjects::Vector{Tuple{Vector, Vector{Vector}}}, ushorts::Vector, ustoragevalues::Vector)
     storagesystemobjects = distribute(ustoragesystemobjects)
     shorts = distribute(ushorts, storagesystemobjects)
-    return storagesystemobjects, shorts
+    storagevalues = distribute(ustoragevalues, storagesystemobjects)
+    return storagesystemobjects, shorts, storagevalues
 end
 
 
