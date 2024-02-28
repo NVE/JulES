@@ -270,6 +270,18 @@ function run_serial(config, datayear, scenarioyear, dataset)
             end
             # TODO: Print info about number of short and med term systems
 
+            # Preallocate storagevalues
+            if getheadlosscost(settings["problems"]["stochastic"]["master"])
+                wwnumscen = stochnumscen + 2 # scenarios + master operative + master operative after headlosscost adjustment
+            else
+                wwnumscen = stochnumscen + 1 # scenarios + master operative 
+            end
+            if settings["results"]["storagevalues"]
+                ustoragevalues = [zeros(Float64, steps, Int(wwnumscen), length(getcutobjects(msso))) for (i,(msso,ssso)) in enumerate(ustoragesystemobjects)]
+            else
+                ustoragevalues = [[0] for (i,sso) in enumerate(storagesystemobjects)]
+            end
+
             # Add detailed startstates
             stochasticstorages = getstorages(stochasticmodelobjects)
             getstartstates!(startstates, settings["problems"], "stochastic", dataset, stochasticmodelobjects, stochasticstorages, tnormal)
@@ -277,9 +289,9 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
             # Distribute subsystemmodels with inputs and outputs on different cores
             if !haskey(dataset, "progelements")
-                storagesystemobjects, shorts = distribute_subsystems_flat(ustoragesystemobjects, ushorts)
+                storagesystemobjects, shorts, storagevalues = distribute_subsystems_flat(ustoragesystemobjects, ushorts, ustoragevalues)
             else
-                storagesystemobjects, shorts = distribute_subsystems(ustoragesystemobjects, ushorts) # somewhat smart distribution of subsystemmodels to cores based on how many modelobjects in eac subsystemmodel
+                storagesystemobjects, shorts, storagevalues = distribute_subsystems(ustoragesystemobjects, ushorts, ustoragevalues) # somewhat smart distribution of subsystemmodels to cores based on how many modelobjects in eac subsystemmodel
             end
             masters = distribute([parse_methods(settings["problems"]["stochastic"]["master"]["prob"]) for i in 1:length(storagesystemobjects)], storagesystemobjects)
             subs = distribute([[] for i in 1:length(storagesystemobjects)], storagesystemobjects)
@@ -292,7 +304,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             probmethodsstochastic = [parse_methods(settings["problems"]["stochastic"]["master"]["solver"]), parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])]
 
             # Initialize subsystemmodel problems and run for first time step. Run subsystemmodels in parallell
-            @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod, settings)
+            @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storagevalues, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
             @time masterslocal = convert(Vector{Prob}, masters)
@@ -309,6 +321,9 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # Bring data to local core
             @time cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
             @time nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
+            if settings["results"]["storagevalues"]
+                clearingstoragevalues = zeros(Float64, steps, 1, sum([length(cuts.objects) for cuts in cutslocal]))
+            end
 
             # Initialize market clearing problem and run for first time step
             cpdp = Millisecond(Hour(settings["horizons"]["clearing"]["power"]["periodduration_hours"])) # clearing period duration power/battery
@@ -319,44 +334,62 @@ function run_serial(config, datayear, scenarioyear, dataset)
             probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
             # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
             # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
-            @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
+            @time clearing, nonstoragestatesmean, varendperiod, clearingcutobjects = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
             getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
+
+            # Update clearing storage values
+            if settings["results"]["storagevalues"]
+                for (j, obj) in enumerate(clearingcutobjects)
+                    balance = getbalance(obj)
+                    clearingstoragevalues[1, 1, j] = getcondual(clearing, getid(balance), getnumperiods(gethorizon(balance)))
+                    if haskey(balance.metadata, GLOBALENEQKEY)
+                        clearingstoragevalues[1, 1, j] = clearingstoragevalues[1, 1, j] / balance.metadata[GLOBALENEQKEY]
+                    end
+                end
+            end
         end
     end
 
     println("Init results")
     @time begin
-        # Initialize and collect start states
-        statenames = collect(keys(startstates))
-        statematrix = zeros(length(values(startstates)), Int(steps))
-        statematrix[:,1] .= collect(values(startstates));
+        if haskey(settings["results"], "mainresults")
+            # Initialize and collect start states
+            statenames = collect(keys(startstates))
+            statematrix = zeros(length(values(startstates)), Int(steps))
+            statematrix[:,1] .= collect(values(startstates))
 
-        if haskey(settings["problems"], "clearing")
-            clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
-            # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
-            resultobjects = getobjects(clearing) # collect results for all areas
-
-            prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
-        else
-            clearingobjects = Dict(zip([getid(obj) for obj in getobjects(masterslocal[1])],getobjects(masterslocal[1]))) # collect results from all areas
-            # resultobjects = getpowerobjects(clearingobjects,["SORLAND"]); # only collect results for one area
-            resultobjects = getobjects(masterslocal[1]) # collect results for all areas
-            
-            if haskey(settings["horizons"]["stochastic"], "short")
-                cpdp = smpdp
-                cnpp = ceil(Int64, steplength/cpdp)
-                cpdh = smpdh
-                cnph = ceil(Int64, steplength/cpdh)
+            if haskey(settings["problems"], "clearing")
+                clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
+                if settings["results"]["mainresults"] == "all"
+                    resultobjects = getobjects(clearing) # collect results for all areas
+                else
+                    resultobjects = getpowerobjects(clearingobjects, settings["results"]["mainresults"]); # only collect results for one area
+                end
+                prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
             else
-                @assert haskey(settings["horizons"]["stochastic"], "med")
-                cpdp = mmpdp
-                cnpp = ceil(Int64, steplength/cpdp)
-                cpdh = mmpdh
-                cnph = ceil(Int64, steplength/cpdh)
+                clearingobjects = Dict(zip([getid(obj) for obj in getobjects(masterslocal[1])],getobjects(masterslocal[1]))) # collect results from all areas
+                if settings["results"]["mainresults"] == "all"
+                    resultobjects = getobjects(masterslocal[1]) # collect results for all areas
+                else
+                    resultobjects = getpowerobjects(clearingobjects, settings["results"]["mainresults"]); # only collect results for one area
+                end
+                
+                if haskey(settings["horizons"]["stochastic"], "short")
+                    cpdp = smpdp
+                    cnpp = ceil(Int64, steplength/cpdp)
+                    cpdh = smpdh
+                    cnph = ceil(Int64, steplength/cpdh)
+                else
+                    @assert haskey(settings["horizons"]["stochastic"], "med")
+                    cpdp = mmpdp
+                    cnpp = ceil(Int64, steplength/cpdp)
+                    cpdh = mmpdh
+                    cnph = ceil(Int64, steplength/cpdh)
+                end
+                prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, masterslocal[1], clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
             end
-            prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, masterslocal[1], clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
         end
 
         # Time problems
@@ -364,7 +397,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
         end
         if haskey(settings["problems"], "stochastic")
-            stochastictimes = distribute([zeros(steps-1, 8) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
+            stochastictimes = distribute([zeros(steps-1, 9) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
         end
         if haskey(settings["problems"], "clearing")
             clearingtimes = zeros(steps-1, 3); # update, solve, total
@@ -400,7 +433,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             increment_scenmodmethod!(stochscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
         end
     
-        # Increment skipmed - should we reuse watervalues this time step?
+        # Increment skipmed - should we reuse storagevalues this time step?
         skipmed += Millisecond(steplength)
         if skipmed > skipmax
             skipmed = Millisecond(0)
@@ -409,7 +442,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         # Deterministic long/mid/short - calculate scenarioprices for all 30 
         if haskey(settings["problems"], "prognosis")
             progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
-            @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr-1)
+            pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr)
             shortpriceslocal = convert(Vector{Dict}, shortprices)
             if (stochnumscen < prognumscen) && (skipmed.value == 0)
                 medpriceslocal = convert(Vector{Dict}, medprices)
@@ -419,7 +452,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Stochastic sub systems - calculate storage value
         if haskey(settings["problems"], "stochastic")
-            @time pl_stochastic!(numcores, masters, subs, states, cuts, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr-1, settings)
+            pl_stochastic!(numcores, masters, subs, states, cuts, storagevalues, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr, settings)
             masterslocal = convert(Vector{Prob}, masters)
         end
     
@@ -429,15 +462,30 @@ function run_serial(config, datayear, scenarioyear, dataset)
             cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
             nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
         
-            @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr-1, settings)
+            clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr, settings)
 
-            update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+            if haskey(settings["results"], "mainresults")
+                update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+                statematrix[:,Int(stepnr)] .= collect(values(startstates))
+            end
+
+            if settings["results"]["storagevalues"]
+                for (j, obj) in enumerate(clearingcutobjects)
+                    balance = getbalance(obj)
+                    clearingstoragevalues[stepnr, 1, j] = getcondual(clearing, getid(balance), getnumperiods(gethorizon(balance)))
+                    if haskey(balance.metadata, GLOBALENEQKEY)
+                        clearingstoragevalues[stepnr, 1, j] = clearingstoragevalues[stepnr, 1, j] / balance.metadata[GLOBALENEQKEY]
+                    end
+                end
+            end
         else
             getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
 
-            update_results!(stepnr, masterslocal[1], prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+            if haskey(settings["results"], "mainresults")
+                update_results!(stepnr, masterslocal[1], prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
+                statematrix[:,Int(stepnr)] .= collect(values(startstates))
+            end
         end
-        statematrix[:,Int(stepnr)] .= collect(values(startstates))
         
         # Increment step
         stepnr += 1
@@ -484,8 +532,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
             dims = (dims..., length(stochastictimes))
             st1 = reshape(cat(stochastictimes..., dims=4), dims)
             st2 = transpose(dropdims(mean(st1, dims=1), dims=1))
-            df = DataFrame(umaster=st2[:,1], usub=st2[:,2], conv=st2[:,3], count=st2[:,4], smaster=st2[:,5], ssub=st2[:,6], hlmaster=st2[:,7], total=st2[:,8], short=ushorts, core=core_dists)
-            df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :total]] .= df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :total]] .* skipfactor
+            df = DataFrame(umaster=st2[:,1], usub=st2[:,2], conv=st2[:,3], count=st2[:,4], smaster=st2[:,5], ssub=st2[:,6], hlmaster=st2[:,7], wwres=st2[:,8], total=st2[:,9], short=ushorts, core=core_dists)
+            df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :wwres, :total]] .= df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :wwres, :total]] .* skipfactor
             dfsort = sort(df, :total, rev=true)
             display(dfsort)
             # display(plot(dfsort[!, :total]))
@@ -498,6 +546,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
                         :smaster => sum, 
                         :ssub => sum,
                         :hlmaster => sum,
+                        :wwres => sum,
                         :total => sum)
             dfsort = sort(df1, :total_sum, rev=true)
             display(dfsort)
@@ -505,90 +554,122 @@ function run_serial(config, datayear, scenarioyear, dataset)
             display(mean.(eachcol(select(df1, Not(:core)))))
         end
 
-
-        
-        # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)
-        rhstermtotals = dropdims(sum(rhstermvalues,dims=1),dims=1)
-        rhstermsupplyidx = []
-        rhstermdemandidx = []
-
-        for k in 1:length(rhsterms)
-            if rhstermtotals[k] > 0
-                push!(rhstermsupplyidx, k)
-            elseif rhstermtotals[k] < 0
-                push!(rhstermdemandidx, k)
-            end
-        end
-
-        # Put rhsterms together with supplies and demands
-        rhstermsupplyvalues = rhstermvalues[:,rhstermsupplyidx]
-        rhstermdemandvalues = rhstermvalues[:,rhstermdemandidx]*-1
-
-        rhstermsupplynames = [getinstancename(rhsterm) for rhsterm in rhsterms[rhstermsupplyidx]]
-        rhstermsupplybalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in rhstermbalances[rhstermsupplyidx]]
-        rhstermdemandnames = [getinstancename(rhsterm) for rhsterm in rhsterms[rhstermdemandidx]]
-        rhstermdemandbalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in rhstermbalances[rhstermdemandidx]]
-
-        supplynames = [[getinstancename(plant) for plant in plants];rhstermsupplynames]
-        supplybalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in plantbalances];rhstermsupplybalancenames]
-        supplyvalues = hcat(production,rhstermsupplyvalues)
-
-        demandnames = [[getinstancename(demand) for demand in demands];rhstermdemandnames]
-        demandbalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in demandbalances];rhstermdemandbalancenames]
-        demandvalues = hcat(consumption, rhstermdemandvalues)
-
-        # Prepare for plotting results
-        hydronames = [getinstancename(hydro) for hydro in hydrostorages]
-        batterynames = [getinstancename(battery) for battery in batterystorages]
-        powerbalancenames = [split(getinstancename(getid(powerbalance)), "PowerBalance_")[2] for powerbalance in powerbalances]
-
-        # Convert reservoir filling to TWh
-        hydrolevels1 = copy(hydrolevels)
-        for (i,hydroname) in enumerate(hydronames)
-            if haskey(getbalance(clearingobjects[hydrostorages[i]]).metadata, GLOBALENEQKEY)
-                hydrolevels1[:,i] .= hydrolevels1[:,i]*getbalance(clearingobjects[hydrostorages[i]]).metadata[GLOBALENEQKEY]
-            end
-        end
-
-        # Time
-        dim = getoutputindex(mainconfig, datayear, scenarioyear)
-        x1 = [getisoyearstart(dim) + Week(weekstart-1) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
-        x2 = [getisoyearstart(dim) + Week(weekstart-1) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
-        x3 = [getisoyearstart(dim) + Week(weekstart-1) + steplength*(t-1) for t in 1:steps]; # state resolution
-
-
-        # Store results with binary h5 format
-        datetimeformat = "yyyy-mm-ddTHH:MM:SS"
-
+        # Store results
         data = Dict()
-        data["areanames"] = powerbalancenames |> Vector{String}
-        data["pricematrix"] = prices
-        data["priceindex"] = Dates.format.(x1, datetimeformat) # not necessary to store as string
 
-        data["resnames"] = hydronames
-        data["resmatrix"] = hydrolevels1
-        data["resindex"] =  Dates.format.(x2, datetimeformat)
+        if haskey(settings["results"], "mainresults")
+            # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)
+            rhstermtotals = dropdims(sum(rhstermvalues,dims=1),dims=1)
+            rhstermsupplyidx = []
+            rhstermdemandidx = []
 
-        data["statenames"] = statenames
-        data["statematrix"] = permutedims(statematrix)
-        data["stateindex"] =  Dates.format.(x3, datetimeformat)
+            for k in 1:length(rhsterms)
+                if rhstermtotals[k] > 0
+                    push!(rhstermsupplyidx, k)
+                elseif rhstermtotals[k] < 0
+                    push!(rhstermdemandidx, k)
+                end
+            end
 
-        data["supplyvalues"] = supplyvalues
-        data["supplynames"] = supplynames
-        data["supplybalancenames"] = supplybalancenames
+            # Put rhsterms together with supplies and demands
+            rhstermsupplyvalues = rhstermvalues[:,rhstermsupplyidx]
+            rhstermdemandvalues = rhstermvalues[:,rhstermdemandidx]*-1
 
-        data["demandvalues"] = demandvalues
-        data["demandnames"] = demandnames
-        data["demandbalancenames"] = demandbalancenames
+            rhstermsupplynames = [getinstancename(rhsterm) for rhsterm in rhsterms[rhstermsupplyidx]]
+            rhstermsupplybalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in rhstermbalances[rhstermsupplyidx]]
+            rhstermdemandnames = [getinstancename(rhsterm) for rhsterm in rhsterms[rhstermdemandidx]]
+            rhstermdemandbalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in rhstermbalances[rhstermdemandidx]]
 
-        if haskey(settings["problems"], "prognosis") 
-            data["prognosistimes"] = prognosistimes1
+            supplynames = [[getinstancename(plant) for plant in plants];rhstermsupplynames]
+            supplybalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in plantbalances];rhstermsupplybalancenames]
+            supplyvalues = hcat(production,rhstermsupplyvalues)
+
+            demandnames = [[getinstancename(demand) for demand in demands];rhstermdemandnames]
+            demandbalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in demandbalances];rhstermdemandbalancenames]
+            demandvalues = hcat(consumption, rhstermdemandvalues)
+
+            # Prepare for plotting results
+            hydronames = [getinstancename(hydro) for hydro in hydrostorages]
+            batterynames = [getinstancename(battery) for battery in batterystorages]
+            powerbalancenames = [split(getinstancename(getid(powerbalance)), "PowerBalance_")[2] for powerbalance in powerbalances]
+
+            # Convert reservoir filling to TWh
+            hydrolevels1 = copy(hydrolevels)
+            for (i,hydroname) in enumerate(hydronames)
+                if haskey(getbalance(clearingobjects[hydrostorages[i]]).metadata, GLOBALENEQKEY)
+                    hydrolevels1[:,i] .= hydrolevels1[:,i]*getbalance(clearingobjects[hydrostorages[i]]).metadata[GLOBALENEQKEY]
+                end
+            end
+
+            # Indexes
+            dim = getoutputindex(mainconfig, datayear, scenarioyear)
+            x1 = [getisoyearstart(dim) + Week(weekstart-1) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
+            x2 = [getisoyearstart(dim) + Week(weekstart-1) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
+            x3 = [getisoyearstart(dim) + Week(weekstart-1) + steplength*(t-1) for t in 1:steps]; # state resolution
+
+            datetimeformat = settings["results"]["datetimeformat"]
+            if datetimeformat != "DateTime"
+                x1 = Dates.format.(x1, datetimeformat)
+                x2 = Dates.format.(x2, datetimeformat)
+                x3 = Dates.format.(x3, datetimeformat)
+            end
+
+            data["areanames"] = powerbalancenames |> Vector{String}
+            data["pricematrix"] = prices
+            data["priceindex"] = x1
+
+            data["resnames"] = hydronames
+            data["resmatrix"] = hydrolevels1
+            data["resindex"] =  x2
+
+            data["batnames"] = batterynames
+            data["batmatrix"] = batterylevels
+            data["batindex"] =  x2
+
+            data["statenames"] = statenames
+            data["statematrix"] = permutedims(statematrix)
+            data["stateindex"] =  x3
+
+            data["supplyvalues"] = supplyvalues
+            data["supplynames"] = supplynames
+            data["supplybalancenames"] = supplybalancenames
+
+            data["demandvalues"] = demandvalues
+            data["demandnames"] = demandnames
+            data["demandbalancenames"] = demandbalancenames
         end
-        if haskey(settings["problems"], "stochastic") 
-            data["stochastictimes"] = st1
+
+        if settings["results"]["times"]
+            if haskey(settings["problems"], "prognosis") 
+                data["prognosistimes"] = prognosistimes1
+            end
+            if haskey(settings["problems"], "stochastic") 
+                data["stochastictimes"] = st1
+            end
+            if haskey(settings["problems"], "clearing")
+                data["clearingtimes"] = clearingtimes
+            end
         end
-        if haskey(settings["problems"], "clearing")
-            data["clearingtimes"] = clearingtimes
+
+        if settings["results"]["storagevalues"]
+            cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
+            if haskey(settings["problems"], "clearing")
+                data["storagevalues"] = cat(cat(convert(Vector{Array{Float64, 3}}, storagevalues)..., dims=3), clearingstoragevalues, dims=2)
+            else
+                data["storagevalues"] = cat(convert(Vector{Array{Float64, 3}}, storagevalues)..., dims=3)
+            end
+            
+            data["svindex"] = x3
+            data["storagenames"] = [getinstancename(getid(obj)) for cut in cutslocal for obj in cut.objects]
+            data["shorts"] = [shorts[i] for (i, cut) in enumerate(cutslocal) for obj in cut.objects]
+            data["skipfactor"] = skipfactor
+            data["scenarionames"] = vcat([string(i) for i in 1:stochnumscen], "Operative master")
+            if getheadlosscost(settings["problems"]["stochastic"]["master"])
+                push!(data["scenarionames"], "Operative master after")
+            end
+            if haskey(settings["problems"], "clearing")
+                push!(data["scenarionames"], "Operative clearing")
+            end
         end
     end
 
