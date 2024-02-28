@@ -184,34 +184,34 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
 
     # Skipmed inidcates if we reuse water values for this time step, and therefore does not have to run the long and medium problems
     if skipmed.value == 0
-        prognosistimes[step, 3, 1] = @elapsed begin
+        prognosistimes[step-1, 3, 1] = @elapsed begin
             longstorages = getstorages(getobjects(longprob))
             
             setstartstates!(longprob, longstorages, startstates)
             setendstates!(longprob, longstorages, startstates)
             
-            prognosistimes[step, 1, 1] = @elapsed update!(longprob, tnormal)
-            prognosistimes[step, 2, 1] = @elapsed solve!(longprob)
+            prognosistimes[step-1, 1, 1] = @elapsed update!(longprob, tnormal)
+            prognosistimes[step-1, 2, 1] = @elapsed solve!(longprob)
         end
 
-        prognosistimes[step, 3, 2] = @elapsed begin
+        prognosistimes[step-1, 3, 2] = @elapsed begin
             medstorages = getstorages(getobjects(medprob))
             setstartstates!(medprob, medstorages, startstates)
             
-            prognosistimes[step, 1, 2] = @elapsed update!(medprob, tphasein) # horizons needs to be updated before we can calculate longperiod
+            prognosistimes[step-1, 1, 2] = @elapsed update!(medprob, tphasein) # horizons needs to be updated before we can calculate longperiod
 
             longperiod = getendperiodfromduration(lhh, getduration(mhh))
             medendvalues = getinsideduals(longprob, medstorages, longperiod)
             medendvaluesobj = medprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"MedEndValue"), medprob.objects)]
             updateendvalues!(medprob, medendvaluesobj, medendvalues)
 
-            prognosistimes[step, 2, 2] = @elapsed solve!(medprob)
+            prognosistimes[step-1, 2, 2] = @elapsed solve!(medprob)
 
             updateareaprices!(medprice, medprob, mph, tnormal)
         end
     end
     
-    prognosistimes[step, 3, 3] = @elapsed begin
+    prognosistimes[step-1, 3, 3] = @elapsed begin
         shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(10))
         allstorages = getstorages(getobjects(shortprob))
         longtermstorages = setdiff(allstorages, shorttermstorages)
@@ -228,8 +228,8 @@ function prognosis!(longprob::Prob, medprob::Prob, shortprob::Prob, medprice::Di
             updateendvalues!(shortprob, shortendvaluesobj, shortendvalues)
         end
 
-        prognosistimes[step, 1, 3] = @elapsed update!(shortprob, tphasein)
-        prognosistimes[step, 2, 3] = @elapsed solve!(shortprob)
+        prognosistimes[step-1, 1, 3] = @elapsed update!(shortprob, tphasein)
+        prognosistimes[step-1, 2, 3] = @elapsed solve!(shortprob)
 
         getoutgoingstates!(shortprob, nonstoragestates)
 
