@@ -234,26 +234,32 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
     count, mastertime, subtime = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
 
     # Init storagevalues results # TODO move to function
-    wwcount = 0
     if settings["results"]["storagevalues"]
         for i in 1:length(subs)
-            wwcount += 1
-
             (constant, slopes) = cutparameters[i]
-            for (j, (state, value)) in enumerate(cuts.slopes[getcutix(cuts)])
-                storagevalues[1, i, j] = slopes[state]
+            for (j, (state, value)) in enumerate(slopes)
+                minslope = 0
+                maxslope = -1e9
+                for k in 1:getnumcuts(cuts)
+                    val = cuts[i][k][state]
+                    minslope = min(minslope, val)
+                    maxslope = max(maxslope, val)
+                end
                 balance = getbalance(cuts.objects[j])
                 if haskey(balance.metadata, GLOBALENEQKEY)
-                    storagevalues[1, i, j] = storagevalues[1, i, j] / balance.metadata[GLOBALENEQKEY]
+                    minslope = minslope / balance.metadata[GLOBALENEQKEY]
+                    maxslope = maxslope / balance.metadata[GLOBALENEQKEY]
                 end
+                storagevalues[1, (i-1)*2+1, j] = minslope
+                storagevalues[1, (i-1)*2+2, j] = maxslope
             end
         end
 
         for (j, obj) in enumerate(cuts.objects) # operative water values
             balance = getbalance(obj)
-            storagevalues[1, wwcount + 1, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+            storagevalues[1, length(subs)*2 + 1, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
             if haskey(balance.metadata, GLOBALENEQKEY)
-                storagevalues[1, wwcount + 1, j] = storagevalues[1, wwcount + 1, j] / balance.metadata[GLOBALENEQKEY]
+                storagevalues[1, length(subs)*2 + 1, j] = storagevalues[1, length(subs)*2 + 1, j] / balance.metadata[GLOBALENEQKEY]
             end
         end
     end
@@ -267,9 +273,9 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
         if storagevalues != [0]
             for (j, obj) in enumerate(cuts.objects) # operative water values after headlosscost
                 balance = getbalance(obj)
-                storagevalues[1, wwcount + 2, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+                storagevalues[1, length(subs)*2 + 2, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
                 if haskey(balance.metadata, GLOBALENEQKEY)
-                    storagevalues[1, wwcount + 2, j] = storagevalues[1, wwcount + 2, j] / balance.metadata[GLOBALENEQKEY]
+                    storagevalues[1, length(subs)*2 + 2, j] = storagevalues[1, length(subs)*2 + 2, j] / balance.metadata[GLOBALENEQKEY]
                 end
             end
         end
@@ -439,23 +445,30 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             wwcount = 0
             if storagevalues != [0]
                 for i in 1:length(subs)
-                    wwcount += 1
-
                     (constant, slopes) = cutparameters[i]
-                    for (j, (state, value)) in enumerate(cuts.slopes[getcutix(cuts)])
-                        storagevalues[stepnr, i, j] = slopes[state]
+                    for (j, (state, value)) in enumerate(slopes[1])
+                        minslope = 0
+                        maxslope = -1e9
+                        for k in 1:getnumcuts(cuts)
+                            val = cuts[i][k][state]
+                            minslope = min(minslope, val)
+                            maxslope = max(maxslope, val)
+                        end
                         balance = getbalance(cuts.objects[j])
                         if haskey(balance.metadata, GLOBALENEQKEY)
-                            storagevalues[stepnr, i, j] = storagevalues[stepnr, i, j] / balance.metadata[GLOBALENEQKEY]
+                            minslope = minslope / balance.metadata[GLOBALENEQKEY]
+                            maxslope = maxslope / balance.metadata[GLOBALENEQKEY]
                         end
+                        storagevalues[stepnr, (i-1)*2+1, j] = minslope
+                        storagevalues[stepnr, (i-1)*2+2, j] = maxslope
                     end
                 end
-
+        
                 for (j, obj) in enumerate(cuts.objects) # operative water values
                     balance = getbalance(obj)
-                    storagevalues[stepnr, wwcount + 1, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+                    storagevalues[stepnr, length(subs)*2 + 1, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
                     if haskey(balance.metadata, GLOBALENEQKEY)
-                        storagevalues[stepnr, wwcount + 1, j] = storagevalues[stepnr, wwcount + 1, j] / balance.metadata[GLOBALENEQKEY]
+                        storagevalues[stepnr, length(subs)*2 + 1, j] = storagevalues[stepnr, length(subs)*2 + 1, j] / balance.metadata[GLOBALENEQKEY]
                     end
                 end
             end
@@ -473,11 +486,11 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         secondwwtime = @elapsed begin
             if getheadlosscost(settings["problems"]["stochastic"]["master"])
                 if storagevalues != [0]
-                    for (j, obj) in enumerate(cuts.objects) # operative water values
+                    for (j, obj) in enumerate(cuts.objects) # operative water values after headlosscost
                         balance = getbalance(obj)
-                        storagevalues[stepnr, wwcount + 2, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
+                        storagevalues[stepnr, length(subs)*2 + 2, j] = getcondual(master, getid(balance), getnumperiods(gethorizon(balance)))
                         if haskey(balance.metadata, GLOBALENEQKEY)
-                            storagevalues[stepnr, wwcount + 2, j] = storagevalues[stepnr, wwcount + 2, j] / balance.metadata[GLOBALENEQKEY]
+                            storagevalues[stepnr, length(subs)*2 + 2, j] = storagevalues[stepnr, length(subs)*2 + 2, j] / balance.metadata[GLOBALENEQKEY]
                         end
                     end
                 end
