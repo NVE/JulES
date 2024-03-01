@@ -183,9 +183,6 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
     master = buildprob(probmethods[1], masterobjects)
     subs = [buildprob(probmethods[2], subobject) for subobject in subobjects] # initialize subproblems
 
-    # Init cutparameters
-    cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
-
     getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(master, startstates, init=true)
     getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(master, startstates)
 
@@ -231,17 +228,16 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
 
     ub = 0
     cutreuse = false
-    count, mastertime, subtime = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+    count, mastertime, subtime = iterate_convergence!(master, subs, cuts, states, cutreuse, lb, ub, reltol)
 
     # Init storagevalues results # TODO move to function
     if settings["results"]["storagevalues"]
         for i in 1:length(subs)
-            (constant, slopes) = cutparameters[i]
-            for (j, (state, value)) in enumerate(slopes)
+            for (j, statevar) in enumerate(cuts.statevars)
                 minslope = 0
                 maxslope = -1e9
                 for k in 1:getnumcuts(cuts)
-                    val = cuts[i][k][state]
+                    val = cuts.scenslopes[i,k,j]
                     minslope = min(minslope, val)
                     maxslope = max(maxslope, val)
                 end
@@ -294,7 +290,7 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
 end
 
 # Iterate until convergence between master and subproblems
-function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts, cutparameters::Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}, states::Dict{StateVariableInfo, Float64}, cutreuse::Bool, lb::Float64, ub::Int, reltol::Float64)
+function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts, states::Dict{StateVariableInfo, Float64}, cutreuse::Bool, lb::Float64, ub::Int, reltol::Float64)
     count = 0
     mastertime = 0
     subtime = 0
@@ -318,11 +314,12 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
                 solve!(master)
             end
         end
-        
-        count == 0 && setwarmstart!(master, true)
 
         lb = getvarvalue(master, getfuturecostvarid(cuts),1)
         ub = 0
+
+        count == 0 && setwarmstart!(master, true)
+        (count == 1 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
         
         for (i,sub) in enumerate(subs)
 
@@ -331,12 +328,16 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
             subtime += @elapsed solve!(sub)
 
             ub += getobjectivevalue(sub)*cuts.probabilities[i]
-            cutparameters[i] = getcutparameters(sub, states)
+            getscencutparameters!(sub, cuts, states, i)
         end
 
         count += 1
-        (count == 1 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
-        updatecuts!(master, cuts, cutparameters)
+        updatecutparameters!(master, cuts)
+        if (count == 1 && cutreuse) 
+            updatecuts!(master, cuts)
+        else
+            updatelastcut!(master, cuts)
+        end
 #             display(ub)
 #             display(abs((lb-ub)/lb))
 #             display(cuts.slopes)
@@ -383,9 +384,6 @@ end
 # Run stochastic subsystem problem
 function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo, Float64}, cuts::SimpleSingleCuts, storagevalues::Array, startstates::Dict, medprices::Union{Vector{Dict}, Nothing}, shortprices::Union{Vector{Dict}, Nothing}, medendvaluesdicts::Vector{Dict}, short::Bool, reltol::Float64, tnormal::ProbTime, scenarios::ScenarioModellingMethod, stochastictimes::Matrix{Float64}, stepnr::Int, settings::Dict)
     stochastictimes[stepnr-1, 9] = @elapsed begin   
-        # Init cutparameters
-        cutparameters = Vector{Tuple{Float64, Dict{StateVariableInfo, Float64}}}(undef, length(subs)) # preallocate for cutparameters from subproblems
-
         # Update master
         masterstorages = getstorages(getobjects(master))
         setstartstates!(master, masterstorages, startstates)
@@ -434,7 +432,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         ub = 0
         cutreuse = true
         stochastictimes[stepnr-1, 3] = @elapsed begin
-            (count, mastertime, subtime) = iterate_convergence!(master, subs, cuts, cutparameters, states, cutreuse, lb, ub, reltol)
+            (count, mastertime, subtime) = iterate_convergence!(master, subs, cuts, states, cutreuse, lb, ub, reltol)
         end
         stochastictimes[stepnr-1, 4] = count
         stochastictimes[stepnr-1, 5] = mastertime
@@ -445,12 +443,11 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             wwcount = 0
             if storagevalues != [0]
                 for i in 1:length(subs)
-                    (constant, slopes) = cutparameters[i]
-                    for (j, (state, value)) in enumerate(slopes[1])
+                    for (j, statevar) in enumerate(cuts.statevars)
                         minslope = 0
                         maxslope = -1e9
                         for k in 1:getnumcuts(cuts)
-                            val = cuts[i][k][state]
+                            val = cuts.scenslopes[i,k,j]
                             minslope = min(minslope, val)
                             maxslope = max(maxslope, val)
                         end

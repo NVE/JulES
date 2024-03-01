@@ -75,4 +75,4 @@ weeklydaily:
     results:
         mainresults: "all"
         times: true
-        storagevalues: false
+        storagevalues: true
