@@ -272,14 +272,14 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
             # Preallocate storagevalues
             if getheadlosscost(settings["problems"]["stochastic"]["master"])
-                wwnumscen = stochnumscen + 2 # scenarios + master operative + master operative after headlosscost adjustment
+                wwnumscen = stochnumscen*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
             else
-                wwnumscen = stochnumscen + 1 # scenarios + master operative 
+                wwnumscen = stochnumscen*2 + 1 # scenarios + master operative 
             end
             if settings["results"]["storagevalues"]
                 ustoragevalues = [zeros(Float64, steps, Int(wwnumscen), length(getcutobjects(msso))) for (i,(msso,ssso)) in enumerate(ustoragesystemobjects)]
             else
-                ustoragevalues = [[0] for (i,sso) in enumerate(storagesystemobjects)]
+                ustoragevalues = [[0] for (i,sso) in enumerate(ustoragesystemobjects)]
             end
 
             # Add detailed startstates
@@ -602,13 +602,14 @@ function run_serial(config, datayear, scenarioyear, dataset)
             end
 
             # Indexes
-            dim = getoutputindex(mainconfig, datayear, scenarioyear)
+            dim = getoutputindex(config["main"], datayear, scenarioyear)
             x1 = [getisoyearstart(dim) + Week(weekstart-1) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
             x2 = [getisoyearstart(dim) + Week(weekstart-1) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
             x3 = [getisoyearstart(dim) + Week(weekstart-1) + steplength*(t-1) for t in 1:steps]; # state resolution
 
-            datetimeformat = settings["results"]["datetimeformat"]
-            if datetimeformat != "DateTime"
+            outputformat = config["main"]["outputformat"]
+            if outputformat != "juliadict"
+                datetimeformat = config["main"]["datetimeformat"]
                 x1 = Dates.format.(x1, datetimeformat)
                 x2 = Dates.format.(x2, datetimeformat)
                 x3 = Dates.format.(x3, datetimeformat)
@@ -663,7 +664,11 @@ function run_serial(config, datayear, scenarioyear, dataset)
             data["storagenames"] = [getinstancename(getid(obj)) for cut in cutslocal for obj in cut.objects]
             data["shorts"] = [shorts[i] for (i, cut) in enumerate(cutslocal) for obj in cut.objects]
             data["skipfactor"] = skipfactor
-            data["scenarionames"] = vcat([string(i) for i in 1:stochnumscen], "Operative master")
+            data["scenarionames"] = String[]
+            for i in stochnumscen
+                data["scenarionames"] = vcat(data["scenarionames"], [string(i) * " min", string(i) * " max"])
+            end
+            push!(data["scenarionames"], "Operative master")
             if getheadlosscost(settings["problems"]["stochastic"]["master"])
                 push!(data["scenarionames"], "Operative master after")
             end
