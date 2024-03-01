@@ -665,7 +665,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             data["shorts"] = [shorts[i] for (i, cut) in enumerate(cutslocal) for obj in cut.objects]
             data["skipfactor"] = skipfactor
             data["scenarionames"] = String[]
-            for i in stochnumscen
+            for i in 1:stochnumscen
                 data["scenarionames"] = vcat(data["scenarionames"], [string(i) * " min", string(i) * " max"])
             end
             push!(data["scenarionames"], "Operative master")
