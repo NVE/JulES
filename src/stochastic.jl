@@ -319,7 +319,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
         ub = 0
 
         count == 0 && setwarmstart!(master, true)
-        (count == 1 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
+        (count == 0 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
         
         for (i,sub) in enumerate(subs)
 
@@ -331,13 +331,13 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
             getscencutparameters!(sub, cuts, states, i)
         end
 
-        count += 1
         updatecutparameters!(master, cuts)
-        if (count == 1 && cutreuse) 
+        if (count == 0 && cutreuse) 
             updatecuts!(master, cuts)
         else
             updatelastcut!(master, cuts)
         end
+        count += 1
 #             display(ub)
 #             display(abs((lb-ub)/lb))
 #             display(cuts.slopes)
