@@ -315,7 +315,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
             end
         end
 
-        lb = getvarvalue(master, getfuturecostvarid(cuts),1)
+        lb = getvarvalue(master, getfuturecostvarid(cuts), 1)
         ub = 0
 
         count == 0 && setwarmstart!(master, true)
@@ -338,9 +338,10 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
             updatelastcut!(master, cuts)
         end
         count += 1
-#             display(ub)
-#             display(abs((lb-ub)/lb))
-#             display(cuts.slopes)
+        # display(ub)
+        # display(abs((lb-ub)/lb))
+        # display(abs(ub-lb))
+        # display(cuts.slopes)
     end
     
     return count, mastertime, subtime
@@ -424,7 +425,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
             end
             
             scaleinflow!(scenarios, i, getobjects(sub)) # scale inflow to average of represented scenarios
-            stochastictimes[stepnr-1, 2] += @elapsed update!(sub, tnormalsub) # update parameters given problem start time of scenario
+            stochastictimes[stepnr-1, 2] += @elapsed update!(sub, tphaseinsub) # update parameters given problem start time of scenario
         end
 
         cuts.probabilities = scenarios.weights
