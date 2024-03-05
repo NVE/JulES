@@ -20,18 +20,11 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 
     # Initialize cuts (has to be added to modelobjects so that all the variables are built at the same time)
     varendperiod = Dict()
-    clearingcuts = deepcopy(cutslocal) # Avoid changing localcuts objects, needed to collect watervalues for example
-    clearingcutobjects = []
-    for cuts in clearingcuts
-        # Replace local stochastic object with version from clearing, also store numperiods of clearingobject
-        for (i,obj) in enumerate(cuts.objects)
-            objid = getid(obj)
-            clearingobj = modelobjects[objid]
-            cuts.objects[i] = clearingobj # needed for setconstants!
-            push!(clearingcutobjects, clearingobj)
-            varendperiod[objid] = getnumperiods(gethorizon(clearingobj))
+    for cuts in cutslocal
+        for statevar in cuts.statevars
+            (varid, varix) = getvarout(statevar)
+            varendperiod[varid] = getnumperiods(gethorizon(modelobjects[varid]))
         end
-
         cutid = getid(cuts)
         modelobjects[cutid] = cuts
     end
@@ -69,7 +62,7 @@ function clearing_init(probmethod::ProbMethod, elements::Vector{DataElement}, t:
 
     solve!(clearing)
     
-    return clearing, nonstoragestatesmean, varendperiod, clearingcutobjects
+    return clearing, nonstoragestatesmean, varendperiod
 end
 
 # Run market clearing for new time step

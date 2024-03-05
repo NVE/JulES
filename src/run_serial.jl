@@ -334,18 +334,22 @@ function run_serial(config, datayear, scenarioyear, dataset)
             probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
             # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
             # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
-            @time clearing, nonstoragestatesmean, varendperiod, clearingcutobjects = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
+            @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
             getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
 
             # Update clearing storage values
             if settings["results"]["storagevalues"]
-                for (j, obj) in enumerate(clearingcutobjects)
-                    balance = getbalance(obj)
-                    clearingstoragevalues[1, 1, j] = getcondual(clearing, getid(balance), getnumperiods(gethorizon(balance)))
-                    if haskey(balance.metadata, GLOBALENEQKEY)
-                        clearingstoragevalues[1, 1, j] = clearingstoragevalues[1, 1, j] / balance.metadata[GLOBALENEQKEY]
+                j = 0
+                for cuts in cutslocal
+                    for obj in cuts.objects
+                        j += 1
+                        balance = getbalance(obj)
+                        clearingstoragevalues[1, 1, j] = getcondual(clearing, getid(balance), varendperiod[getid(obj)])
+                        if haskey(balance.metadata, GLOBALENEQKEY)
+                            clearingstoragevalues[1, 1, j] = clearingstoragevalues[1, 1, j] / balance.metadata[GLOBALENEQKEY]
+                        end
                     end
                 end
             end
@@ -470,11 +474,15 @@ function run_serial(config, datayear, scenarioyear, dataset)
             end
 
             if settings["results"]["storagevalues"]
-                for (j, obj) in enumerate(clearingcutobjects)
-                    balance = getbalance(obj)
-                    clearingstoragevalues[stepnr, 1, j] = getcondual(clearing, getid(balance), getnumperiods(gethorizon(balance)))
-                    if haskey(balance.metadata, GLOBALENEQKEY)
-                        clearingstoragevalues[stepnr, 1, j] = clearingstoragevalues[stepnr, 1, j] / balance.metadata[GLOBALENEQKEY]
+                j = 0
+                for cuts in cutslocal
+                    for obj in cuts.objects
+                        j += 1
+                        balance = getbalance(obj)
+                        clearingstoragevalues[stepnr, 1, j] = getcondual(clearing, getid(balance), varendperiod[getid(obj)])
+                        if haskey(balance.metadata, GLOBALENEQKEY)
+                            clearingstoragevalues[stepnr, 1, j] = clearingstoragevalues[stepnr, 1, j] / balance.metadata[GLOBALENEQKEY]
+                        end
                     end
                 end
             end
