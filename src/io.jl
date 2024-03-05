@@ -31,6 +31,7 @@ end
 get_cores(input) = nothing
 get_horizons(input) = nothing
 get_simulation_period(input) = nothing
+get_startstates_pp(input) = nothing
 
 
 """

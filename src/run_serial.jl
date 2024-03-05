@@ -16,8 +16,8 @@ Design goals
 
 function run_serial(output::AbstractJulESOutput, input::AbstractJulESInput)
     (t, N, delta) = init_jules(output, input)
-    for i in 1:N
-        step_jules(output, t, delta, i)
+    for stepnr in 1:N
+        step_jules(output, t, delta, stepnr)
         t += delta
     end
     cleanup_jules(output)
@@ -189,7 +189,7 @@ function add_local_problems(thiscore)
     return
 end
 
-function step_jules(output::AbstractJulESOutput, t, delta, i)
+function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     cores = get_cores(output)
 
     # do input models here
@@ -197,22 +197,22 @@ function step_jules(output::AbstractJulESOutput, t, delta, i)
     # choose_scenarios
 
     @sync for core in cores
-        @spawnat core solve_pp_problems(t, delta, i, core)
+        @spawnat core solve_pp_problems(t, delta, stepnr, core)
     end
 
     @sync for core in cores
-        @spawnat core solve_ev_problems(t, delta, i, core)
+        @spawnat core solve_ev_problems(t, delta, stepnr, core)
     end
 
     @sync for core in cores
-        @spawnat core solve_mp_problems(t, delta, i, core)
+        @spawnat core solve_mp_problems(t, delta, stepnr, core)
     end
 
     @sync for core in cores
-        @spawnat core solve_cp_problem(t, delta, i, core)
+        @spawnat core solve_cp_problem(t, delta, stepnr, core)
     end
 
-    update_output(output, t, delta, i)
+    update_output(output, t, delta, stepnr)
 
     # do dynamic load balancing here
     return
@@ -222,46 +222,111 @@ end
 #    1. Collect information from other problems. 
 #       If not cached locally, collect remote data and cache result locally. 
 #       This (fetch-needed-data-only + cache) minimizes communication between cores, 
-        which is important for performance.
+#       which is important for performance.
 #    2. Update and solve problems
 #    3. Possibly do syncronization
 #
 #    (each step should also store timing info for the load balancer and output-report)
 
-function solve_pp_problems(T, t, delta, i, thiscore)
-    update_startstates_pp(i)
+# TODO: input parameters ok?
+
+# TODO: consistent use of states and duals
+function solve_pp_problems(T, t, delta, stepnr, thiscore)
+    update_startstates_pp(stepnr)
+    update_endstates_pp(stepnr) # only long, rest happens in solve
     solve_local_pp_problems(t)
     syncronize_horizons(thiscore)
     return
 end
 
-function solve_ev_problems(T, t, delta, i, thiscore)
-    update_startstates_ev(i)
+function solve_ev_problems(T, t, delta, stepnr, thiscore)
+    update_startstates_ev(stepnr)
     update_endstates_ev()
     update_prices_ev()
     solve_local_ev_problems(t)
     return
 end
 
-function solve_mp_problems(T, t, delta, i, thiscore)
-    update_startstates_mp(i)
-    update_endstates_mp_sp(i)
+function solve_mp_problems(T, t, delta, stepnr, thiscore)
+    update_startstates_mp(stepnr)
+    update_endstates_sp(stepnr)
+    scale_inflow_sp(stepnr)
     update_prices_mp()
-    update_prices_mp_sp()
+    update_prices_sp()
+    update_statedependent_mp()
     update_mp(t)
-    update_mp_sp(t)
-    solve_benders(i)
+    update_sp(t)
+    solve_benders(stepnr)
+    final_solve_mp()
     return
 end
 
-function solve_cp_problem(T, t, delta, i, thiscore)
+function solve_cp_problem(T, t, delta, stepnr, thiscore)
     db = get_local_db()
     if thiscore == db.cp_core        
-        db.time_cp_startstates = @elapsed update_startstates_cp(i)
+        db.time_cp_startstates = @elapsed update_startstates_cp(stepnr)
         db.time_cp_endstates   = @elapsed update_endstates_cp()
         db.time_cp_cuts        = @elapsed update_cuts_cp()
         db.time_cp_update      = @elapsed update!(db.cp, t)
         db.time_cp_solve       = @elapsed solve!(db.cp)
     end
     return
+end
+
+function update_startstates_pp(stepnr)
+    db = get_local_db()
+    problems = db.pp
+    if stepnr == 1
+        startstates = get_startstates_pp(db.input)
+    else
+        if has_startstates_pp(db)
+            startstates = get_startstates_pp(db)
+        else
+            startstates = get_startstates_pp_from_cp(db)
+        end
+    end
+    for p in problems
+        setstartstates!(p, startstates)
+    end
+end
+
+function solve_local_pp_problems(t)
+    db = get_local_db()
+    for p in db.pp
+        update!(p.long, t)
+        solve!(p.long)
+        # transfer states from long to med
+        update!(p.med, t)
+        solve!(p.med)
+        # transfer states from med to short
+        update!(p.short, t)
+        solve!(p.short)
+    end
+end
+
+function syncronize_horizons(thiscore)
+    db = get_local_db()
+    owner_scenarios = [s for (s, c) in db.pp_dist if c == thiscore]
+    for ((scenario, term, commodity), horizon) in db.horizons
+        if !(scenario in owner_scenarios)
+            continue
+        end
+        changes = getchanges(horizon)
+        if length(changes)
+            @sync for (s, c) in db.pp_dist if !(s in owner_scenarios)
+                @spawnat c transfer_horizon_changes(s, term, commodity, changes)
+            end        
+        end
+    end
+end
+
+function transfer_horizon_changes(s, term, commodity, changes)
+    db = get_local_db()
+    h = db.horizons[(s, term, commodity)]
+    setchanges!(h, changes)
+    return
+end
+
+function update_startstates_ev(stepnr)
+
 end
