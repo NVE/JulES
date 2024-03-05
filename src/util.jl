@@ -317,6 +317,13 @@ function getscenmodmethod(problem::Dict, numscen::Int64)
     if method == "InflowClusteringMethod"
         parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
         return InflowClusteringMethod(numscen, parts)
+    elseif method == "SumInflowQuantileMethod"
+        a = problem["a"]
+        b = problem["b"]
+        c = problem["c"]
+        maxquantile = problem["maxquantile"]
+        usedensity = problem["usedensity"]
+        return SumInflowQuantileMethod(numscen, maxquantile, a, b, c, usedensity=usedensity)
     else
         error("$method not supported")
     end
