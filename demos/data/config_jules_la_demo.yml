@@ -150,7 +150,7 @@ threehour:
     results:
         mainresults: ["NO2"]
         times: true
-        storagevalues: false
+        storagevalues: true
                 
                 
 
@@ -287,4 +287,4 @@ fast: # 24 hour steps, 7 static scenarios, aggregated hydro, shrinkablehorizon, 
     results:
         mainresults: ["NO2"]
         times: true
-        storagevalues: false
+        storagevalues: true
