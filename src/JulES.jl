@@ -1,6 +1,6 @@
 module JulES
 
-using Distributed, DistributedArrays, TuLiPa, Dates, Statistics, Clustering, DataFrames
+using Distributed, DistributedArrays, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames
 include("util.jl") # Various useful functions
 include("scenariomodelling.jl") # Code for scenario modelling
 include("prognosis.jl") # Code for price prognosis problems
@@ -12,7 +12,7 @@ using PrecompileTools
 
 @setup_workload begin
 	using TuLiPa, Dates, JulES
-	using DataFrames, Statistics, JSON, Distributed, Clustering
+	using DataFrames, Statistics, JSON, Distributed, Clustering, Distributions
 	numcores = 1
 	datayearstart = 2023
 	scenarioyear = 1995
