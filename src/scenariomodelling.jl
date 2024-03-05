@@ -78,6 +78,7 @@ function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, num
     x = collect(-numscen+1:2:numscen-1)
     y = (scenmodmethod.a .* x .^ 2 .+ x .* scenmodmethod.b .+ scenmodmethod.c) .* d
     scenmodmethod.weights = y/sum(y)
+    display(scenmodmethod.weights)
 
     # How much should the inflow in the scenario be adjusted so that it is similar to the quantile?
     for i in 1:numscen
