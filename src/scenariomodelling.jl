@@ -49,7 +49,10 @@ function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, num
     for obj in objects
         if obj isa Balance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
-                enekvglobal = obj.metadata[GLOBALENEQKEY]
+                enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
+                if haskey(obj.metadata, GLOBALENEQKEY)
+                    enekvglobal = obj.metadata[GLOBALENEQKEY]
+                end
                 for rhsterm in getrhsterms(obj)
                     for (i, (scentnormal,scentphasein,scenario)) in enumerate(scentimesoptions)
                         totalsumenergyinflow[i] += getparamvalue(rhsterm, scentnormal, scendelta)*enekvglobal*factoroptions[i]
@@ -75,12 +78,13 @@ function scenariomodelling!(scenmodmethod::SumInflowQuantileMethod, objects, num
     x = collect(-numscen+1:2:numscen-1)
     y = (scenmodmethod.a .* x .^ 2 .+ x .* scenmodmethod.b .+ scenmodmethod.c) .* d
     scenmodmethod.weights = y/sum(y)
+    display(scenmodmethod.weights)
 
     # How much should the inflow in the scenario be adjusted so that it is similar to the quantile?
     for i in 1:numscen
         qvalue = qvalues[i]
         idx = findmin(abs.(totalsumenergyinflow.-qvalue))[2]
-        scenmodmethod.scentimes[i] = totalscentimes[idx]
+        scenmodmethod.scentimes[i] = scentimesoptions[idx]
         scenmodmethod.factors[i] = qvalue/totalsumenergyinflow[idx]
     end
     return
@@ -181,9 +185,9 @@ function increment_scenmodmethod!(scenmodmethod::ScenarioModellingMethod, phasei
         if scentphasein isa Union{PrognosisTime, FixedDataTwoTime}
             scentphasein += phaseinoffset
         elseif scentphasein isa PhaseinPrognosisTime
-            scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentphasein) + phaseinoffset, phaseinoffset, phaseindelta, phaseinsteps)
+            scentphasein = PhaseinPrognosisTime(getdatatime(scentnormal), getdatatime(scentnormal), getscenariotime1(scentphasein) + phaseinoffset, getscenariotime(scentnormal), phaseinoffset, phaseindelta, phaseinsteps)
         elseif scentphasein isa PhaseinFixedDataTwoTime
-            scentphasein = PhaseinFixedDataTwoTime(getdatatime(scentnormal), getscenariotime(scentnormal), getscenariotime(scentphasein) + phaseinoffset, phaseinoffset, phaseindelta, phaseinsteps);
+            scentphasein = PhaseinFixedDataTwoTime(getdatatime(scentnormal), getscenariotime1(scentphasein) + phaseinoffset, getscenariotime(scentnormal), phaseinoffset, phaseindelta, phaseinsteps);
         end
         scenmodmethod.scentimes[i] = (scentnormal, scentphasein, scenario)
     end

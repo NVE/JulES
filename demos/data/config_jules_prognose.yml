@@ -1,0 +1,240 @@
+main:
+    inputpath: "data"
+    numcores: 1 # kjerner per scenario
+    
+    datayears: [2024]
+    weatheryears: [1991, 2000]
+    weekstart: 5
+    simulationyears: 1
+    extrasteps: 0 # see steplength_hours
+    
+    settings: fast # fast, threehour, sixhour
+
+    # simulationyears: 0
+    # extrasteps: 16 # see steplength_hours
+    
+    # settings: threehour # fast, threehour, sixhour
+
+    outputformat: "juliadict" # hdf5 hvis du kjører gjennom JulESIO
+    outputindex: datayear # standard for paralellsimulering
+    
+#############################################################
+threehour:
+    time:
+        scenarioyearstart: 1991
+        scenarioyearstop: 2021
+        probtime:
+            normaltime: PrognosisTime
+            phaseintime: PhaseinPrognosisTime
+            phaseindelta_days: 120
+            phaseinsteps: 5
+        
+        steplength_hours: 48
+        skipmax: 4 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
+    scenariogeneration:
+        simulation:
+            function: InflowClusteringMethod
+            numscen: 30
+            scendelta_days: 1095
+            parts: 4
+        prognosis:
+            function: InflowClusteringMethod
+            numscen: 30
+            scendelta_days: 365
+            parts: 4
+        stochastic:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 365
+            parts: 4
+    problems:
+        shorttermstoragecutoff_hours: 10
+        prognosis: 
+            shrinkable: both # long, med, both, no
+            aggsupplyn: 4
+            residualarealist: []
+            long:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            med:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            short:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod(warmstart=false)
+            startstorages:
+                function: aggstartmagdict
+        stochastic:
+            maxcuts: 13
+            lb: -100000.0
+            reltol: 0.0001
+            master:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            subs:
+                solver: HighsSimplexMethod()
+            startstorages:
+                function: startmagdict
+        clearing:
+            solver: HighsSimplexMethod(warmstart=false)
+            statedependentprod: true
+            statedependentpump: true
+            headlosscost: true
+    horizons:
+        long: # only support sequential hydro and adaptive power
+            horizonduration_weeks: 260
+            hydroperiodduration_days: 42
+            rhsdata:
+                function: DynamicExogenPriceAHData
+                balance: PowerBalance_TYSKLAND
+            rhsmethod: KMeansAHMethod()
+            clusters: 4
+            unitduration_hours: 6
+        med: # only support sequential hydro and adaptive power
+            horizonduration_days: 420
+            hydroperiodduration_days: 7
+            rhsdata:
+                function: DynamicExogenPriceAHData
+                balance: PowerBalance_TYSKLAND
+            rhsmethod: KMeansAHMethod()
+            clusters: 4
+            unitduration_hours: 4
+        short: # only support sequential hydro and power
+            horizonduration_hours: 168
+            hydroperiodduration_hours: 24
+            powerparts: 8
+        stochastic:
+            med:
+                horizonduration_days: 406 # 420 - 14 # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
+                master:
+                    power:
+                        periodduration_hours: 24
+                    hydro:
+                        periodduration_hours: 24
+                subs:
+                    power:
+                        periodduration_hours: 168
+                    hydro:
+                        periodduration_hours: 168
+        clearing:
+            power:
+                periodduration_hours: 3
+            hydro:
+                periodduration_hours: 6
+    results:
+        mainresults: ["SORLAND"]
+        times: true
+        storagevalues: true
+
+
+
+
+
+#############################################################
+fast: # 24 hour steps, 7 static scenarios, aggregated hydro, shrinkablehorizon, no phasein, 1 year long, 18 week med, 2 day short
+    time:
+        scenarioyearstart: 1991
+        scenarioyearstop: 2021
+        probtime:
+            normaltime: PrognosisTime
+            phaseintime: PrognosisTime
+            phaseindelta_days: 120 
+            phaseinsteps: 5
+        
+        steplength_hours: 24
+        skipmax: 8 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
+    scenariogeneration:
+        simulation:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 1095
+            parts: 4
+        prognosis:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 365
+            parts: 4
+        stochastic:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 365
+            parts: 4
+    problems:
+        onlyagghydro: true
+        shorttermstoragecutoff_hours: 10
+        prognosis: 
+            shrinkable: both_nophasein # both, both_ignorephasein, no - TODO: long, med
+            aggsupplyn: 4
+            residualarealist: []
+            long:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            med:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            short:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod(warmstart=false)
+            startstorages:
+                function: aggstartmagdict
+        stochastic:
+            maxcuts: 13
+            lb: -100000.0
+            reltol: 0.0001
+            master:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            subs:
+                solver: HighsSimplexMethod()
+            startstorages:
+                function: startmagdict
+        clearing:
+            solver: HighsSimplexMethod(warmstart=false)
+            statedependentprod: true
+            statedependentpump: true
+            headlosscost: true
+    horizons:
+        long: # only support sequential hydro and adaptive power
+            horizonduration_weeks: 52 # 5*52
+            hydroperiodduration_days: 42 # 6*7
+            rhsdata:
+                function: DynamicExogenPriceAHData
+                balance: PowerBalance_TYSKLAND
+            rhsmethod: KMeansAHMethod()
+            clusters: 4
+            unitduration_hours: 12
+        med: # only support sequential hydro and adaptive power
+            horizonduration_days: 126 # 3*6*7
+            hydroperiodduration_days: 7
+            rhsdata:
+                function: DynamicExogenPriceAHData
+                balance: PowerBalance_TYSKLAND
+            rhsmethod: KMeansAHMethod()
+            clusters: 4
+            unitduration_hours: 6
+        short: # only support sequential hydro and power
+            horizonduration_hours: 48
+            hydroperiodduration_hours: 24
+            powerparts: 4
+        stochastic:
+            med:
+                horizonduration_days: 112  # 126 - 14 we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem: TODO rather calculate
+                master:
+                    power:
+                        periodduration_hours: 24
+                    hydro:
+                        periodduration_hours: 24
+                subs:
+                    power:
+                        periodduration_hours: 168
+                    hydro:
+                        periodduration_hours: 168
+        clearing:
+            power:
+                periodduration_hours: 6  # should be the same as prognosis and stochastic short
+            hydro:
+                periodduration_hours: 24
+    results:
+        mainresults: ["SORLAND"]
+        times: true
+        storagevalues: true

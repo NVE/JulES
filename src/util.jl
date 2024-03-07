@@ -317,18 +317,27 @@ function getscenmodmethod(problem::Dict, numscen::Int64)
     if method == "InflowClusteringMethod"
         parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
         return InflowClusteringMethod(numscen, parts)
+    elseif method == "SumInflowQuantileMethod"
+        a = problem["a"]
+        b = problem["b"]
+        c = problem["c"]
+        maxquantile = problem["maxquantile"]
+        usedensity = problem["usedensity"]
+        return SumInflowQuantileMethod(numscen, maxquantile, a, b, c, usedensity=usedensity)
     else
         error("$method not supported")
     end
 end
 
-function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
-    startstorages = problemconfig["startstorages"]
+function getstartstates!(startstates::Dict, problemsconfig::Dict, problem::String, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
+    startstorages = problemsconfig[problem]["startstorages"]
     if startstorages["function"] == "percentages"
-        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
+        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemsconfig["shorttermstoragecutoff_hours"]))
         longtermstorages = setdiff(storages, shorttermstorages)
         merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
         merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
+    elseif startstorages["function"] == "percentage"
+        merge!(startstates, getstartstoragepercentage(storages, tnormal, startstorages["percentage"]))
     elseif haskey(dataset, startstorages["function"])
         merge!(startstates, dataset[startstorages["function"]])
     end
@@ -357,5 +366,59 @@ function getoutputindex(mainconfig::Dict, datayear::Int64, scenarioyear::Int64)
         return datayear
     elseif mainconfig["outputindex"] == "scenarioyear"
         return scenarioyear
+    end
+end
+
+# Find first exogen price in a vector of model objects
+function findfirstprice(objects)
+    for obj in objects
+        if obj isa ExogenBalance
+            return getprice(obj)
+        end
+    end
+end;
+
+# Get aggzone from config
+function getaggzone(settings::Dict)
+    if haskey(settings["problems"], "aggzone")
+        return settings["problems"]["aggzone"]
+    else
+        return Dict()
+    end
+end
+
+# Get if onlyagghydro
+function getonlyagghydro(settings::Dict)
+    if haskey(settings["problems"], "onlyagghydro")
+        return settings["problems"]["onlyagghydro"]
+    else
+        return false
+    end
+end
+
+# Get if statedependentprod
+function getstatedependentprod(settings::Dict)
+    if haskey(settings, "statedependentprod")
+        return settings["statedependentprod"]
+    else
+        return false
+    end
+end
+
+# Get if statedependentpump
+function getstatedependentpump(settings::Dict)
+    if haskey(settings, "statedependentpump")
+        return settings["statedependentpump"]
+    else
+        return false
+    end
+end
+
+# Get if statedependentpump
+function getheadlosscost(settings::Dict)
+    if haskey(settings, "headlosscost")
+        return settings["headlosscost"]
+    else
+        return false
     end
 end

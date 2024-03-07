@@ -1,0 +1,76 @@
+main:
+    inputpath: "data"
+    numcores: 1
+    
+    datayears: [2025]
+    weatheryears: [1981]
+    weekstart: 1
+    simulationyears: 1
+    extrasteps: 0 # see steplength_hours
+    
+    settings: hourly
+
+    outputformat: "juliadict" # results as a julia dict
+    outputindex: scenarioyear # standard for series simulation
+
+data:
+    transmcap: 5 # MW
+    transmeff: 0.995 # Small loss to avoid unnecessary transfers
+    storagecap: 0.01 # GWh
+    chargecap: 7.0 # MW
+    lossbattery: 0.075 # the whole loss when the battery charges
+    solarcap: 15.0 # MW
+    price: "Prices_HydroCen_LowEmission_2030_1958-2015.csv"
+    solar: "testprofiles_1981_2010.csv"
+    
+#############################################################
+hourly:
+    time:
+        scenarioyearstart: 1981 # diff from prognose
+        scenarioyearstop: 1996 # diff from prognose
+        probtime:
+            normaltime: FixedDataTwoTime # diff from prognose
+            phaseintime: PhaseinFixedDataTwoTime # diff from prognose
+            phaseindelta_days: 5
+            phaseinsteps: 5
+        
+        steplength_hours: 48
+        skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
+    scenariogeneration:
+        simulation:
+            numscen: 15
+        prognosis:
+            numscen: 15
+        stochastic:
+            numscen: 15
+    problems:
+        stochastic:
+            maxcuts: 13
+            lb: -10000000000.0
+            reltol: 0.0001
+            master:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+            subs:
+                solver: HighsSimplexMethod()
+            startstorages:
+                function: percentage
+                percentage: 50.0
+    horizons:
+        stochastic:
+            short:
+                horizonduration_hours: 168
+                master:
+                    power:
+                        periodduration_hours: 1
+                    hydro:
+                        periodduration_hours: 1
+                subs:
+                    power:
+                        periodduration_hours: 1
+                    hydro:
+                        periodduration_hours: 1
+    results:
+        mainresults: "all"
+        times: true
+        storagevalues: true

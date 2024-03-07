@@ -1,0 +1,78 @@
+main:
+    inputpath: "data"
+    numcores: 1
+    
+    datayears: [2021]
+    weatheryears: [1981]
+    weekstart: 1
+    simulationyears: 1
+    extrasteps: 0 # see steplength_hours
+    
+    settings: weeklydaily
+
+    outputformat: "juliadict" # hdf5 hvis du kjører gjennom JulESIO
+    outputindex: scenarioyear # standard for series simulation
+
+data:
+    price: "Prices_HydroCen_LowEmission_2030_1958-2015.csv"
+    watercourse: "FYKAN_H"
+    elspotnames: ["NO4"] # some watercourses are in several elspot areas
+    priceseriesname: "Troms"
+    
+#############################################################
+weeklydaily:
+    time:
+        scenarioyearstart: 1981 # diff from prognose
+        scenarioyearstop: 2010 # diff from prognose
+        probtime:
+            normaltime: FixedDataTwoTime # diff from prognose
+            phaseintime: PhaseinFixedDataTwoTime # diff from prognose
+            phaseindelta_days: 35
+            phaseinsteps: 7
+        
+        steplength_hours: 48
+        skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
+    scenariogeneration:
+        simulation:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 365
+            parts: 4
+        prognosis:
+            numscen: 7
+        stochastic:
+            numscen: 7
+    problems:
+        stochastic:
+            maxcuts: 13
+            lb: -10000000000.0
+            reltol: 0.0001
+            master:
+                prob: HiGHS_Prob()
+                solver: HighsSimplexMethod()
+                statedependentprod: true
+                statedependentpump: true
+                headlosscost: true
+            subs:
+                solver: HighsSimplexMethod()
+            startstorages:
+                function: percentage
+                percentage: 65.0
+    horizons:
+        stochastic:
+            med:
+                horizonduration_days: 420
+                master:
+                    power:
+                        periodduration_hours: 24
+                    hydro:
+                        periodduration_hours: 24
+                subs:
+                    power:
+                        periodduration_hours: 168
+                    hydro:
+                        periodduration_hours: 168
+    results:
+        mainresults: "all"
+        times: true
+        storagevalues: true
