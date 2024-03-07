@@ -1,12 +1,12 @@
 """
 Here we define some id/key-like types, that will make it easier to understand
-the dimentions of the code, eg. understanding vectors and dicts in LocalDB
+the dimensions of the code, eg. understanding vectors and dicts in LocalDB
 """
 
 """
 Main source of uncertainty in JulES is weather-related, as this is very importaint in
-energy markets. Usually we will only use this uncertainty-dimention. However,
-in order to support extentions of JulES, we allow for a second uncertainty-dimention,
+energy markets. Usually we will only use this uncertainty-dimension. However,
+in order to support extentions of JulES, we allow for a second uncertainty-dimension,
 which could e.g. be high/medium/low fuel prices, or high/medium/low availability of
 capacity.
 """
