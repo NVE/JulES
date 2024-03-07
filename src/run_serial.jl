@@ -107,7 +107,7 @@ function add_local_problem_distribution()
     db = get_local_db()
     db.pp_dist = get_pp_dist(db.input)   # must give same result on each core (deterministic)
     db.ev_dist = get_ev_dist(db.input)   # must give same result on each core (deterministic)
-    db.mp_dist = get_sp_dist(db.input)   # must give same result on each core (deterministic)
+    db.sp_dist = get_sp_dist(db.input)   # must give same result on each core (deterministic)
     db.mp_dist = get_mp_dist(db.input)   # must give same result on each core (deterministic)
     db.cp_core = get_cp_core(db.input)   # must give same result on each core (deterministic)
     return
