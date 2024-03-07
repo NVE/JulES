@@ -8,12 +8,16 @@ How price prognosis problems (ppp) are distributed on cores initially
 function get_ppp_dist(input::AbstractJulESInput) 
     cores = get_cores(input)
     scenarios = get_scenarios(input)
+
     N = length(cores)
+    
     dist = Vector{ScenarioCore}(undef, length(scenarios))
+    
     for (i, s) in enumerate(scenarios)
         j = (i - 1) % N + 1
         dist[i] = ScenarioCore(s, cores[j])
     end
+    
     return dist
 end
 

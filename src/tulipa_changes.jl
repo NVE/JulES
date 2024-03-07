@@ -1,6 +1,6 @@
 """
 We need to transfer master-horizons from one core to other cores, 
-and these should not do anything in update!(horizon, prob),
+and these should not do anything in update!(horizon, t),
 because they are updated as part of the data transfer, as the true
 horizon-update have already taken place in the master-horizon.
 """

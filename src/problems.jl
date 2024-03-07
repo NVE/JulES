@@ -10,15 +10,21 @@ struct PricePrognosisProblem
     short_nonstoragestates
 end
 
-setstartstates!(p::PricePrognosisProblem, startstates)
-
-struct EndValueProblem
+function setstartstates!(p::PricePrognosisProblem, startstates)
 end
 
+# TODO: Support different terms? (med or long)
+struct EndValueProblem
+    prob
+end
+
+# TODO: Support different terms? (med or long)
 struct ScenarioProblem
+    prob
 end
 
 struct MasterProblem
+    prob
 end
 
 struct ClearingProblem
@@ -27,12 +33,17 @@ struct ClearingProblem
 end
 
 
-create_ppp(input::AbstractJulESInput, scenario) = nothing
-
-function create_evp(input::AbstractJulESInput, subsystem, scenario)
-    
+function create_ppp(input::AbstractJulESInput, scenario)
 end
 
-create_mp(input::AbstractJulESInput, subsystem) = nothing
-create_sp(input::AbstractJulESInput, subsystem, scenario) = nothing
-create_cp(input::AbstractJulESInput) = nothing
+function create_evp(input::AbstractJulESInput, subsystem, scenario)
+end
+
+function create_mp(input::AbstractJulESInput, subsystem) 
+end
+
+function create_sp(input::AbstractJulESInput, subsystem, scenario)
+end
+
+function create_cp(input::AbstractJulESInput)
+end

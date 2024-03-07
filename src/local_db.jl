@@ -34,7 +34,7 @@ const _LOCAL_DB_NAME = :_local_db
 
 # TODO: Complete this (add more timings and maybe other stuff)
 mutable struct LocalDB
-    input::AbstractJulESInput
+    input::Union{Nothing, AbstractJulESInput}
     horizons::Dict{ScenarioTermCommodity, Horizon}
 
     ppp::Dict{Scenario, PricePrognosisProblem}
@@ -55,10 +55,25 @@ mutable struct LocalDB
     cp_time_startstates::Float64
     cp_time_endstates::Float64
 
-    # TODO: Fix by handle types, will fail now
     function LocalDB()
-        n = length(fieldnames(typeof(LocalDB)))
-        return new([nothing for _ in 1:n]...)
+        return new(
+            nothing,                                     # input
+            Dict{ScenarioTermCommodity, Horizon}(),      # horizons
+
+            Dict{Scenario, PricePrognosisProblem}(),     # ppp
+            Dict{ScenarioSubsystem, EndValueProblem}(),  # evp
+
+            Dict{ScenarioSubsystem, ScenarioProblem}(),   # sp
+            Dict{Subsystem, MasterProblem}(),             # mp
+            nothing,                                      # cp
+
+            ScenarioCore[],                               # ppp_dist
+            ScenarioSubsystemCore[],                      # evp_dist
+            SubsystemCore[],                              # mp_dist
+            ScenarioSubsystemCore[],                      # sp_dist
+            -1                                            # cp_core
+
+        )
     end
 end
 
