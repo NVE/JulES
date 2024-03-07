@@ -15,17 +15,17 @@ Some slots hold read-only data that is identical on all cores (input)
 Some slots hold stateful objects that are managed on a particular core
 while other cores hold synced copies (horizons)
 
-Some slots hold optimization problems where a problem only resides
+Some slots hold optimization problems where a problem resides
 at exactly one core at a time, but may be moved to antother core 
 over time (ppp, evp, mp, sp, cp)
 
-Some slots hold info about on which cores problems are stores. This
+Some slots hold info about on which cores problems are stored. This
 enables JulES to locate and use any problem from any core, which is
-very useful eg. when solving stochastic optimization problems where
-the masterproblem and the different subproblems reside on different
-cores, or eg. when we need to get results from a problem residing on
-one core in order to transfer it and give it as input to another problem 
-residing on a different core (ppp_dist, evp_dist, mp_dist, sp_dist, cp_core)
+very useful e.g. when solving stochastic optimization problems where
+the master problem and the different subproblems reside on different
+cores, or e.g. when we need to get results from a problem residing on
+one core in order to use it as input to another problem residing on a 
+different core (ppp_dist, evp_dist, mp_dist, sp_dist, cp_core)
 
 Many of the slots contain timing data.
 """
