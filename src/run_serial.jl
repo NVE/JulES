@@ -446,7 +446,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         # Deterministic long/mid/short - calculate scenarioprices for all 30 
         if haskey(settings["problems"], "prognosis")
             progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
-            pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr)
+            @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr)
             shortpriceslocal = convert(Vector{Dict}, shortprices)
             if (stochnumscen < prognumscen) && (skipmed.value == 0)
                 medpriceslocal = convert(Vector{Dict}, medprices)
@@ -456,7 +456,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Stochastic sub systems - calculate storage value
         if haskey(settings["problems"], "stochastic")
-            pl_stochastic!(numcores, masters, subs, states, cuts, storagevalues, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr, settings)
+            @time pl_stochastic!(numcores, masters, subs, states, cuts, storagevalues, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr, settings)
             masterslocal = convert(Vector{Prob}, masters)
         end
     
@@ -466,7 +466,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
             nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
         
-            clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr, settings)
+            @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr, settings)
 
             if haskey(settings["results"], "mainresults")
                 update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
