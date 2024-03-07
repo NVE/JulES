@@ -127,64 +127,63 @@ Which cores own which scenarios are defined in db.pp_dist at any given time.
 # TODO: No-data-version-of-non-master-horizon
 function add_local_horizons(thiscore)
     db = get_local_db()
-    horizons = get_horizons(db.input)
-    d = Dict()
-    for (scenario, ownercore) in db.pp_dist
-        d[scenario] = Dict()
-        for ((term, commodity), horizon) in horizons
+    horizons = get_horizons(db.input)::Dict{TermCommodity, Horizon}
+    d = Dict{ScenarioTermCommodity, Horizon}()
+    for r in db.ppp_dist
+        scenario = r.scenario
+        ownercore = r.core
+        for (tc, horizon) in horizons
             horizon = deepcopy(horizon)
             if ownercore != thiscore
                 horizon = ExternalHorizon(horizon)    
             end
-            d[scenario][(term, commodity)] = horizon
+            k = ScenarioTermCommodity(scenario, tc.term, tc.commodity)
+            d[k] = horizon
         end
     end
-    db.horizon = d
+    db.horizons = d
     return
 end
 
-# TODO: Ensure N scenarioproblems that may change scenario (maybe use Vector instead of Dict)
 function add_local_problems(thiscore)
     db = get_local_db()
 
-    d = Dict()
-    for (scenario, core) in db.pp_dist
-        if core == thiscore
-            d[scenario] = create_pp_problem(db.input, scenario)
+    d = Dict{Scenario, PricePrognosisProblem}()
+    for r in db.ppp_dist
+        if r.core == thiscore
+            d[r.scenario] = create_ppp(db.input, r.scenario)
         end
     end
-    db.pp = d
+    db.ppp = x
 
-    d = Dict()
-    for subsystem in keys(db.ev_dist)
-        for (scenario, core) in db.ev_dist[subsystem]
-            if core == thiscore
-                d[(subsystem, scenario)] = create_ev_problem(db.input, subsystem, scenario)
-            end
+    d = Dict{ScenarioSubsystem, EndValueProblem}()
+    for r in db.evp_dist
+        if r.core == thiscore
+            k = ScenarioSubsystem(r.scenario, r.subsystem)
+            d[k] = create_evp(db.input, r.subsystem, r.scenario)
         end
     end
-    db.ev = d
+    db.evp = d
 
-    d = Dict()
-    for (subsystem, core) in db.mp_dist
-        if core == thiscore
-            d[subsystem] = create_mp_problem(db.input, subsystem)
+    d = Dict{Subsystem, MasterProblem}()
+    for r in db.mp_dist
+        if r.core == thiscore
+            d[r.subsystem] = create_mp(db.input, r.subsystem)
         end
     end
     db.mp = d
 
-    d = Dict()
-    for subsystem in keys(db.sp_dist)
-        for (scenario, core) in db.sp_dist[subsystem]
-            if core == thiscore
-                d[(subsystem, scenario)] = create_sp_problem(db.input, subsystem, scenario)
-            end
+    d = Dict{ScenarioSubsystem, ScenarioProblem}()
+    for r in db.sp_dist
+        if r.core == thiscore
+            k = ScenarioSubsystem(r.scenario, r.subsystem)
+            d[k] = create_sp(db.input, r.subsystem, r.scenario)
         end
     end
     db.sp = d
 
     if thiscore == db.cp_core
-        db.cp = create_cp_problem(db.input)
+        db.cp = create_cp(db.input)
     end
     return
 end
@@ -196,20 +195,22 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     # generate_scenarios
     # choose_scenarios
 
+    T = typeof(output) # So we can dispatch on output-type (to add extensibility)
+
     @sync for core in cores
-        @spawnat core solve_pp_problems(t, delta, stepnr, core)
+        @spawnat core solve_ppp(T, t, delta, stepnr, core)
     end
 
     @sync for core in cores
-        @spawnat core solve_ev_problems(t, delta, stepnr, core)
+        @spawnat core solve_evp(T, t, delta, stepnr, core)
     end
 
     @sync for core in cores
-        @spawnat core solve_mp_problems(t, delta, stepnr, core)
+        @spawnat core solve_mp(T, t, delta, stepnr, core)
     end
 
     @sync for core in cores
-        @spawnat core solve_cp_problem(t, delta, stepnr, core)
+        @spawnat core solve_cp(T, t, delta, stepnr, core)
     end
 
     update_output(output, t, delta, stepnr)
@@ -231,23 +232,23 @@ end
 # TODO: input parameters ok?
 
 # TODO: consistent use of states and duals
-function solve_pp_problems(T, t, delta, stepnr, thiscore)
-    update_startstates_pp(stepnr)
-    update_endstates_pp(stepnr) # only long, rest happens in solve
-    solve_local_pp_problems(t)
+function solve_ppp(T, t, delta, stepnr, thiscore)
+    update_startstates_ppp(stepnr)
+    update_endstates_ppp(stepnr) # only long, rest happens in solve
+    solve_local_ppp(t)
     syncronize_horizons(thiscore)
     return
 end
 
-function solve_ev_problems(T, t, delta, stepnr, thiscore)
-    update_startstates_ev(stepnr)
-    update_endstates_ev()
-    update_prices_ev()
-    solve_local_ev_problems(t)
+function solve_evp(T, t, delta, stepnr, thiscore)
+    update_startstates_evp(stepnr)
+    update_endstates_evp()
+    update_prices_evp()
+    solve_local_evp(t)
     return
 end
 
-function solve_mp_problems(T, t, delta, stepnr, thiscore)
+function solve_mp(T, t, delta, stepnr, thiscore)
     update_startstates_mp(stepnr)
     update_endstates_sp(stepnr)
     scale_inflow_sp(stepnr)
@@ -261,7 +262,7 @@ function solve_mp_problems(T, t, delta, stepnr, thiscore)
     return
 end
 
-function solve_cp_problem(T, t, delta, stepnr, thiscore)
+function solve_cp(T, t, delta, stepnr, thiscore)
     db = get_local_db()
     if thiscore == db.cp_core        
         db.time_cp_startstates = @elapsed update_startstates_cp(stepnr)
@@ -273,16 +274,17 @@ function solve_cp_problem(T, t, delta, stepnr, thiscore)
     return
 end
 
-function update_startstates_pp(stepnr)
+function update_startstates_ppp(stepnr)
     db = get_local_db()
-    problems = db.pp
+    problems = db.ppp
+
     if stepnr == 1
-        startstates = get_startstates_pp(db.input)
+        startstates = get_startstates_ppp(db.input)
     else
-        if has_startstates_pp(db)
-            startstates = get_startstates_pp(db)
+        if has_startstates_ppp(db)
+            startstates = get_startstates_ppp(db)
         else
-            startstates = get_startstates_pp_from_cp(db)
+            startstates = get_startstates_ppp_from_cp(db)
         end
     end
     for p in problems
@@ -290,15 +292,15 @@ function update_startstates_pp(stepnr)
     end
 end
 
-function solve_local_pp_problems(t)
+function solve_local_ppp(t)
     db = get_local_db()
-    for p in db.pp
+    for p in db.ppp
         update!(p.long, t)
         solve!(p.long)
-        # transfer states from long to med
+        # TODO: transfer states from long to med
         update!(p.med, t)
         solve!(p.med)
-        # transfer states from med to short
+        # TODO: transfer states from med to short
         update!(p.short, t)
         solve!(p.short)
     end
@@ -306,27 +308,34 @@ end
 
 function syncronize_horizons(thiscore)
     db = get_local_db()
-    owner_scenarios = [s for (s, c) in db.pp_dist if c == thiscore]
-    for ((scenario, term, commodity), horizon) in db.horizons
-        if !(scenario in owner_scenarios)
+
+    owner_scenarios = [r.scenario for r in db.ppp_dist if r.core == thiscore]
+
+    for (k, horizon) in db.horizons
+        if !(k.scenario in owner_scenarios)
             continue
         end
+
         changes = getchanges(horizon)
-        if length(changes)
-            @sync for (s, c) in db.pp_dist if !(s in owner_scenarios)
-                @spawnat c transfer_horizon_changes(s, term, commodity, changes)
+
+        if length(changes) > 0
+            @sync for r in db.ppp_dist
+                if !(r.scenario in owner_scenarios)
+                    @spawnat r.core transfer_horizon_changes(r, changes)
+                end
             end        
         end
     end
+    return
 end
 
-function transfer_horizon_changes(s, term, commodity, changes)
+function transfer_horizon_changes(r::ScenarioTermCommodity, changes)
     db = get_local_db()
-    h = db.horizons[(s, term, commodity)]
+    h = db.horizons[r]
     setchanges!(h, changes)
     return
 end
 
-function update_startstates_ev(stepnr)
+function update_startstates_evp(stepnr)
 
 end
