@@ -1,6 +1,6 @@
 
 
-struct PP_Problem
+struct PricePrognosisProblem
     short
     med
     long
@@ -8,26 +8,31 @@ struct PP_Problem
     med_prices
     long_prices
     short_nonstoragestates
-    medendvaluesdict # TODO: stored here or in local db?
 end
 
-setstartstates!(p::PP_Problem, startstates)
+setstartstates!(p::PricePrognosisProblem, startstates)
 
-struct EV_Problem
+struct EndValueProblem
 end
 
-struct CP_Problem
+struct ScenarioProblem
+end
+
+struct MasterProblem
+end
+
+struct ClearingProblem
     prob
     endstates
 end
 
 
-create_pp_problem(input::AbstractJulESInput, scenario) = nothing
+create_ppp(input::AbstractJulESInput, scenario) = nothing
 
-function create_ev_problem(input::AbstractJulESInput, subsystem, scenario)
+function create_evp(input::AbstractJulESInput, subsystem, scenario)
     
 end
 
-create_mp_problem(input::AbstractJulESInput, subsystem) = nothing
-create_sp_problem(input::AbstractJulESInput, subsystem, scenario) = nothing
-create_cp_problem(input::AbstractJulESInput) = nothing
+create_mp(input::AbstractJulESInput, subsystem) = nothing
+create_sp(input::AbstractJulESInput, subsystem, scenario) = nothing
+create_cp(input::AbstractJulESInput) = nothing
