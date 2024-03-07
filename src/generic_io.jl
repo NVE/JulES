@@ -26,13 +26,16 @@ How end value problems (evp) are distributed on cores initially
 """
 function get_evp_dist(input::AbstractJulESInput) 
     cores = get_cores(input)
-    scenarios = get_scenarios(input)
+    scenarios = get_scenarios_evp(input)
     subsystems = get_subsystems(input)
 
     N = length(cores)
-    out = Vector{ScenarioSubsystemCore}(undef, length(scenarios) * length(subsystems))
+    S = length(scenarios)
+    Y = length(subsystems)
 
-    if N >= (length(scenarios) * length(subsystems))
+    out = Vector{ScenarioSubsystemCore}(undef, S*Y)
+
+    if N >= S*Y
         k = 0
         for sub in subsystems
             for scen in scenarios
@@ -43,7 +46,7 @@ function get_evp_dist(input::AbstractJulESInput)
         return out
     end
 
-    # TODO: Do better when length(scenarios) < N < length(scenarios) * length(subsystems)
+    # TODO: Do better when S < N < S*Y
 
     k = 0
     for sub in subsystems
