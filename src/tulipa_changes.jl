@@ -90,7 +90,7 @@ setchanges(::SequentialHorizon, changes::Dict) = nothing
 getlightweightself(h::SequentialHorizon) = h
 
 
-# data-lightweight copy of itself, to minimize communication to other cores
+# data-lightweight copy of itself, to minimize memory-footprint on other cores
 # the parts that are removed (by replacing with dymmyobjects and empty dict) are only
 # used for update!(h, t), and this behaviour will be turned off anyway, 
 # by wrapping in ExternalHorizon (see add_local_horizons run_serial.jl)
