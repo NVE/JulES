@@ -133,6 +133,7 @@ function add_local_horizons(thiscore)
         scenario = r.scenario
         ownercore = r.core
         for (tc, horizon) in horizons
+            horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)
             if ownercore != thiscore
                 horizon = ExternalHorizon(horizon)    

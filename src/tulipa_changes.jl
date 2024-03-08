@@ -79,12 +79,42 @@ end
 
 update!(::ShortendHorizon, ::ProbTime) = nothing
 
-
 # New horizon interface functions in 
 # order to keep remote copies of self in sync
 getchanges(::Horizon) = error()
 setchanges(::Horizon, changes::Dict) = error()
-
+getlightweightself(h::Horizon) = h
 
 getchanges(::SequentialHorizon) = Dict()
 setchanges(::SequentialHorizon, changes::Dict) = nothing
+getlightweightself(h::SequentialHorizon) = h
+
+
+# data-lightweight copy of itself, to minimize communication to other cores
+# the parts that are removed (by replacing with dymmyobjects and empty dict) are only
+# used for update!(h, t), and this behaviour will be turned off anyway, 
+# by wrapping in ExternalHorizon (see add_local_horizons run_serial.jl)
+struct AHDummyData <: AdaptiveHorizonData end
+struct AHDummyMethod <: AdaptiveHorizonMethod  end
+function getlightweightself(h::AdaptiveHorizon)
+    return AdaptiveHorizon(
+        h.macro_periods,
+        h.num_block,
+        h.unit_duration,
+        AHDummyData(),
+        AHDummyMethod(),
+        Dict{Millisecond, Vector{Float64}}(),
+        h.periods,
+        h.offset,
+    )
+end
+
+# Must AdaptiveHorizon change internals
+# so that update!(h, t) fills changes
+# for this type, what may change is the mappings
+# from time units to time blocks, stored in 
+# periods::Vector{UnitsTimeDelta}
+getchanges(h::AdaptiveHorizon) = h.changes
+
+function setchanges(h::AdaptiveHorizon, changes::Dict)
+end
