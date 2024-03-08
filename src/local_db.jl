@@ -71,8 +71,13 @@ mutable struct LocalDB
             ScenarioSubsystemCore[],                      # evp_dist
             SubsystemCore[],                              # mp_dist
             ScenarioSubsystemCore[],                      # sp_dist
-            -1                                            # cp_core
+            -1,                                           # cp_core
 
+            -1.0,                                         # cp_time_solve
+            -1.0,                                         # cp_time_update
+            -1.0,                                         # cp_time_cuts
+            -1.0,                                         # cp_time_startstates
+            -1.0,                                         # cp_time_endstates
         )
     end
 end
