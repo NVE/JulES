@@ -84,3 +84,7 @@ update!(::ShortendHorizon, ::ProbTime) = nothing
 # order to keep remote copies of self in sync
 getchanges(::Horizon) = error()
 setchanges(::Horizon, changes::Dict) = error()
+
+
+getchanges(::SequentialHorizon) = Dict()
+setchanges(::SequentialHorizon, changes::Dict) = nothing
