@@ -109,7 +109,7 @@ function getlightweightself(h::AdaptiveHorizon)
     )
 end
 
-# Must AdaptiveHorizon change internals
+# Must AdaptiveHorizon change internals (h.changes currently don't exist)
 # so that update!(h, t) fills changes
 # for this type, what may change is the mappings
 # from time units to time blocks, stored in 
@@ -117,4 +117,7 @@ end
 getchanges(h::AdaptiveHorizon) = h.changes
 
 function setchanges(h::AdaptiveHorizon, changes::Dict)
+    for (t, v) in changes["periods"]
+        h[t] = v
+    end
 end
