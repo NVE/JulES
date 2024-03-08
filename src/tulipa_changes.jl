@@ -105,8 +105,7 @@ function getlightweightself(h::AdaptiveHorizon)
         AHDummyMethod(),
         Dict{Millisecond, Vector{Float64}}(),
         h.periods,
-        h.offset,
-    )
+        h.offset)
 end
 
 # Must AdaptiveHorizon change internals (h.changes currently don't exist)
@@ -114,10 +113,42 @@ end
 # for this type, what may change is the mappings
 # from time units to time blocks, stored in 
 # periods::Vector{UnitsTimeDelta}
+# must contain changes in periods and always all values in h.macro_periods.data (see setchanges)
 getchanges(h::AdaptiveHorizon) = h.changes
 
 function setchanges(h::AdaptiveHorizon, changes::Dict)
+    # May have been modified by update!(horizon, t)
     for (t, v) in changes["periods"]
         h[t] = v
+    end
+
+    # May have been modified by ShrinkableHorizon
+    # Note: We replace all underlying data in h.macro_periods.data
+    #       not only changes in this case
+    empty!(h.macro_periods.data)
+    for value in changes["macro_periods"]
+        push!(h.macro_periods.data, value)
+    end
+end
+
+
+
+# TODO: Is this constructor supported? If not, add it.
+function getlightweightself(h::Union{ShrinkableHorizon, ShiftableHorizon})
+    return ShrinkableHorizon(
+        getlightweightself(h.subhorizon),
+        h.handler)
+end
+
+# Must change internals
+getchanges(h::Union{ShrinkableHorizon, ShiftableHorizon}) = h.changes
+
+function setchanges(h::Union{ShrinkableHorizon, ShiftableHorizon}, changes::Dict)
+    setchanges(h.subhorizon, changes["subhorizon"])
+    for (t, v) in changes["updates_shift"]
+        h.handler.updates_shift[t] = v
+    end
+    for (t, v) in changes["updates_must"]
+        h.handler.updates_shift[t] = v
     end
 end
