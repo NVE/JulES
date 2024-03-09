@@ -63,21 +63,21 @@ mutable struct LocalDB
             Dict{Scenario, PricePrognosisProblem}(),     # ppp
             Dict{ScenarioSubsystem, EndValueProblem}(),  # evp
 
-            Dict{ScenarioSubsystem, ScenarioProblem}(),   # sp
-            Dict{Subsystem, MasterProblem}(),             # mp
-            nothing,                                      # cp
+            Dict{ScenarioSubsystem, ScenarioProblem}(),  # sp
+            Dict{Subsystem, MasterProblem}(),            # mp
+            nothing,                                     # cp
 
-            ScenarioCore[],                               # ppp_dist
-            ScenarioSubsystemCore[],                      # evp_dist
-            SubsystemCore[],                              # mp_dist
-            ScenarioSubsystemCore[],                      # sp_dist
-            -1,                                           # cp_core
+            ScenarioCore[],                              # ppp_dist
+            ScenarioSubsystemCore[],                     # evp_dist
+            SubsystemCore[],                             # mp_dist
+            ScenarioSubsystemCore[],                     # sp_dist
+            -1,                                          # cp_core
 
-            -1.0,                                         # cp_time_solve
-            -1.0,                                         # cp_time_update
-            -1.0,                                         # cp_time_cuts
-            -1.0,                                         # cp_time_startstates
-            -1.0,                                         # cp_time_endstates
+            -1.0,                                        # cp_time_solve
+            -1.0,                                        # cp_time_update
+            -1.0,                                        # cp_time_cuts
+            -1.0,                                        # cp_time_startstates
+            -1.0,                                        # cp_time_endstates
         )
     end
 end

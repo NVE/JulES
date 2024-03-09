@@ -69,9 +69,9 @@ function init_databases(input::AbstractJulESInput)
         @spawnat core add_local_input(input)
     end
 
-    @sync for core in cores
-        @spawnat core add_local_problem_distribution()
-    end
+    firstcore = first(cores)
+    future = @spawnat firstcore add_local_problem_distribution(firstcore)
+    wait(future)
 
     @sync for core in cores
         @spawnat core add_local_horizons(core)
@@ -100,29 +100,62 @@ Initial allocation of problems to cores.
 Done in order to minimize difference in expected work 
 by different cores, based on static information (i.e. differences in problem size).
 As static information will leave some room for improvement, the initial allocation 
-may be improved by dynamic load balancer during simulation, in order to optimize further 
-(i.e. move problem-core-location) based on collected timing data.
+may be improved by dynamic load balancer during simulation, in order to optimize 
+further (i.e. move problem-core-location) based on collected timing data.
+The initial distribution on cores is calculated on one core, and then transfered
+to all other cores. 
 """
-function add_local_problem_distribution()
+function add_local_problem_distribution(thiscore)
     db = get_local_db()
-    db.pp_dist = get_pp_dist(db.input)   # must give same result on each core (deterministic)
-    db.ev_dist = get_ev_dist(db.input)   # must give same result on each core (deterministic)
-    db.sp_dist = get_sp_dist(db.input)   # must give same result on each core (deterministic)
-    db.mp_dist = get_mp_dist(db.input)   # must give same result on each core (deterministic)
-    db.cp_core = get_cp_core(db.input)   # must give same result on each core (deterministic)
+
+    ppp_dist = get_ppp_dist(db.input)
+    evp_dist = get_evp_dist(db.input)
+    sp_dist = get_sp_dist(db.input)
+    mp_dist = get_mp_dist(db.input)
+    cp_core = get_cp_core(db.input)
+
+    db.ppp_dist = ppp_dist
+    db.evp_dist = evp_dist
+    db.sp_dist = sp_dist
+    db.mp_dist = mp_dist
+    db.cp_core = cp_core
+
+    dists = (ppp_dist, evp_dist, sp_dist, mp_dist, cp_core)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core set_local_dists(dists)
+        end
+    end
+
+    return
+end
+
+function set_local_dists(dists)
+    (ppp_dist, evp_dist, sp_dist, mp_dist, cp_core) = dists
+
+    db = get_local_db()
+    
+    db.ppp_dist = ppp_dist
+    db.evp_dist = evp_dist
+    db.sp_dist = sp_dist
+    db.mp_dist = mp_dist
+    db.cp_core = cp_core
+    
     return
 end
 
 """
 Add set of horizons (for all scenarios, terms and commodities) on each core, with a promise to keep them in sync.
-The "master" horizons come from the db.pp (price prognosis) problems. When we update and solve a pp problem,
+The "master" horizons come from the db.ppp (price prognosis problems). When we update and solve a ppp,
 the horizons in this problem may (depending on type) be updated (e.g. we may change durations for some periods, 
 or change which hours are mapped to load blocks). We want to store a synced set of all horizons on all cores 
-(to-enable-dynamic-load-balancing), so if a master horizon changes, we need to transfer this information to all 
-non-master copies of this horizon residing on other cores than the core holding the master. Since we update 
-non-master-horizon by-transfer, we want to turn off update-by-solve behaviour for these horizons. Hence, we wrap 
-them in ExternalHorizon, which specializes the update! method to do nothing. 
-Which cores own which scenarios are defined in db.pp_dist at any given time. 
+(to enable dynamic load balancing), so if a master horizon changes, we need to transfer this information to all 
+non-master copies of this horizon residing on other cores than the core holding the master. Since we for 
+non-master horizons do update-by-transfer, we want to turn off update-by-solve behaviour for these horizons. 
+Hence, we wrap them in ExternalHorizon, which specializes the update! method to do nothing. 
+Which cores own which scenarios are defined in db.ppp_dist at any given time. 
 """
 # TODO: No-data-version-of-non-master-horizon
 function add_local_horizons(thiscore)
