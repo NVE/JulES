@@ -69,9 +69,9 @@ function init_databases(input::AbstractJulESInput)
         @spawnat core add_local_input(input)
     end
 
-    firstcore = first(cores)
-    future = @spawnat firstcore add_local_problem_distribution(firstcore)
-    wait(future)
+    c = first(cores)
+    f = @spawnat c add_local_problem_distribution(c)
+    wait(f)
 
     @sync for core in cores
         @spawnat core add_local_horizons(core)
