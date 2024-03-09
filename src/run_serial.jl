@@ -188,7 +188,7 @@ function add_local_problems(thiscore)
             d[r.scenario] = create_ppp(db.input, r.scenario)
         end
     end
-    db.ppp = x
+    db.ppp = d
 
     d = Dict{ScenarioSubsystem, EndValueProblem}()
     for r in db.evp_dist
