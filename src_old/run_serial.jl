@@ -425,10 +425,10 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         if (prognumscen < simnumscen) && (skipmed.value == 0)
             @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta)
+            prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
         elseif prognumscen < simnumscen
             increment_scenmodmethod!(progscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
         end
-        prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
 
         if (stochnumscen < prognumscen) && (skipmed.value == 0)
             # Choose new scenarios
