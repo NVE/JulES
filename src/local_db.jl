@@ -28,7 +28,8 @@ sp_dist and cp_core.
 Many of the fields contain timing data. This is useful both for results
 and to inform dynamic load balancer.
 
-The div field....
+The div field holds a Dict object. Possible extentions of JulES may use
+this field to store data.
 """
 
 const _LOCAL_DB_NAME = :_local_db
@@ -39,7 +40,7 @@ mutable struct LocalDB
     horizons::Dict{ScenarioTermCommodity, Horizon}
 
     ppp::Dict{Scenario, PricePrognosisProblem}
-    evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
+    evp::Dict{ScenarioSubsystem, EndValueProblem}
     sp::Dict{ScenarioSubsystem, ScenarioProblem}
     mp::Dict{Subsystem, MasterProblem}
     cp::Union{Nothing, ClearingProblem}
@@ -55,6 +56,8 @@ mutable struct LocalDB
     cp_time_cuts::Float64
     cp_time_startstates::Float64
     cp_time_endstates::Float64
+
+    div::Div
 
     function LocalDB()
         return new(
@@ -79,6 +82,8 @@ mutable struct LocalDB
             -1.0,                                        # cp_time_cuts
             -1.0,                                        # cp_time_startstates
             -1.0,                                        # cp_time_endstates
+
+            Dict(),                                      # div
         )
     end
 end
