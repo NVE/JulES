@@ -1,33 +1,34 @@
 """
 In-memory-process-local-database for JulES.
 
-We utilize some of Julia's reflection (fieldnames, getfield) 
+We utilize some of Julia's reflection (names, getfield) 
 and metaprogramming (eval, Expr) capabilities to implement 
 a database object in the global scope of a Julia process.
 We leared this technique from this package: 
 https://github.com/ChrisRackauckas/ParallelDataTransfer.jl
 
-The database is just a struct with slots for all the different
+The database is just a struct with fields for all the different
 things we want to store on cores while running JulES. 
     
-Some slots hold read-only data that is identical on all cores (input)
+The input field holds read-only data that is identical on all cores
 
-Some slots hold stateful objects that are managed on a particular core
-while other cores hold synced copies (horizons)
+The horizons field holds horizon objects, where some of which are stateful 
+and managed on a particular core, while others are syncronized copies of
+horizons managed on other cores
 
-Some slots hold optimization problems where a problem resides
+Some fields hold optimization problems. A problem resides
 at exactly one core at a time, but may be moved to antother core 
-over time (ppp, evp, mp, sp, cp)
+between time steps. See fields ppp, evp, mp, sp and cp.
 
-Some slots hold info about on which cores problems are stored. This
-enables JulES to locate and use any problem from any core, which is
-very useful e.g. when solving stochastic optimization problems where
-the master problem and the different subproblems reside on different
-cores, or e.g. when we need to get results from a problem residing on
-one core in order to use it as input to another problem residing on a 
-different core (ppp_dist, evp_dist, mp_dist, sp_dist, cp_core)
+Some fields hold info about on which cores problems are stored. 
+This also enables transfer of data between e.g. optimizion problems
+residing on different cores. See fields ppp_dist, evp_dist, mp_dist, 
+sp_dist and cp_core.
 
-Many of the slots contain timing data.
+Many of the fields contain timing data. This is useful both for results
+and to inform dynamic load balancer.
+
+The div field....
 """
 
 const _LOCAL_DB_NAME = :_local_db
@@ -38,7 +39,7 @@ mutable struct LocalDB
     horizons::Dict{ScenarioTermCommodity, Horizon}
 
     ppp::Dict{Scenario, PricePrognosisProblem}
-    evp::Dict{ScenarioSubsystem, EndValueProblem}
+    evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
     sp::Dict{ScenarioSubsystem, ScenarioProblem}
     mp::Dict{Subsystem, MasterProblem}
     cp::Union{Nothing, ClearingProblem}
