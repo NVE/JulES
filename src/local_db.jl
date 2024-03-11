@@ -1,5 +1,5 @@
 """
-In-memory-process-local-database for JulES.
+In-memory process-local database for JulES.
 
 We utilize some of Julia's reflection (names, getfield) 
 and metaprogramming (eval, Expr) capabilities to implement 
