@@ -11,7 +11,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     steps::Int
     steplength::Millisecond
     simstarttime::ProbTime
-    scenarios::Dict{Vector}
+    datascenarios::Vector{Scenarios}
 
     tnormaltype::String
     tphaseintype::String
@@ -20,9 +20,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     phaseinsteps::Int
 
     elements::Vector
-    dummobjects::Vector
     progelements::Vector
-    dummyprogelements::Vector
 
     function DefaultJulESInput(dataset, config)
         mainconfig = config["main"]
@@ -35,7 +33,7 @@ struct DefaultJulESInput <: AbstractJulESInput
 
         println("Time parameters")
         @time timeparams = gettimeparams(mainconfig, settings)
-        steps, steplength, simstarttime, scenarios, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps = timeparams
+        steps, steplength, simstarttime, datascenarios, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps = timeparams
 
         println("Get data")
         @time begin
@@ -51,25 +49,6 @@ struct DefaultJulESInput <: AbstractJulESInput
             end
         end
 
-        println("Make dummy objects") # for use in scenario modelling, validate elements and collect storages
-        @time begin
-            # Horizons are needed to build modelobjects, but not used in scenario modelling
-            dummyperiods = 10
-            dummyperiodduration = Millisecond(Hour(24))
-            power_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-            hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-    
-            # Make dummy elements
-            dummyobjects, dummydhh, dummydph = make_obj(elements, hydro_horizon, power_horizon, validate=true)
-    
-            # Make dummy prog elements
-            if haskey(dataset, "progelements")
-                dummyprogobjects, dummyphh, dummypph = make_obj(progelements, hydro_horizon, power_horizon, validate=true)
-            else
-                dummyprogobjects = dummyobjects
-            end
-        end
-
         # scenariogeneration? bør bo på 
 
         horizons = gethorizons(config)
@@ -79,9 +58,9 @@ struct DefaultJulESInput <: AbstractJulESInput
         # TODO: use throw-away-dummy-modelobjs for data proc
 
         return new(mainconfig, settings, onlysubsystemmodels,
-            steps, steplength, simstarttime, scenarios,
+            steps, steplength, simstarttime, datascenarios,
             tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps,
-            elements, dummobjects, progelements, dummyprogobjects)
+            elements, progelements)
     end
 end
 
@@ -92,14 +71,14 @@ function getscenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, dat
     simtime = gettnormal(simtimetype, datasimtime, weathersimtime)
 
     # Make scenariooffset for all uncertainty scenarios
-    weatheroffsets = Millisecond[]
+    datascenarios = Vector{Scenario}(undef, datanumscen)
     for scen in 1:datanumscen
         weatherscenariotime = getisoyearstart(weatheryear + scen - 1) + Week(weekstart-1)
-        scenoffset = weatherscenariotime - weathersimtime
-        push!(weatheroffsets, weatheroffset)
+        weatheroffset = weatherscenariotime - weathersimtime
+        datascenarios[scen] = Scenarios(weatheroffset, 1/datanumscen, Dict{String, Tuple{Any,Float64}}, scen)
     end
-    scenarios = Dict("timedim" => weatheroffsets)
-    return (simtime, scenarios)
+
+    return (simtime, datascenarios)
 end
 
 function gettimeparams(mainconfig::Dict, settings::Dict)
@@ -122,7 +101,9 @@ function gettimeparams(mainconfig::Dict, settings::Dict)
     # Make standard time and scenario uncertainty times
     tnormaltype = settings["time"]["probtime"]["normaltime"]
     tphaseintype = settings["time"]["probtime"]["phaseintime"]
-    simstarttime, scenarios = getscenarios(datayear, weatheryear, weekstart, datanumscen, simtimetype)
+    simstarttime, datascenarios = getscenarios(datayear, weatheryear, weekstart, datanumscen, simtimetype)
+
+    return (steps, steplength, simstarttime, datascenarios, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
 end
 
 function getscenariotime(simtime::ProbTime, type::String, scenario::Scenario, input::AbstractJulESInput)

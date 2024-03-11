@@ -39,10 +39,18 @@ mutable struct LocalDB
     input::Union{Nothing, AbstractJulESInput}
     horizons::Dict{ScenarioTermCommodity, Horizon}
 
+    dummyobjects::Vector
+    dummyprogobjects::Vector
+
+    simscenarios::Vector{Scenario}
+    progscenarios::Vector{Scenario}
+    evscenarios::Vector{Scenario}
+    stochasticscenarios::Vector{Scenario}
+
     ppp::Dict{Scenario, PricePrognosisProblem}
     evp::Dict{ScenarioSubsystem, EndValueProblem}
-    sp::Dict{ScenarioSubsystem, ScenarioProblem}
     mp::Dict{Subsystem, MasterProblem}
+    sp::Dict{ScenarioSubsystem, ScenarioProblem}
     cp::Union{Nothing, ClearingProblem}
 
     ppp_dist::Vector{ScenarioCore}
@@ -64,9 +72,11 @@ mutable struct LocalDB
             nothing,                                     # input
             Dict{ScenarioTermCommodity, Horizon}(),      # horizons
 
+            [],                                          # dummyobjects
+            [],                                          # dummyprogobjects
+
             Dict{Scenario, PricePrognosisProblem}(),     # ppp
             Dict{ScenarioSubsystem, EndValueProblem}(),  # evp
-
             Dict{ScenarioSubsystem, ScenarioProblem}(),  # sp
             Dict{Subsystem, MasterProblem}(),            # mp
             nothing,                                     # cp

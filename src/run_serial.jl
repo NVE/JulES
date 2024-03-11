@@ -69,7 +69,13 @@ function init_databases(input::AbstractJulESInput)
         @spawnat core add_local_input(input)
     end
 
-    c = first(cores)
+    @sync for core in cores
+        @spawnat core add_local_dummyobjects(input)
+    end
+
+    f = @spawnat c add_local_scenarios(c)
+    wait(f)
+
     f = @spawnat c add_local_problem_distribution(c)
     wait(f)
 
@@ -94,6 +100,51 @@ function add_local_input(input::AbstractJulESInput)
     db.input = input
     return
 end
+
+"""
+Build dummyobjects on each core
+For use in scenario modelling, validate elements and collect storages
+"""
+function add_local_dummyobjects(thiscore)
+    db = get_local_db()
+
+    # Horizons are needed to build modelobjects, but not used in scenario modelling
+    dummyperiods = 10
+    dummyperiodduration = Millisecond(Hour(24))
+    power_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
+    hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
+
+    # Make dummy elements
+    dummyobjects, dummydhh, dummydph = make_obj(db.elements, hydro_horizon, power_horizon, validate=true)
+    db.dummyobjects = dummyobjects
+
+    # Make dummy prog elements
+    if db.elements != db.progelements
+        dummyprogobjects, dummyphh, dummypph = make_obj(db.progelements, hydro_horizon, power_horizon, validate=true)
+    else
+        dummyprogobjects = dummyobjects
+    end
+    db.dummyprogobjects = dummyprogobjects
+
+    return
+end
+
+"""
+Initial scenariogeneration
+
+"""
+function add_local_scenarios(thiscore)
+
+    
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core set_local_dists(dists)
+        end
+    end
+
+    return
 
 """
 Initial allocation of problems to cores.
