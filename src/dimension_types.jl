@@ -13,10 +13,15 @@ capacity.
 mutable struct Scenario
     weather::Int
     p_weather::Float64
-    other::Int
-    p_other::Float64
+    other::Dict{String, Tuple{Int, Float64}} # add possibility for other dimensions
 end
-probability(s::Scenario) = s.p_other * s.p_weather
+function getprobability(s::Scenario)
+    probability = s.p_weather
+    for key in other
+        probability *= last(other[key])
+    end
+    return probability
+end
 
 struct Subsystem
     name::String
