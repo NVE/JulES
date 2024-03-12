@@ -3,6 +3,12 @@ Here we define some id/key-like types, that will make it easier to understand
 the dimensions of the code, eg. understanding vectors and dicts in LocalDB
 """
 
+mutable struct WeatherScenario <: AbstractScenario
+    weather::Millisecond # as an offset from the simulationtime
+    p_weather::Float64
+    parentscenario::Int # index of parent scenario
+end
+
 """
 Main source of uncertainty in JulES is weather-related, as this is very importaint in
 energy markets. Usually we will only use this uncertainty-dimension. However,

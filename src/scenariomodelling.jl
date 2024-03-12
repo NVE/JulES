@@ -4,8 +4,8 @@ mutable struct NoScenarioModellingMethod <: ScenarioModellingMethod
 end
 # mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
 # end
-mutable struct InflowClusteringMethod <: ScenarioModellingMethod
-    scenarios::Vector{Scenario}
+mutable struct InflowClusteringMethod{T <: AbstractScenario} <: ScenarioModellingMethod
+    scenarios::Vector{T}
     inflowfactors::Vector{Float64}
     parts::Int
     scendelta::Millisecond
