@@ -388,19 +388,19 @@ end
 function syncronize_horizons(thiscore)
     db = get_local_db()
 
-    owner_scenarios = [r.scenario for r in db.ppp_dist if r.core == thiscore]
+    owner_scenarios = [s for (s, c) in db.ppp_dist if c == thiscore]
 
-    for (k, horizon) in db.horizons
-        if !(k.scenario in owner_scenarios)
+    for ((this_scen, term, commodity), horizon) in db.horizons
+        if !(this_scen in owner_scenarios)
             continue
         end
 
         changes = getchanges(horizon)
 
         if length(changes) > 0
-            @sync for r in db.ppp_dist
-                if !(r.scenario in owner_scenarios)
-                    @spawnat r.core transfer_horizon_changes(r, changes)
+            @sync for (other_scen, other_core) in db.ppp_dist
+                if !(other_scen in owner_scenarios)
+                    @spawnat other_core transfer_horizon_changes(other_scen, term, commodity, changes)
                 end
             end        
         end
@@ -408,9 +408,9 @@ function syncronize_horizons(thiscore)
     return
 end
 
-function transfer_horizon_changes(r::ScenarioTermCommodity, changes)
+function transfer_horizon_changes(s::ScenarioIx, t::TermName, c::CommodityName, changes)
     db = get_local_db()
-    h = db.horizons[r]
+    h = db.horizons[(s, t, c)]
     setchanges!(h, changes)
     return
 end
