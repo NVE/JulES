@@ -152,3 +152,9 @@ function setchanges(h::Union{ShrinkableHorizon, ShiftableHorizon}, changes::Dict
         h.handler.updates_shift[t] = v
     end
 end
+
+# TODO: Probably need to force all periods to update when we change scenario for a problem due to choose_scenarios 
+function setmustupdate!(h::Horizon, t::Int) 
+    error("Must implement")
+end
+setmustupdate!(::Union{SequentialHorizon, AdaptiveHorizon}, ::Int) = nothing
