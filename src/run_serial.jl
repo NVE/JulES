@@ -78,8 +78,10 @@ function init_databases(input::AbstractJulESInput)
     end
 
     c = first(cores)
-    f = @spawnat c add_local_problem_distribution(c)
-    wait(f)
+    # will calculate distribution on core c and then 
+    # transfer this data to all other cores
+    future = @spawnat c add_local_problem_distribution(c)
+    wait(future)
 
     @sync for core in cores
         @spawnat core add_local_horizons(core)
@@ -187,8 +189,7 @@ function add_local_problem_distribution(thiscore)
 
     ppp_dist = get_ppp_dist(db.input)
     evp_dist = get_evp_dist(db.input)
-    sp_dist = get_sp_dist(db.input)
-    mp_dist = get_mp_dist(db.input)
+    (mp_dist, sp_dist) = get_mp_sp_dist(db.input)
     cp_core = get_cp_core(db.input)
 
     db.ppp_dist = ppp_dist

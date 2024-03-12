@@ -63,6 +63,6 @@ function get_cp_core(input::AbstractJulESInput)
     return first(get_cores(input))
 end 
 
-# TODO: complete these two (must be seen together)
-function get_sp_dist(input::AbstractJulESInput) end
-function get_mp_dist(input::AbstractJulESInput) end
+# TODO: complete this
+function get_mp_sp_dist(input::AbstractJulESInput) 
+end
