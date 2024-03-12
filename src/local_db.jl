@@ -37,27 +37,27 @@ const _LOCAL_DB_NAME = :_local_db
 # TODO: Complete this (add more timings and maybe other stuff)
 mutable struct LocalDB
     input::Union{Nothing, AbstractJulESInput}
-    horizons::Dict{ScenarioTermCommodity, Horizon}
+    horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
     dummyobjects::Vector
     dummyprogobjects::Vector
 
-    simscenarios::Vector{Scenario}
+    simscenarios::Vector{Scenario}  # Shuld these be ScenarioIx now?
     progscenarios::Vector{Scenario}
     evscenarios::Vector{Scenario}
     stochasticscenarios::Vector{Scenario}
 
-    ppp::Dict{Scenario, PricePrognosisProblem}
-    evp::Dict{ScenarioSubsystem, EndValueProblem}
-    mp::Dict{Subsystem, MasterProblem}
-    sp::Dict{ScenarioSubsystem, ScenarioProblem}
+    ppp::Dict{ScenarioIx, PricePrognosisProblem}
+    evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
+    mp::Dict{SubsystemIx, MasterProblem}
+    sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
     cp::Union{Nothing, ClearingProblem}
 
-    ppp_dist::Vector{ScenarioCore}
-    evp_dist::Vector{ScenarioSubsystemCore}
-    mp_dist::Vector{SubsystemCore}
-    sp_dist::Vector{ScenarioSubsystemCore}
-    cp_core::Int
+    ppp_dist::Vector{Tuple{ScenarioIx, CoreId}}
+    evp_dist::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
+    mp_dist::Vector{Tuple{ScenarioIx, CoreId}}
+    sp_dist::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
+    cp_core::CoreId
 
     cp_time_solve::Float64
     cp_time_update::Float64
@@ -65,7 +65,7 @@ mutable struct LocalDB
     cp_time_startstates::Float64
     cp_time_endstates::Float64
 
-    div::Div
+    div::Dict
 
     function LocalDB()
         return new(
