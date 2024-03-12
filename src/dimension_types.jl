@@ -17,8 +17,8 @@ mutable struct Scenario
 end
 function getprobability(s::Scenario)
     probability = s.p_weather
-    for key in other
-        probability *= last(other[key])
+    for (key, value) in other
+        probability *= last(value)
     end
     return probability
 end
