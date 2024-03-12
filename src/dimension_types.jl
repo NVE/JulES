@@ -11,9 +11,10 @@ which could e.g. be high/medium/low fuel prices, or high/medium/low availability
 capacity.
 """
 mutable struct Scenario
-    weather::Int
+    weather::Millisecond # as an offset from the simulationtime
     p_weather::Float64
-    other::Dict{String, Tuple{Int, Float64}} # add possibility for other dimensions
+    other::Dict{String, Tuple{Any,Float64}} # add possibility for other dimensions
+    parentscenario::Int # index of parent scenario
 end
 function getprobability(s::Scenario)
     probability = s.p_weather
