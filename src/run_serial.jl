@@ -208,22 +208,18 @@ non-master horizons do update-by-transfer, we want to turn off update-by-solve b
 Hence, we wrap them in ExternalHorizon, which specializes the update! method to do nothing. 
 Which cores own which scenarios are defined in db.ppp_dist at any given time. 
 """
-# TODO: No-data-version-of-non-master-horizon
 function add_local_horizons(thiscore)
     db = get_local_db()
-    horizons = get_horizons(db.input)::Dict{TermCommodity, Horizon}
-    d = Dict{ScenarioTermCommodity, Horizon}()
-    for r in db.ppp_dist
-        scenario = r.scenario
-        ownercore = r.core
-        for (tc, horizon) in horizons
+    horizons = get_horizons(db.input)
+    d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
+    for (scenario, ownercore) in db.ppp_dist
+        for ((term, commodity), horizon) in horizons
             horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)
             if ownercore != thiscore
                 horizon = ExternalHorizon(horizon)    
             end
-            k = ScenarioTermCommodity(scenario, tc.term, tc.commodity)
-            d[k] = horizon
+            d[(scenario, term, commodity)] = horizon
         end
     end
     db.horizons = d
