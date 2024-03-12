@@ -1,5 +1,5 @@
-mutable struct NoScenarioModellingMethod <: ScenarioModellingMethod
-    scenarios::Vector{Scenario}
+mutable struct NoScenarioModellingMethod{T <: AbstractScenario} <: ScenarioModellingMethod
+    scenarios::Vector{T}
 end
 # mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
 # end
@@ -9,12 +9,14 @@ mutable struct InflowClusteringMethod{T <: AbstractScenario} <: ScenarioModellin
     objects::Vector
     parts::Int
     scendelta::Millisecond
-    function InflowClusteringMethod(numscen, objects, parts, scendelta)
-        return new(Vector{Tuple{Any, Any, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), objects, parts, scendelta)
+
+    function InflowClusteringMethod(scenarios, objects, parts, scendelta)
+        inflowfactors = Vector{Float64}(undef, length(scenarios))
+        return new{eltype(scenarios)}(scenarios, inflowfactors, objects, parts, scendelta)
     end
 end
-mutable struct SumInflowQuantileMethod <: ScenarioModellingMethod
-    scenarios::Vector{Scenario}
+mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: ScenarioModellingMethod
+    scenarios::Vector{T}
     inflowfactors::Vector{Float64}
     objects::Vector
     maxquantile::Float64 # parameter
@@ -23,18 +25,19 @@ mutable struct SumInflowQuantileMethod <: ScenarioModellingMethod
     c::Float64 # parameter
     usedensity::Bool # parameter
     scendelta::Millisecond # parameter
-    function SumInflowQuantileMethod(numscen, objects, maxquantile, a, b, c, scendelta; usedensity=false)
-        return new(Vector{Tuple{Any, Any, Int64}}(undef, numscen), Vector{Float64}(undef, numscen), objects, maxquantile, a, b, c, scendelta, usedensity)
+    function SumInflowQuantileMethod(scenarios, objects, maxquantile, a, b, c, scendelta; usedensity=false)
+        inflowfactors = Vector{Float64}(undef, length(scenarios))
+        return new{eltype(scenarios)}(scenarios, inflowfactors, objects, maxquantile, a, b, c, scendelta, usedensity)
     end
 end
 
 getchanges(scenmodmethod::NoScenarioModellingMethod) = (scenmodmethod.scenarios)
 getchanges(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = (scenmodmethod.scenarios, scenmodmethod.inflowfactors)
 
-function setchanges(scenmodmethod::NoScenarioModellingMethod, changes::Tuple{Vector{Scenario}})
+function setchanges(scenmodmethod::NoScenarioModellingMethod, changes::Tuple{Vector{WeatherScenario}})
     scenmodmethod.scenarios = first(changes)
 end
-function setchanges(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{Scenario}, Vector{Float64}})
+function setchanges(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario}, Vector{Float64}})
     scenarios, inflowfactors = changes
 
     scenmodmethod.scenarios = scenarios
@@ -52,7 +55,7 @@ function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenari
     
     # Calculate total energy inflow in the system for the scenariodelta
     totalsumenergyinflow = zeros(length(scenariooptions))
-    for scenmodmethod.obj in objects
+    for obj in scenmodmethod.objects
         if obj isa Balance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
