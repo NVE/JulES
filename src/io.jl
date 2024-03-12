@@ -135,6 +135,26 @@ function getscenariotime(simtime::ProbTime, type::String, scenario::Scenario, in
 end
 
 
+function getscenmodmethod(problem::Dict, numscen::Int64)
+    method = problem["function"]
+    if method == "InflowClusteringMethod"
+        parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
+        scendelta = MsTimeDelta(Day(problem["scendelta"]))
+        return InflowClusteringMethod(numscen, parts, scendelta)
+    elseif method == "SumInflowQuantileMethod"
+        a = problem["a"]
+        b = problem["b"]
+        c = problem["c"]
+        maxquantile = problem["maxquantile"]
+        scendelta = problem["scendelta"]
+        usedensity = MsTimeDelta(Day(problem["usedensity"]))
+        return SumInflowQuantileMethod(numscen, maxquantile, a, b, c, scendelta, usedensity=usedensity)
+    else
+        error("$method not supported")
+    end
+end
+
+
 
 
 # -------------------------------------------------------------------------------------------

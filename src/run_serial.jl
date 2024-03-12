@@ -130,12 +130,43 @@ function add_local_dummyobjects(thiscore)
 end
 
 """
-Initial scenariogeneration
+Initial scenario modelling for simulation, prognosis and stochastic
 
 """
 function add_local_scenarios(thiscore)
+    db = get_local_db()
+    datascenmodmethod = db.input.datascenmodmethod
+    datanumscen = length(datascenmodmethod)
+    settings = db.input.settings
 
-    
+    # Simulation scenario modelling - choose scenarios for the whole simulation
+    simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]; @assert simnumscen <= datanumscen
+    if simnumscen == datanumscen
+        simscenmodmethod = datascenmodmethod
+    else
+        simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen)
+        scenariomodelling!(simscenmodmethod, values(dummyprogobjects), datascenmodmethod, db.input.simtime) # see JulES/scenariomodelling.jl
+        renumber_scenmodmethod!(simscenmodmethod)
+    end
+
+    # Prognosis scenario modelling - choose scenarios for the price prognosis models
+    prognumscen = settings["scenariogeneration"]["prognosis"]["numscen"]; @assert prognumscen <= simnumscen
+    if prognumscen == simnumscen
+        progscenmodmethod = simscenmodmethod
+    else
+        progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen, progscendelta)
+        scenariomodelling!(progscenmodmethod, values(dummyprogobjects), simscenmodmethod, db.input.simtime); # see JulES/scenariomodelling.jl
+        prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
+    end
+
+    # Stochastic scenario modelling - choose scenarios for the price stochastic models
+    stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]; @assert stochnumscen <= prognumscen
+    if stochnumscen == prognumscen
+        stochscenmodmethod = progscenmodmethod
+    else
+        stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen)
+        scenariomodelling!(stochscenmodmethod, values(dummyobjects), progscenmodmethod, db.input.simtime); # see JulES/scenariomodelling.jl
+    end
 
     cores = get_cores(db.input)
     @sync for core in cores
@@ -145,6 +176,7 @@ function add_local_scenarios(thiscore)
     end
 
     return
+end
 
 """
 Initial allocation of problems to cores.
