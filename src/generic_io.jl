@@ -11,11 +11,11 @@ function get_ppp_dist(input::AbstractJulESInput)
 
     N = length(cores)
     
-    dist = Vector{ScenarioCore}(undef, length(scenarios))
+    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, length(scenarios))
     
     for (i, s) in enumerate(scenarios)
         j = (i - 1) % N + 1
-        dist[i] = ScenarioCore(s, cores[j])
+        dist[i] = (s, cores[j])
     end
     
     return dist
@@ -33,14 +33,14 @@ function get_evp_dist(input::AbstractJulESInput)
     S = length(scenarios)
     Y = length(subsystems)
 
-    out = Vector{ScenarioSubsystemCore}(undef, S*Y)
+    out = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, S*Y)
 
     if N >= S*Y
         k = 0
         for sub in subsystems
             for scen in scenarios
                 k += 1
-                out[k] = ScenarioSubsystemCore(scen, sub, cores[k])
+                out[k] = (scen, sub, cores[k])
             end
         end
         return out
@@ -53,7 +53,7 @@ function get_evp_dist(input::AbstractJulESInput)
         for (i, s) in enumerate(scenarios)
             k += 1
             j = (i - 1) % N + 1
-            out[k] = ScenarioSubsystemCore(s, sub, cores[j])
+            out[k] = (s, sub, cores[j])
         end
     end
     return out
