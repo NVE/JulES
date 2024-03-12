@@ -229,36 +229,34 @@ end
 function add_local_problems(thiscore)
     db = get_local_db()
 
-    d = Dict{Scenario, PricePrognosisProblem}()
-    for r in db.ppp_dist
-        if r.core == thiscore
-            d[r.scenario] = create_ppp(db.input, r.scenario)
+    d = Dict{ScenarioIx, PricePrognosisProblem}()
+    for (scenario, core) in db.ppp_dist
+        if core == thiscore
+            d[scenario] = create_ppp(db.input, scenario)
         end
     end
     db.ppp = d
 
-    d = Dict{ScenarioSubsystem, EndValueProblem}()
-    for r in db.evp_dist
-        if r.core == thiscore
-            k = ScenarioSubsystem(r.scenario, r.subsystem)
-            d[k] = create_evp(db.input, r.subsystem, r.scenario)
+    d = Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}()
+    for (scenario, subsystem, core) in db.evp_dist
+        if core == thiscore
+            d[(scenario, subsystem)] = create_evp(db.input, scenario, subsystem)
         end
     end
     db.evp = d
 
-    d = Dict{Subsystem, MasterProblem}()
-    for r in db.mp_dist
-        if r.core == thiscore
-            d[r.subsystem] = create_mp(db.input, r.subsystem)
+    d = Dict{SubsystemIx, MasterProblem}()
+    for (scenario, core) in db.mp_dist
+        if core == thiscore
+            d[subsystem] = create_mp(db.input, subsystem)
         end
     end
     db.mp = d
 
-    d = Dict{ScenarioSubsystem, ScenarioProblem}()
-    for r in db.sp_dist
-        if r.core == thiscore
-            k = ScenarioSubsystem(r.scenario, r.subsystem)
-            d[k] = create_sp(db.input, r.subsystem, r.scenario)
+    d = Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}()
+    for (scenario, subsystem, core) in db.sp_dist
+        if core == thiscore
+            d[(scenario, subsystem)] = create_sp(db.input, scenario, subsystem)
         end
     end
     db.sp = d
