@@ -42,10 +42,10 @@ mutable struct LocalDB
     dummyobjects::Vector
     dummyprogobjects::Vector
 
-    simscenarios::Vector{Scenario}  # Shuld these be ScenarioIx now?
-    progscenarios::Vector{Scenario}
-    evscenarios::Vector{Scenario}
-    stochasticscenarios::Vector{Scenario}
+    simscenmodmethod::ScenarioModellingMethod
+    progscenmodmethod::ScenarioModellingMethod
+    evscenmodmethod::ScenarioModellingMethod
+    stochscenmodmethod::ScenarioModellingMethod
 
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}

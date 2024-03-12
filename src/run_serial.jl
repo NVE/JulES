@@ -73,9 +73,11 @@ function init_databases(input::AbstractJulESInput)
         @spawnat core add_local_dummyobjects(input)
     end
 
-    f = @spawnat c add_local_scenarios(c)
-    wait(f)
+    @sync for core in cores
+        @spawnat core add_local_scenmodmethods(input)
+    end
 
+    c = first(cores)
     f = @spawnat c add_local_problem_distribution(c)
     wait(f)
 
@@ -105,6 +107,7 @@ end
 Build dummyobjects on each core
 For use in scenario modelling, validate elements and collect storages
 """
+# TODO: Only validate once
 function add_local_dummyobjects(thiscore)
     db = get_local_db()
 
@@ -130,21 +133,44 @@ function add_local_dummyobjects(thiscore)
 end
 
 """
-Initial scenariogeneration
+Initial scenario modelling for simulation, prognosis and stochastic
 
 """
-function add_local_scenarios(thiscore)
+function add_local_scenmodemethods()
+    db = get_local_db()
+    datascenmodmethod = db.input.datascenmodmethod
+    datanumscen = length(datascenmodmethod)
+    settings = db.input.settings
 
-    
+    # Simulation scenario modelling - choose scenarios for the whole simulation
+    simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]
+    @assert simnumscen <= datanumscen
+    if simnumscen == datanumscen
+        simscenmodmethod = datascenmodmethod
+    else
+        simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen, values(db.input.dummyprogobjects))
+    end
 
-    cores = get_cores(db.input)
-    @sync for core in cores
-        if core != thiscore
-            @spawnat core set_local_dists(dists)
-        end
+    # Prognosis scenario modelling - choose scenarios for the price prognosis models
+    prognumscen = settings["scenariogeneration"]["prognosis"]["numscen"]
+    @assert prognumscen <= simnumscen
+    if prognumscen == simnumscen
+        progscenmodmethod = simscenmodmethod
+    else
+        progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen, values(db.input.dummyprogobjects))
+    end
+
+    # Stochastic scenario modelling - choose scenarios for the price stochastic models
+    stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]
+    @assert stochnumscen <= prognumscen
+    if stochnumscen == prognumscen
+        stochscenmodmethod = progscenmodmethod
+    else
+        stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen, values(db.input.dummyobjects))
     end
 
     return
+end
 
 """
 Initial allocation of problems to cores.
@@ -271,8 +297,16 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     cores = get_cores(output)
 
     # do input models here
-    # generate_scenarios
-    # choose_scenarios
+
+    # Do global scenario modelling
+    # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+    c = first(cores)
+    stepnr == 1 && f = @spawnat c update_simscenariomodelling!(c)
+    wait(f)
+    f = @spawnat c update_progscenariomodelling!(c)
+    wait(f)
+    f = @spawnat c update_stochscenariomodelling!(c)
+    wait(f)
 
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
 
@@ -417,4 +451,66 @@ end
 
 function update_startstates_evp(stepnr)
 
+end
+
+function setchanges_simscenmodmethod(changes)
+    db = get_local_db()
+    setchanges(db.simscenmodmethod, changes)
+end
+function setchanges_progscenmodmethod(changes)
+    db = get_local_db()
+    setchanges(db.progscenmodmethod, changes)
+end
+function setchanges_stochscenmodmethod(changes)
+    db = get_local_db()
+    setchanges(db.stochscenmodmethod, changes)
+end
+
+function update_scenariomodelling!(thiscore, scenmodmethod, scenmodmethodoptions, renumber, simtime)
+    db = get_local_db()
+
+    if length(scenmodmethod) != length(scenmodmethodoptions)
+        choose_scenarios!(scenmodmethod, scenmodmethodoptions, simtime, db.input) # see JulES/scenariomodelling.jl
+        renumber && renumber_scenmodmethod!(scenmodmethod)
+    end
+end
+
+function update_simscenariomodelling(thiscore)
+    db = get_local_db()
+
+    update_scenariomodelling!(thiscore, db.simscenmodmethod, db.input.datascenmodmethod, true, db.input.simstarttime)
+    changes = getchanges(db.simscenmodmethod)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core setchanges_simscenmodmethod(changes)
+        end
+    end
+end
+function update_progscenariomodelling(thiscore, simtime)
+    db = get_local_db()
+
+    update_scenariomodelling!(thiscore, db.progscenmodmethod, db.simscenmodmethod, true, simtime)
+    changes = getchanges(db.progscenmodmethod)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core setchanges_progscenmodmethod(changes)
+        end
+    end
+end
+function update_stochscenariomodelling(thiscore, simtime)
+    db = get_local_db()
+
+    update_scenariomodelling!(thiscore, db.stochscenmodmethod, db.progscenmodmethod, false, simtime)
+    changes = getchanges(db.stochscenmodmethod)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core setchanges_stochscenmodmethod(changes)
+        end
+    end
 end

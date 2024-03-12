@@ -49,8 +49,6 @@ struct DefaultJulESInput <: AbstractJulESInput
             end
         end
 
-        # scenariogeneration? bør bo på 
-
         horizons = gethorizons(config)
 
         subsystems = getsubsystems(dataset, config, horizons)::Dict{String, Vector{DataElement}}
@@ -106,31 +104,58 @@ function gettimeparams(mainconfig::Dict, settings::Dict)
     return (steps, steplength, simstarttime, datascenarios, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
 end
 
-function getscenariotime(simtime::ProbTime, type::String, scenario::Scenario, input::AbstractJulESInput)
+function _getscenariotime(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput, inputtime::String)
     scenarios = input.scenarios
-    phaseinoffset = input.pahseinoffset
+    phaseinoffset = input.phaseinoffset
     phaseindelta = input.phaseindelta
     phaseinsteps = input.phaseinsteps
     datasimtime = getdattime(simtime)
     weathersimtime = getscenariotime(simtime)
-    weatherscenariotime = getscenariotime(simtime) + scenarios["timedim"][scenario.weather]
+    weatherscenariotime = getscenariotime(simtime) + scenario.weatheroffset
 
-    if type == "PrognosisTime"
+    if timetype == "PrognosisTime"
         return PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
-    elseif type == "FixedDataTwoTime"
+    elseif timetype == "FixedDataTwoTime"
         return FixedDataTwoTime(datasimtime, weatherscenariotime)
-    elseif type == "PhaseinPrognosisTime"
-        weatherscenariotime = weatherscenariotime + scenarios["timedim"][scenario.weather]
+    elseif timetype == "PhaseinPrognosisTime"
         return PhaseinPrognosisTime(datasimtime, datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
-    elseif type == "PhaseinFixedDataTwoTime"
-        weatherscenariotime = weatherscenariotime + scenarios["timedim"][scenario.weather]
+    elseif timetype == "PhaseinFixedDataTwoTime"
         return PhaseinFixedDataTwoTime(datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
-    elseif type == "PrognosisTime"
+    elseif timetype == "PrognosisTime"
         return PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
-    elseif type == "FixedDataTwoTime"
+    elseif timetype == "FixedDataTwoTime"
         return FixedDataTwoTime(datasimtime, weatherscenariotime)
     else
-        error("$type not implementet in getscenariotime-function")
+        error("$timetype not implementet in getscenariotime-function")
+    end
+end
+
+function getscenariotnormal(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput)
+    timetype = input.tnormaltype
+    return _getscenariotime(simtime, scenario, input, timetype)
+end
+function getscenariotphasein(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput)
+    timetype = input.tphasein
+    return _getscenariotime(simtime, scenario, input, timetype)
+end
+
+
+function getscenmodmethod(problem::Dict, numscen::Int64, objects::Vector)
+    method = problem["function"]
+    if method == "InflowClusteringMethod"
+        parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
+        scendelta = MsTimeDelta(Day(problem["scendelta"]))
+        return InflowClusteringMethod(numscen, objects, parts, scendelta)
+    elseif method == "SumInflowQuantileMethod"
+        a = problem["a"]
+        b = problem["b"]
+        c = problem["c"]
+        maxquantile = problem["maxquantile"]
+        scendelta = problem["scendelta"]
+        usedensity = MsTimeDelta(Day(problem["usedensity"]))
+        return SumInflowQuantileMethod(numscen, objects, maxquantile, a, b, c, scendelta, usedensity=usedensity)
+    else
+        error("$method not supported")
     end
 end
 
