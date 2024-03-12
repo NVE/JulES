@@ -37,7 +37,7 @@ const _LOCAL_DB_NAME = :_local_db
 # TODO: Complete this (add more timings and maybe other stuff)
 mutable struct LocalDB
     input::Union{Nothing, AbstractJulESInput}
-    horizons::Dict{ScenarioTermCommodity, Horizon}
+    horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
     dummyobjects::Vector
     dummyprogobjects::Vector
@@ -47,17 +47,17 @@ mutable struct LocalDB
     evscenmodmethod::ScenarioModellingMethod
     stochscenmodmethod::ScenarioModellingMethod
 
-    ppp::Dict{Scenario, PricePrognosisProblem}
-    evp::Dict{ScenarioSubsystem, EndValueProblem}
-    mp::Dict{Subsystem, MasterProblem}
-    sp::Dict{ScenarioSubsystem, ScenarioProblem}
+    ppp::Dict{ScenarioIx, PricePrognosisProblem}
+    evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
+    mp::Dict{SubsystemIx, MasterProblem}
+    sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
     cp::Union{Nothing, ClearingProblem}
 
-    ppp_dist::Vector{ScenarioCore}
-    evp_dist::Vector{ScenarioSubsystemCore}
-    mp_dist::Vector{SubsystemCore}
-    sp_dist::Vector{ScenarioSubsystemCore}
-    cp_core::Int
+    ppp_dist::Vector{Tuple{ScenarioIx, CoreId}}
+    evp_dist::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
+    mp_dist::Vector{Tuple{ScenarioIx, CoreId}}
+    sp_dist::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
+    cp_core::CoreId
 
     cp_time_solve::Float64
     cp_time_update::Float64
@@ -65,35 +65,35 @@ mutable struct LocalDB
     cp_time_startstates::Float64
     cp_time_endstates::Float64
 
-    div::Div
+    div::Dict
 
     function LocalDB()
         return new(
-            nothing,                                     # input
-            Dict{ScenarioTermCommodity, Horizon}(),      # horizons
+            nothing,   # input
+            Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
 
-            [],                                          # dummyobjects
-            [],                                          # dummyprogobjects
+            [],   # dummyobjects
+            [],   # dummyprogobjects
 
-            Dict{Scenario, PricePrognosisProblem}(),     # ppp
-            Dict{ScenarioSubsystem, EndValueProblem}(),  # evp
-            Dict{ScenarioSubsystem, ScenarioProblem}(),  # sp
-            Dict{Subsystem, MasterProblem}(),            # mp
-            nothing,                                     # cp
+            Dict{ScenarioIx, PricePrognosisProblem}(),                 # ppp
+            Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),   # evp
+            Dict{SubsystemIx, MasterProblem}(),                        # mp
+            Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),   # sp
+            nothing,   # cp
 
-            ScenarioCore[],                              # ppp_dist
-            ScenarioSubsystemCore[],                     # evp_dist
-            SubsystemCore[],                             # mp_dist
-            ScenarioSubsystemCore[],                     # sp_dist
-            -1,                                          # cp_core
+            Tuple{ScenarioIx, CoreId}[],                # ppp_dist
+            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # evp_dist
+            Tuple{SubsystemIx, CoreId}[],               # mp_dist
+            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # sp_dist
+            -1,   # cp_core
 
-            -1.0,                                        # cp_time_solve
-            -1.0,                                        # cp_time_update
-            -1.0,                                        # cp_time_cuts
-            -1.0,                                        # cp_time_startstates
-            -1.0,                                        # cp_time_endstates
+            -1.0,   # cp_time_solve
+            -1.0,   # cp_time_update
+            -1.0,   # cp_time_cuts
+            -1.0,   # cp_time_startstates
+            -1.0,   # cp_time_endstates
 
-            Dict(),                                      # div
+            Dict(),   # div
         )
     end
 end

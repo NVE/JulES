@@ -36,13 +36,13 @@ end
 function create_ppp(input::AbstractJulESInput, scenario)
 end
 
-function create_evp(input::AbstractJulESInput, subsystem, scenario)
+function create_evp(input::AbstractJulESInput, scenario, subsystem)
 end
 
 function create_mp(input::AbstractJulESInput, subsystem) 
 end
 
-function create_sp(input::AbstractJulESInput, subsystem, scenario)
+function create_sp(input::AbstractJulESInput, scenario, subsystem)
 end
 
 function create_cp(input::AbstractJulESInput)

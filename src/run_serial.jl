@@ -234,22 +234,18 @@ non-master horizons do update-by-transfer, we want to turn off update-by-solve b
 Hence, we wrap them in ExternalHorizon, which specializes the update! method to do nothing. 
 Which cores own which scenarios are defined in db.ppp_dist at any given time. 
 """
-# TODO: No-data-version-of-non-master-horizon
 function add_local_horizons(thiscore)
     db = get_local_db()
-    horizons = get_horizons(db.input)::Dict{TermCommodity, Horizon}
-    d = Dict{ScenarioTermCommodity, Horizon}()
-    for r in db.ppp_dist
-        scenario = r.scenario
-        ownercore = r.core
-        for (tc, horizon) in horizons
+    horizons = get_horizons(db.input)
+    d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
+    for (scenario, ownercore) in db.ppp_dist
+        for ((term, commodity), horizon) in horizons
             horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)
             if ownercore != thiscore
                 horizon = ExternalHorizon(horizon)    
             end
-            k = ScenarioTermCommodity(scenario, tc.term, tc.commodity)
-            d[k] = horizon
+            d[(scenario, term, commodity)] = horizon
         end
     end
     db.horizons = d
@@ -259,36 +255,34 @@ end
 function add_local_problems(thiscore)
     db = get_local_db()
 
-    d = Dict{Scenario, PricePrognosisProblem}()
-    for r in db.ppp_dist
-        if r.core == thiscore
-            d[r.scenario] = create_ppp(db.input, r.scenario)
+    d = Dict{ScenarioIx, PricePrognosisProblem}()
+    for (scenario, core) in db.ppp_dist
+        if core == thiscore
+            d[scenario] = create_ppp(db.input, scenario)
         end
     end
     db.ppp = d
 
-    d = Dict{ScenarioSubsystem, EndValueProblem}()
-    for r in db.evp_dist
-        if r.core == thiscore
-            k = ScenarioSubsystem(r.scenario, r.subsystem)
-            d[k] = create_evp(db.input, r.subsystem, r.scenario)
+    d = Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}()
+    for (scenario, subsystem, core) in db.evp_dist
+        if core == thiscore
+            d[(scenario, subsystem)] = create_evp(db.input, scenario, subsystem)
         end
     end
     db.evp = d
 
-    d = Dict{Subsystem, MasterProblem}()
-    for r in db.mp_dist
-        if r.core == thiscore
-            d[r.subsystem] = create_mp(db.input, r.subsystem)
+    d = Dict{SubsystemIx, MasterProblem}()
+    for (scenario, core) in db.mp_dist
+        if core == thiscore
+            d[subsystem] = create_mp(db.input, subsystem)
         end
     end
     db.mp = d
 
-    d = Dict{ScenarioSubsystem, ScenarioProblem}()
-    for r in db.sp_dist
-        if r.core == thiscore
-            k = ScenarioSubsystem(r.scenario, r.subsystem)
-            d[k] = create_sp(db.input, r.subsystem, r.scenario)
+    d = Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}()
+    for (scenario, subsystem, core) in db.sp_dist
+        if core == thiscore
+            d[(scenario, subsystem)] = create_sp(db.input, scenario, subsystem)
         end
     end
     db.sp = d
@@ -428,19 +422,19 @@ end
 function syncronize_horizons(thiscore)
     db = get_local_db()
 
-    owner_scenarios = [r.scenario for r in db.ppp_dist if r.core == thiscore]
+    owner_scenarios = [s for (s, c) in db.ppp_dist if c == thiscore]
 
-    for (k, horizon) in db.horizons
-        if !(k.scenario in owner_scenarios)
+    for ((this_scen, term, commodity), horizon) in db.horizons
+        if !(this_scen in owner_scenarios)
             continue
         end
 
         changes = getchanges(horizon)
 
         if length(changes) > 0
-            @sync for r in db.ppp_dist
-                if !(r.scenario in owner_scenarios)
-                    @spawnat r.core transfer_horizon_changes(r, changes)
+            @sync for (other_scen, other_core) in db.ppp_dist
+                if !(other_scen in owner_scenarios)
+                    @spawnat other_core transfer_horizon_changes(other_scen, term, commodity, changes)
                 end
             end        
         end
@@ -448,9 +442,9 @@ function syncronize_horizons(thiscore)
     return
 end
 
-function transfer_horizon_changes(r::ScenarioTermCommodity, changes)
+function transfer_horizon_changes(s::ScenarioIx, t::TermName, c::CommodityName, changes)
     db = get_local_db()
-    h = db.horizons[r]
+    h = db.horizons[(s, t, c)]
     setchanges!(h, changes)
     return
 end
