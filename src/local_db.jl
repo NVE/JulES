@@ -69,31 +69,31 @@ mutable struct LocalDB
 
     function LocalDB()
         return new(
-            nothing,                                     # input
-            Dict{ScenarioTermCommodity, Horizon}(),      # horizons
+            nothing,   # input
+            Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
 
-            [],                                          # dummyobjects
-            [],                                          # dummyprogobjects
+            [],   # dummyobjects
+            [],   # dummyprogobjects
 
-            Dict{Scenario, PricePrognosisProblem}(),     # ppp
-            Dict{ScenarioSubsystem, EndValueProblem}(),  # evp
-            Dict{ScenarioSubsystem, ScenarioProblem}(),  # sp
-            Dict{Subsystem, MasterProblem}(),            # mp
-            nothing,                                     # cp
+            Dict{ScenarioIx, PricePrognosisProblem}(),                 # ppp
+            Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),   # evp
+            Dict{SubsystemIx, MasterProblem}(),                        # mp
+            Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),   # sp
+            nothing,   # cp
 
-            ScenarioCore[],                              # ppp_dist
-            ScenarioSubsystemCore[],                     # evp_dist
-            SubsystemCore[],                             # mp_dist
-            ScenarioSubsystemCore[],                     # sp_dist
-            -1,                                          # cp_core
+            Tuple{ScenarioIx, CoreId}[],                # ppp_dist
+            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # evp_dist
+            Tuple{SubsystemIx, CoreId}[],               # mp_dist
+            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # sp_dist
+            -1,   # cp_core
 
-            -1.0,                                        # cp_time_solve
-            -1.0,                                        # cp_time_update
-            -1.0,                                        # cp_time_cuts
-            -1.0,                                        # cp_time_startstates
-            -1.0,                                        # cp_time_endstates
+            -1.0,   # cp_time_solve
+            -1.0,   # cp_time_update
+            -1.0,   # cp_time_cuts
+            -1.0,   # cp_time_startstates
+            -1.0,   # cp_time_endstates
 
-            Dict(),                                      # div
+            Dict(),   # div
         )
     end
 end
