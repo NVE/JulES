@@ -42,10 +42,10 @@ mutable struct LocalDB
     dummyobjects::Vector
     dummyprogobjects::Vector
 
-    simscenarios::Vector{Scenario}
-    progscenarios::Vector{Scenario}
-    evscenarios::Vector{Scenario}
-    stochasticscenarios::Vector{Scenario}
+    simscenmodmethod::ScenarioModellingMethod
+    progscenmodmethod::ScenarioModellingMethod
+    evscenmodmethod::ScenarioModellingMethod
+    stochscenmodmethod::ScenarioModellingMethod
 
     ppp::Dict{Scenario, PricePrognosisProblem}
     evp::Dict{ScenarioSubsystem, EndValueProblem}
