@@ -303,7 +303,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     c = first(cores)
     stepnr == 1 && f = @spawnat c update_simscenariomodelling!(c)
     wait(f)
-    f = @spawnat c update_progscenariomodelling!(c)
+    f = @spawnat c update_progscenariomodelling!(c, t)
     wait(f)
 
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
@@ -313,7 +313,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_stochscenariomodelling!(c)
+    f = @spawnat c update_stochscenariomodelling!(c, t)
     wait(f)
 
     @sync for core in cores
