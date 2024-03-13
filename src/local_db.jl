@@ -42,10 +42,9 @@ mutable struct LocalDB
     dummyobjects::Vector
     dummyprogobjects::Vector
 
-    simscenmodmethod::ScenarioModellingMethod
-    progscenmodmethod::ScenarioModellingMethod
-    evscenmodmethod::ScenarioModellingMethod
-    stochscenmodmethod::ScenarioModellingMethod
+    simscenmodmethod::AbstractScenarioModellingMethod
+    progscenmodmethod::AbstractScenarioModellingMethod
+    stochscenmodmethod::AbstractScenarioModellingMethod
 
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
@@ -74,6 +73,10 @@ mutable struct LocalDB
 
             [],   # dummyobjects
             [],   # dummyprogobjects
+
+            NothingScenarioModellingMethod(),
+            NothingScenarioModellingMethod(),
+            NothingScenarioModellingMethod(),
 
             Dict{ScenarioIx, PricePrognosisProblem}(),                 # ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),   # evp

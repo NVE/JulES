@@ -1,9 +1,10 @@
-mutable struct NoScenarioModellingMethod{T <: AbstractScenario} <: ScenarioModellingMethod
+struct NothingScenarioModellingMethod <: AbstractScenarioModellingMethod end
+mutable struct NoScenarioModellingMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
 end
 # mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
 # end
-mutable struct InflowClusteringMethod{T <: AbstractScenario} <: ScenarioModellingMethod
+mutable struct InflowClusteringMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
     inflowfactors::Vector{Float64}
     objects::Vector
@@ -15,7 +16,7 @@ mutable struct InflowClusteringMethod{T <: AbstractScenario} <: ScenarioModellin
         return new{eltype(scenarios)}(scenarios, inflowfactors, objects, parts, scendelta)
     end
 end
-mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: ScenarioModellingMethod
+mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
     inflowfactors::Vector{Float64}
     objects::Vector
@@ -44,10 +45,10 @@ function setchanges(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario
     scenmodmethod.inflowfactors = inflowfactors
 end
 
-getinflowfactors(scenmodmethod::ScenarioModellingMethod) = [1/length(scenmodmethod.scenarios) for s in 1:length(scenmodmethod.scenarios)]
+getinflowfactors(scenmodmethod::AbstractScenarioModellingMethod) = [1/length(scenmodmethod.scenarios) for s in 1:length(scenmodmethod.scenarios)]
 getinflowfactors(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = scenmodmethod.inflowfactors
 
-function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::ScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
+function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
     numscen = length(scenmodmethod.scenarios)
     scenariooptions = scenmodmethodoptions.scenarios
     weightsoptions = [getprobability(scenario) for scenario in scenariooptions]
@@ -103,7 +104,7 @@ function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenari
     return
 end
 
-function choose_scenarios!(scenmodmethod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::ScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
+function choose_scenarios!(scenmodmethod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
     numscen = length(scenmodmethod.scenarios)
     scenariooptions = scenmodmethodoptions.scenarios
     weightsoptions = [getprobability(scenario) for scenario in scenariooptions]
@@ -172,7 +173,7 @@ end
 # Scale inflow of modelobjects given a scenario modelling method
 # Only implemented in subsystem models at the moment. If used in prognosis we loose correlation to rest of market
 # In practice this means Prognosis ignores part of scenario generation (SumInflow of cluster), especially if SumInflowQuantileMethod
-perform_scenmod!(scenmodmethod::ScenarioModellingMethod, scenarioix, objects) = nothing # generic fallback
+perform_scenmod!(scenmodmethod::AbstractScenarioModellingMethod, scenarioix, objects) = nothing # generic fallback
 function perform_scenmod!(scenmodmethod::Union{InflowClusteringMethod{WeatherScenario},SumInflowQuantileMethod{WeatherScenario}}, scenarioix, objects) # inflow methods has field factor
     inflowfactors = getinflowfactors
     inflowfactors[scenarioix] == 1.0 && return
@@ -193,7 +194,7 @@ function perform_scenmod!(scenmodmethod::Union{InflowClusteringMethod{WeatherSce
 end
 
 # Renumber scenarios
-function renumber_scenmodmethod!(scenmodmethod::ScenarioModellingMethod)
+function renumber_scenmodmethod!(scenmodmethod::AbstractScenarioModellingMethod)
     for (i, scenario) in enumerate(scenmodmethod.scenarios)
         scenario.parentscenario = i
     end
