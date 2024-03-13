@@ -78,7 +78,7 @@ Then, distribution on cores should be:
 
 This way, a core that get a relatively big system in one pass, 
 will get a relatively small system in the next pass. 
-This should ensure balance load better than e.g. distributing 
+This should ensure to balance load better than e.g. distributing 
 subsystems on cores by random choice.
 
 Scenario problems (sp) will be put on the same core as master problems (mp).
