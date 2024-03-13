@@ -300,13 +300,10 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     # do input models here
 
     # Do global scenario modelling
-    # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
     c = first(cores)
     stepnr == 1 && f = @spawnat c update_simscenariomodelling!(c)
     wait(f)
     f = @spawnat c update_progscenariomodelling!(c)
-    wait(f)
-    f = @spawnat c update_stochscenariomodelling!(c)
     wait(f)
 
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
@@ -314,6 +311,10 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     @sync for core in cores
         @spawnat core solve_ppp(T, t, delta, stepnr, core)
     end
+
+    # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+    f = @spawnat c update_stochscenariomodelling!(c)
+    wait(f)
 
     @sync for core in cores
         @spawnat core solve_evp(T, t, delta, stepnr, core)
