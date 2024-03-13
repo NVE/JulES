@@ -301,8 +301,10 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
 
     # Do global scenario modelling
     c = first(cores)
-    stepnr == 1 && f = @spawnat c update_simscenariomodelling!(c)
-    wait(f)
+    if stepnr == 1 
+        f = @spawnat c update_simscenariomodelling!(c)
+        wait(f)
+    end
     f = @spawnat c update_progscenariomodelling!(c, t)
     wait(f)
 
