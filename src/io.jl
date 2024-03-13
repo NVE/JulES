@@ -163,19 +163,20 @@ end
 
 
 # -------------------------------------------------------------------------------------------
-struct DefaultJulESOutput <: AbstractJulESOutput
-    # TODO: complete
-end
 
 # TODO: complete
-get_cores(input) = nothing
-get_horizons(input) = nothing
-get_simulation_period(input) = nothing
-get_startstates_ppp(input) = nothing
-
-
+get_cores(input) = nothing   # should return non-empty CorId[]
+get_horizons(input) = nothing # should return Dict{Tuple{TermName, CommodityName}, Horizon}
+get_simulation_period(input) = nothing # should return... 
+get_startstates_ppp(input) = nothing   # should return...
+get_num_sp_scenarios(input) = nothing  # should return Int
+get_subsystems(input) = nothing   # should return...
 
 # Should live here and not in slot in PricePrognosisProblem?
 function get_medendvaluesdict(input)
 end
 
+
+struct DefaultJulESOutput <: AbstractJulESOutput
+    # TODO: complete
+end
