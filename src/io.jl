@@ -159,8 +159,10 @@ function getscenmodmethod(problem::Dict, numscen::Int64, objects::Vector)
     end
 end
 
-
-
+getnumscen_sim(input::AbstractJulESInput) = input.settings["scenariogeneration"]["simulation"]["numscen"]
+getnumscen_ppp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["prognosis"]["numscen"]
+getnumscen_evp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["endvalue"]["numscen"]
+getnumscen_sp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["stochastic"]["numscen"]
 
 # -------------------------------------------------------------------------------------------
 
@@ -169,7 +171,6 @@ get_cores(input) = nothing   # should return non-empty CorId[]
 get_horizons(input) = nothing # should return Dict{Tuple{TermName, CommodityName}, Horizon}
 get_simulation_period(input) = nothing # should return... 
 get_startstates_ppp(input) = nothing   # should return...
-get_num_sp_scenarios(input) = nothing  # should return Int
 get_subsystems(input) = nothing   # should return...
 
 # Should live here and not in slot in PricePrognosisProblem?

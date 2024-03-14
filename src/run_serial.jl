@@ -145,7 +145,7 @@ function add_local_scenmodemethods()
     settings = db.input.settings
 
     # Simulation scenario modelling - choose scenarios for the whole simulation
-    simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]
+    simnumscen = getnumscen_sim(db.input)
     @assert simnumscen <= datanumscen
     if simnumscen == datanumscen
         db.simscenmodmethod = db.datascenmodmethod
@@ -154,7 +154,7 @@ function add_local_scenmodemethods()
     end
 
     # Prognosis scenario modelling - choose scenarios for the price prognosis models
-    prognumscen = settings["scenariogeneration"]["prognosis"]["numscen"]
+    prognumscen = getnumscen_ppp(db.input)
     @assert prognumscen <= simnumscen
     if prognumscen == simnumscen
         db.progscenmodmethod = db.simscenmodmethod
@@ -163,7 +163,7 @@ function add_local_scenmodemethods()
     end
 
     # EVP scenario modelling - choose scenarios for the end values models
-    evnumscen = settings["scenariogeneration"]["endvalue"]["numscen"]
+    evnumscen = getnumscen_evp(db.input)
     @assert evnumscen <= prognumscen
     if evnumscen == prognumscen
         db.evscenmodmethod = db.progscenmodmethod
@@ -172,7 +172,7 @@ function add_local_scenmodemethods()
     end
 
     # Stochastic scenario modelling - choose scenarios for the price stochastic models
-    stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]
+    stochnumscen = getnumscen_sp(db.input)
     @assert stochnumscen <= evnumscen
     if stochnumscen == evnumscen
         db.stochscenmodmethod = db.progscenmodmethod

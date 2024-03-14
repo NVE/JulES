@@ -7,7 +7,7 @@ How price prognosis problems (ppp) are distributed on cores initially
 """
 function get_ppp_dist(input::AbstractJulESInput) 
     cores = get_cores(input)
-    scenarios = get_scenarios(input)
+    scenarios = getnumscen_ppp(input)
 
     N = length(cores)
     
@@ -26,7 +26,7 @@ How end value problems (evp) are distributed on cores initially
 """
 function get_evp_dist(input::AbstractJulESInput) 
     cores = get_cores(input)
-    scenarios = get_scenarios_evp(input)
+    scenarios = getnumscen_evp(input)
     subsystems = get_subsystems(input)
 
     N = length(cores)
@@ -89,7 +89,7 @@ function get_mp_sp_dist(input::AbstractJulESInput)
 
     mp_dist = _distribute_subsystems_by_size!(subsystems, cores)
     
-    N = get_num_sp_scenarios(input)
+    N = getnumscen_sp(input)
     sp_dist = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(mp_dist))
     i = 0
     for scen in 1:N
