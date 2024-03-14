@@ -145,30 +145,39 @@ function add_local_scenmodemethods()
     settings = db.input.settings
 
     # Simulation scenario modelling - choose scenarios for the whole simulation
-    simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]
+    simnumscen = getnumscen_sim(db.input)
     @assert simnumscen <= datanumscen
     if simnumscen == datanumscen
-        simscenmodmethod = datascenmodmethod
+        db.simscenmodmethod = db.datascenmodmethod
     else
-        simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen, values(db.input.dummyprogobjects))
+        db.simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen, values(db.input.dummyprogobjects))
     end
 
     # Prognosis scenario modelling - choose scenarios for the price prognosis models
-    prognumscen = settings["scenariogeneration"]["prognosis"]["numscen"]
+    prognumscen = getnumscen_ppp(db.input)
     @assert prognumscen <= simnumscen
     if prognumscen == simnumscen
-        progscenmodmethod = simscenmodmethod
+        db.progscenmodmethod = db.simscenmodmethod
     else
-        progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen, values(db.input.dummyprogobjects))
+        db.progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen, values(db.input.dummyprogobjects))
+    end
+
+    # EVP scenario modelling - choose scenarios for the end values models
+    evnumscen = getnumscen_evp(db.input)
+    @assert evnumscen <= prognumscen
+    if evnumscen == prognumscen
+        db.evscenmodmethod = db.progscenmodmethod
+    else
+        db.evscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["endvalue"], evnumscen, values(db.input.dummyobjects))
     end
 
     # Stochastic scenario modelling - choose scenarios for the price stochastic models
-    stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]
-    @assert stochnumscen <= prognumscen
-    if stochnumscen == prognumscen
-        stochscenmodmethod = progscenmodmethod
+    stochnumscen = getnumscen_sp(db.input)
+    @assert stochnumscen <= evnumscen
+    if stochnumscen == evnumscen
+        db.stochscenmodmethod = db.progscenmodmethod
     else
-        stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen, values(db.input.dummyobjects))
+        db.stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen, values(db.input.dummyobjects))
     end
 
     return
@@ -239,14 +248,16 @@ function add_local_horizons(thiscore)
     db = get_local_db()
     horizons = get_horizons(db.input)
     d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
-    for (scenario, ownercore) in db.ppp_dist
+    for (scenarioix, ownercore) in db.ppp_dist
         for ((term, commodity), horizon) in horizons
             horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)
             if ownercore != thiscore
-                horizon = ExternalHorizon(horizon)    
+                externalhorizon = ExternalHorizon(horizon)
+                d[(scenarioix, term, commodity)] = externalhorizon
+            else
+                d[(scenarioix, term, commodity)] = horizon
             end
-            d[(scenario, term, commodity)] = horizon
         end
     end
     db.horizons = d
@@ -257,9 +268,9 @@ function add_local_problems(thiscore)
     db = get_local_db()
 
     d = Dict{ScenarioIx, PricePrognosisProblem}()
-    for (scenario, core) in db.ppp_dist
+    for (scenarioix, core) in db.ppp_dist
         if core == thiscore
-            d[scenario] = create_ppp(db.input, scenario)
+            d[scenarioix] = create_ppp(db, scenario)
         end
     end
     db.ppp = d
@@ -267,15 +278,15 @@ function add_local_problems(thiscore)
     d = Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}()
     for (scenario, subsystem, core) in db.evp_dist
         if core == thiscore
-            d[(scenario, subsystem)] = create_evp(db.input, scenario, subsystem)
+            d[(scenarioix, subsystem)] = create_evp(db, scenario, subsystem)
         end
     end
     db.evp = d
 
     d = Dict{SubsystemIx, MasterProblem}()
-    for (scenario, core) in db.mp_dist
+    for (scenarioix, core) in db.mp_dist
         if core == thiscore
-            d[subsystem] = create_mp(db.input, subsystem)
+            d[subsystem] = create_mp(db, subsystem)
         end
     end
     db.mp = d
@@ -283,13 +294,13 @@ function add_local_problems(thiscore)
     d = Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}()
     for (scenario, subsystem, core) in db.sp_dist
         if core == thiscore
-            d[(scenario, subsystem)] = create_sp(db.input, scenario, subsystem)
+            d[(scenarioix, subsystem)] = create_sp(db, scenarioix, subsystem)
         end
     end
     db.sp = d
 
     if thiscore == db.cp_core
-        db.cp = create_cp(db.input)
+        db.cp = create_cp(db)
     end
     return
 end
@@ -315,12 +326,16 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_stochscenariomodelling!(c, t)
+    f = @spawnat c update_evpscenariomodelling!(c, t)
     wait(f)
 
     @sync for core in cores
         @spawnat core solve_evp(T, t, delta, stepnr, core)
     end
+
+    # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+    f = @spawnat c update_stochscenariomodelling!(c, t)
+    wait(f)
 
     @sync for core in cores
         @spawnat core solve_mp(T, t, delta, stepnr, core)
@@ -465,6 +480,10 @@ function setchanges_progscenmodmethod(changes)
     db = get_local_db()
     setchanges(db.progscenmodmethod, changes)
 end
+function setchanges_evscenmodmethod(changes)
+    db = get_local_db()
+    setchanges(db.evscenmodmethod, changes)
+end
 function setchanges_stochscenmodmethod(changes)
     db = get_local_db()
     setchanges(db.stochscenmodmethod, changes)
@@ -505,10 +524,23 @@ function update_progscenariomodelling(thiscore, simtime)
         end
     end
 end
+function update_evscenariomodelling(thiscore, simtime)
+    db = get_local_db()
+
+    update_scenariomodelling!(thiscore, db.evscenmodmethod, db.progscenmodmethod, false, simtime)
+    changes = getchanges(db.evscenmodmethod)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core setchanges_evscenmodmethod(changes)
+        end
+    end
+end
 function update_stochscenariomodelling(thiscore, simtime)
     db = get_local_db()
 
-    update_scenariomodelling!(thiscore, db.stochscenmodmethod, db.progscenmodmethod, false, simtime)
+    update_scenariomodelling!(thiscore, db.stochscenmodmethod, db.evscenmodmethod, false, simtime)
     changes = getchanges(db.stochscenmodmethod)
 
     cores = get_cores(db.input)

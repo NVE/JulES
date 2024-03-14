@@ -99,7 +99,7 @@ function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenari
     for i in numscen
         scenmodmethod.scenarios[i].p_weather = y[i]/sum(y)
     end
-    @assert sum([getprobability(scenario) for scenario in scenmodmethod.scenarios]) == 1
+    @assert sum([scenario.p_weather for scenario in scenmodmethod.scenarios]) == 1
 
     return
 end
@@ -165,7 +165,7 @@ function choose_scenarios!(scenmodmethod::InflowClusteringMethod{WeatherScenario
         # Weight based on amount of scenarios in cluster and weight of options
         scenmodmethod.scenarios[i].p_weather = sum(weightsoptions[idxs])
     end
-    @assert sum([getprobability(scenario) for scenario in scenmodmethod.scenarios]) == 1
+    @assert sum([scenario.p_weather for scenario in scenmodmethod.scenarios]) == 1
 
     return
 end
