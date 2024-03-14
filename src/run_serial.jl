@@ -253,9 +253,11 @@ function add_local_horizons(thiscore)
             horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)
             if ownercore != thiscore
-                horizon = ExternalHorizon(horizon)    
+                externalhorizon = ExternalHorizon(horizon)
+                d[(scenario, term, commodity)] = externalhorizon
+            else
+                d[(scenario, term, commodity)] = horizon
             end
-            d[(scenario, term, commodity)] = horizon
         end
     end
     db.horizons = d
