@@ -44,6 +44,7 @@ mutable struct LocalDB
 
     simscenmodmethod::AbstractScenarioModellingMethod
     progscenmodmethod::AbstractScenarioModellingMethod
+    evscenmodmethod::AbstractScenarioModellingMethod
     stochscenmodmethod::AbstractScenarioModellingMethod
 
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
@@ -74,6 +75,7 @@ mutable struct LocalDB
             [],   # dummyobjects
             [],   # dummyprogobjects
 
+            NothingScenarioModellingMethod(),
             NothingScenarioModellingMethod(),
             NothingScenarioModellingMethod(),
             NothingScenarioModellingMethod(),
