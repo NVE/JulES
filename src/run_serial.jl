@@ -248,15 +248,15 @@ function add_local_horizons(thiscore)
     db = get_local_db()
     horizons = get_horizons(db.input)
     d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
-    for (scenario, ownercore) in db.ppp_dist
+    for (scenarioix, ownercore) in db.ppp_dist
         for ((term, commodity), horizon) in horizons
             horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)
             if ownercore != thiscore
                 externalhorizon = ExternalHorizon(horizon)
-                d[(scenario, term, commodity)] = externalhorizon
+                d[(scenarioix, term, commodity)] = externalhorizon
             else
-                d[(scenario, term, commodity)] = horizon
+                d[(scenarioix, term, commodity)] = horizon
             end
         end
     end
@@ -268,9 +268,9 @@ function add_local_problems(thiscore)
     db = get_local_db()
 
     d = Dict{ScenarioIx, PricePrognosisProblem}()
-    for (scenario, core) in db.ppp_dist
+    for (scenarioix, core) in db.ppp_dist
         if core == thiscore
-            d[scenario] = create_ppp(db.input, scenario)
+            d[scenarioix] = create_ppp(db, scenario)
         end
     end
     db.ppp = d
@@ -278,15 +278,15 @@ function add_local_problems(thiscore)
     d = Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}()
     for (scenario, subsystem, core) in db.evp_dist
         if core == thiscore
-            d[(scenario, subsystem)] = create_evp(db.input, scenario, subsystem)
+            d[(scenarioix, subsystem)] = create_evp(db, scenario, subsystem)
         end
     end
     db.evp = d
 
     d = Dict{SubsystemIx, MasterProblem}()
-    for (scenario, core) in db.mp_dist
+    for (scenarioix, core) in db.mp_dist
         if core == thiscore
-            d[subsystem] = create_mp(db.input, subsystem)
+            d[subsystem] = create_mp(db, subsystem)
         end
     end
     db.mp = d
@@ -294,13 +294,13 @@ function add_local_problems(thiscore)
     d = Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}()
     for (scenario, subsystem, core) in db.sp_dist
         if core == thiscore
-            d[(scenario, subsystem)] = create_sp(db.input, scenario, subsystem)
+            d[(scenarioix, subsystem)] = create_sp(db, scenarioix, subsystem)
         end
     end
     db.sp = d
 
     if thiscore == db.cp_core
-        db.cp = create_cp(db.input)
+        db.cp = create_cp(db)
     end
     return
 end

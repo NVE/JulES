@@ -159,6 +159,21 @@ function getscenmodmethod(problem::Dict, numscen::Int64, objects::Vector)
     end
 end
 
+# Parse methods (alternative to eval(Meta.parse))
+function parse_methods(s::String)
+    if s == "HiGHS_Prob()"
+        return HiGHS_Prob()
+    elseif s == "HighsSimplexMethod()"
+        return HighsSimplexMethod()
+    elseif s == "HighsSimplexMethod(warmstart=false)"
+        return HighsSimplexMethod(warmstart=false)
+    elseif s == "HighsSimplexSIPMethod(warmstart=false)"
+        return HighsSimplexSIPMethod(warmstart=false)
+    elseif s == "KMeansAHMethod()"
+        return KMeansAHMethod()
+    end
+end
+
 getnumscen_sim(input::AbstractJulESInput) = input.settings["scenariogeneration"]["simulation"]["numscen"]
 getnumscen_ppp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["prognosis"]["numscen"]
 getnumscen_evp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["endvalue"]["numscen"]
