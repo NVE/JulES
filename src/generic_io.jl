@@ -108,7 +108,7 @@ function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores:
     dist = Tuple{SubsystemIx, CoreId}[]
 
     loop_forward = true
-    while length(subsystems)
+    while length(subsystems) > 0
         K = length(subsystems)
         M = min(K, N)
 
