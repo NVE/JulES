@@ -62,7 +62,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     end
 end
 
-function getscenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
+function getdatascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
     # Standard time for market clearing - perfect information so simple time type
     datasimtime = getisoyearstart(datayear) + Week(weekstart-1)
     weathersimtime = getisoyearstart(weatheryear) + Week(weekstart-1)
@@ -99,7 +99,7 @@ function gettimeparams(mainconfig::Dict, settings::Dict)
     # Make standard time and scenario uncertainty times
     tnormaltype = settings["time"]["probtime"]["normaltime"]
     tphaseintype = settings["time"]["probtime"]["phaseintime"]
-    simstarttime, datascenarios = getscenarios(datayear, weatheryear, weekstart, datanumscen, simtimetype)
+    simstarttime, datascenarios = getdatascenarios(datayear, weatheryear, weekstart, datanumscen, simtimetype)
 
     return (steps, steplength, simstarttime, datascenarios, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
 end
