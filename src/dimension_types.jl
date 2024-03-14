@@ -8,6 +8,7 @@ mutable struct WeatherScenario <: AbstractScenario
     p_weather::Float64
     parentscenario::Int # index of parent scenario
 end
+getprobability(scen::WeatherScenario) = scen.p_weather
 
 const ScenarioIx = Int
 const SubsystemIx = Int
