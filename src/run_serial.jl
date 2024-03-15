@@ -15,17 +15,21 @@ Design goals
 # TODO: setup docstrings for automatic documentation
 
 function run_serial(output::AbstractJulESOutput, input::AbstractJulESInput)
-    (t, N, delta) = init_jules(output, input)
+    (t, N, delta, skipmed, skipmax) = init_jules(output, input)
     for stepnr in 1:N
-        step_jules(output, t, delta, stepnr)
+        step_jules(output, t, delta, stepnr, skipmed)
         t += delta
+        skipmed += Millisecond(delta)
+        if skipmed > skipmax
+            skipmed = Millisecond(0)
+        end
     end
     cleanup_jules(output)
     return
 end
 
 function init_jules(output::AbstractJulESOutput, input::AbstractJulESInput)
-    (t, N, delta) = get_simulation_period(input)
+    (t, N, delta, skipmed, skipmax) = get_simulation_period(input)
 
     init_databases(input)
 
@@ -302,7 +306,7 @@ function add_local_problems(thiscore)
     return
 end
 
-function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
+function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     cores = get_cores(output)
 
     # do input models here
@@ -310,20 +314,20 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     # Do global scenario modelling
     c = first(cores)
     if stepnr == 1 
-        f = @spawnat c update_simscenariomodelling!(c)
+        f = @spawnat c update_simscenariomodelling!(c, skipmed)
         wait(f)
     end
-    f = @spawnat c update_progscenariomodelling!(c, t)
+    f = @spawnat c update_progscenariomodelling!(c, t, skipmed)
     wait(f)
 
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
 
     @sync for core in cores
-        @spawnat core solve_ppp(T, t, delta, stepnr, core)
+        @spawnat core solve_ppp(T, t, delta, stepnr, skipmed, core)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_evpscenariomodelling!(c, t)
+    f = @spawnat c update_evpscenariomodelling!(c, t, skipmed)
     wait(f)
 
     @sync for core in cores
@@ -331,7 +335,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_stochscenariomodelling!(c, t)
+    f = @spawnat c update_stochscenariomodelling!(c, t, skipmed)
     wait(f)
 
     @sync for core in cores
@@ -416,10 +420,10 @@ function setchanges_stochscenmodmethod(changes)
     setchanges(db.stochscenmodmethod, changes)
 end
 
-function update_scenariomodelling!(thiscore, scenmodmethod, scenmodmethodoptions, renumber, simtime)
+function update_scenariomodelling!(thiscore, scenmodmethod, scenmodmethodoptions, renumber, simtime, skipmed)
     db = get_local_db()
 
-    if length(scenmodmethod) != length(scenmodmethodoptions)
+    if (length(scenmodmethod) != length(scenmodmethodoptions)) && (skipmed.value == 0)
         choose_scenarios!(scenmodmethod, scenmodmethodoptions, simtime, db.input) # see JulES/scenariomodelling.jl
         renumber && renumber_scenmodmethod!(scenmodmethod)
     end
@@ -428,7 +432,7 @@ end
 function update_simscenariomodelling(thiscore)
     db = get_local_db()
 
-    update_scenariomodelling!(thiscore, db.simscenmodmethod, db.input.datascenmodmethod, true, db.input.simstarttime)
+    update_scenariomodelling!(thiscore, db.simscenmodmethod, db.input.datascenmodmethod, true, db.input.simstarttime, Millisecond(0))
     changes = getchanges(db.simscenmodmethod)
 
     cores = get_cores(db.input)
@@ -438,10 +442,10 @@ function update_simscenariomodelling(thiscore)
         end
     end
 end
-function update_progscenariomodelling(thiscore, simtime)
+function update_progscenariomodelling(thiscore, simtime, skipmed)
     db = get_local_db()
 
-    update_scenariomodelling!(thiscore, db.progscenmodmethod, db.simscenmodmethod, true, simtime)
+    update_scenariomodelling!(thiscore, db.progscenmodmethod, db.simscenmodmethod, true, simtime, skipmed)
     changes = getchanges(db.progscenmodmethod)
 
     cores = get_cores(db.input)
@@ -451,10 +455,10 @@ function update_progscenariomodelling(thiscore, simtime)
         end
     end
 end
-function update_evscenariomodelling(thiscore, simtime)
+function update_evscenariomodelling(thiscore, simtime, skipmed)
     db = get_local_db()
 
-    update_scenariomodelling!(thiscore, db.evscenmodmethod, db.progscenmodmethod, false, simtime)
+    update_scenariomodelling!(thiscore, db.evscenmodmethod, db.progscenmodmethod, false, simtime, skipmed)
     changes = getchanges(db.evscenmodmethod)
 
     cores = get_cores(db.input)
@@ -464,10 +468,10 @@ function update_evscenariomodelling(thiscore, simtime)
         end
     end
 end
-function update_stochscenariomodelling(thiscore, simtime)
+function update_stochscenariomodelling(thiscore, simtime, skipmed)
     db = get_local_db()
 
-    update_scenariomodelling!(thiscore, db.stochscenmodmethod, db.evscenmodmethod, false, simtime)
+    update_scenariomodelling!(thiscore, db.stochscenmodmethod, db.evscenmodmethod, false, simtime, skipmed)
     changes = getchanges(db.stochscenmodmethod)
 
     cores = get_cores(db.input)

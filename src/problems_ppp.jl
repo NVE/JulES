@@ -99,29 +99,33 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
     length(residualarealist) > 0 && residualloadareas!(modelobjects, residualarealist)
 end
 
-function solve_ppp(T, t, delta, stepnr, thiscore)
-    update_startstates_ppp!(stepnr, t)
-    update_endstates_longppp()
-    solve_local_ppp(t)
-    syncronize_horizons(thiscore)
+function solve_ppp(T, t, delta, stepnr, skipmed, thiscore)
+    update_startstates_ppp!(stepnr, t) # TODO: A bit uncessesary to to update startstates for long and med if skipmed != 0
+    skipmed.value == 0 && update_endstates_longppp()
+    solve_local_ppp(t, skipmed)
+    skipmed.value == 0 && syncronize_horizons(thiscore)
     return
 end
 
-function solve_local_ppp(t)
+function solve_local_ppp(t, skipmed)
     db = get_local_db()
     for (scenix, p) in db.ppp
-        update!(p.longprob, t)
-        solve!(p.longprob)
+        if skipmed.value == 0
+            update!(p.longprob, t)
+            solve!(p.longprob)
 
-        update!(p.medprob, t)
-        lhh = db.horizons[(scenix, "long", "Hydro")]
-        mhh = db.horizons[(scenix, "med", "Hydro")]
-        transferduals!(p.longprob, lhh, p.medprob, mhh)
-        solve!(p.medprob)
+            update!(p.medprob, t)
+            lhh = db.horizons[(scenix, "long", "Hydro")]
+            mhh = db.horizons[(scenix, "med", "Hydro")]
+            transferduals!(p.longprob, lhh, p.medprob, mhh)
+            solve!(p.medprob)
+        end
 
         update!(p.shortprob, t)
-        shh = db.horizons[(scenix, "short", "Hydro")]
-        transferduals!(p.medprob, mhh, p.shortprob, shh)
+        if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
+            shh = db.horizons[(scenix, "short", "Hydro")]
+            transferduals!(p.medprob, mhh, p.shortprob, shh)
+        end
         solve!(p.shortprob)
 
         sph = db.horizons[(scenix, "short", "Power")]

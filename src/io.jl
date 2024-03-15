@@ -182,12 +182,20 @@ getnumscen_ppp(input::AbstractJulESInput) = input.settings["scenariogeneration"]
 getnumscen_evp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["endvalue"]["numscen"]
 getnumscen_sp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["stochastic"]["numscen"]
 
+function get_simulation_period(input)
+    t = input.simtime
+    N = input.steps
+    delta = input.steplength
+    skipmed = Millisecond(Hour(0))
+    skipmax = Millisecond(Hour(delta*(db.settings["time"]["skipmax"]-1)))
+
+    return (t, N, delta, skipmed, skipmax)
+
 # -------------------------------------------------------------------------------------------
 
 # TODO: complete
 get_cores(input) = nothing   # should return non-empty CorId[]
 get_horizons(input) = nothing # should return Dict{Tuple{TermName, CommodityName}, Horizon}
-get_simulation_period(input) = nothing # should return... 
 get_startstates_ppp(input) = nothing   # should return...
 get_subsystems(input) = nothing   # should return...
 
