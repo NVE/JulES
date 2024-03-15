@@ -120,17 +120,14 @@ function add_local_dummyobjects(thiscore)
     hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
 
     # Make dummy elements
-    dummyobjects, dummydhh, dummydph = make_obj(db.elements, hydro_horizon, power_horizon, validate=true)
-    db.dummyobjects = dummyobjects
+    db.dummyobjects = make_obj(db.input.dataset["elements"], hydro_horizon, power_horizon, validate=true)
 
     # Make dummy prog elements
-    if db.elements != db.progelements
-        dummyprogobjects, dummyphh, dummypph = make_obj(db.progelements, hydro_horizon, power_horizon, validate=true)
+    if haskey(db.input.dataset, "progelements")
+        db.dummyprogobjects = make_obj(db.input.dataset["progelements"], hydro_horizon, power_horizon, validate=true)
     else
-        dummyprogobjects = dummyobjects
+        db.dummyprogobjects = db.dummyobjects
     end
-    db.dummyprogobjects = dummyprogobjects
-
     return
 end
 
@@ -364,14 +361,6 @@ end
 # TODO: input parameters ok?
 
 # TODO: consistent use of states and duals
-function solve_ppp(T, t, delta, stepnr, thiscore)
-    update_startstates_ppp(stepnr)
-    update_endstates_ppp(stepnr) # only long, rest happens in solve
-    solve_local_ppp(t)
-    syncronize_horizons(thiscore)
-    return
-end
-
 function solve_evp(T, t, delta, stepnr, thiscore)
     update_startstates_evp(stepnr)
     update_endstates_evp()
@@ -403,68 +392,6 @@ function solve_cp(T, t, delta, stepnr, thiscore)
         db.time_cp_update      = @elapsed update!(db.cp, t)
         db.time_cp_solve       = @elapsed solve!(db.cp)
     end
-    return
-end
-
-function update_startstates_ppp(stepnr)
-    db = get_local_db()
-    problems = db.ppp
-
-    if stepnr == 1
-        startstates = get_startstates_ppp(db.input)
-    else
-        if has_startstates_ppp(db)
-            startstates = get_startstates_ppp(db)
-        else
-            startstates = get_startstates_ppp_from_cp(db)
-        end
-    end
-    for p in problems
-        setstartstates!(p, startstates)
-    end
-end
-
-function solve_local_ppp(t)
-    db = get_local_db()
-    for p in db.ppp
-        update!(p.long, t)
-        solve!(p.long)
-        # TODO: transfer states from long to med
-        update!(p.med, t)
-        solve!(p.med)
-        # TODO: transfer states from med to short
-        update!(p.short, t)
-        solve!(p.short)
-    end
-end
-
-function syncronize_horizons(thiscore)
-    db = get_local_db()
-
-    owner_scenarios = [s for (s, c) in db.ppp_dist if c == thiscore]
-
-    for ((this_scen, term, commodity), horizon) in db.horizons
-        if !(this_scen in owner_scenarios)
-            continue
-        end
-
-        changes = getchanges(horizon)
-
-        if length(changes) > 0
-            @sync for (other_scen, other_core) in db.ppp_dist
-                if !(other_scen in owner_scenarios)
-                    @spawnat other_core transfer_horizon_changes(other_scen, term, commodity, changes)
-                end
-            end        
-        end
-    end
-    return
-end
-
-function transfer_horizon_changes(s::ScenarioIx, t::TermName, c::CommodityName, changes)
-    db = get_local_db()
-    h = db.horizons[(s, t, c)]
-    setchanges!(h, changes)
     return
 end
 

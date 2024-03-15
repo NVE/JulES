@@ -42,6 +42,9 @@ mutable struct LocalDB
     dummyobjects::Vector
     dummyprogobjects::Vector
 
+    startstates::Dict{String, Float64}
+    stepnr_startstates::Int
+
     simscenmodmethod::AbstractScenarioModellingMethod
     progscenmodmethod::AbstractScenarioModellingMethod
     evscenmodmethod::AbstractScenarioModellingMethod
@@ -74,6 +77,9 @@ mutable struct LocalDB
 
             [],   # dummyobjects
             [],   # dummyprogobjects
+
+            Dict{String, Float64}(),    # startstates
+            1,                          # stepnr_startstates
 
             NothingScenarioModellingMethod(),
             NothingScenarioModellingMethod(),

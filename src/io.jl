@@ -2,8 +2,8 @@
 Definition of default input and output types
 """
 
-
 struct DefaultJulESInput <: AbstractJulESInput
+    dataset::Dict
     mainconfig::Dict
     settings::Dict
     onlysubsystemmodels::Bool
@@ -19,9 +19,6 @@ struct DefaultJulESInput <: AbstractJulESInput
     phaseindelta::Millisecond
     phaseinsteps::Int
 
-    elements::Vector
-    progelements::Vector
-
     function DefaultJulESInput(dataset, config)
         mainconfig = config["main"]
         settings = config[mainconfig["settings"]]
@@ -35,18 +32,25 @@ struct DefaultJulESInput <: AbstractJulESInput
         @time timeparams = gettimeparams(mainconfig, settings)
         steps, steplength, simstarttime, datascenarios, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps = timeparams
 
-        println("Get data")
+        println("Handle elements")
         @time begin
             elements = dataset["elements"]
-            detailedrescopl = dataset["detailedrescopl"]
             addscenariotimeperiod_vector!(elements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
     
             if haskey(dataset, "progelements")
                 progelements = dataset["progelements"]
                 addscenariotimeperiod_vector!(progelements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
-            else
-                progelements = elements
             end
+
+            enekvglobaldict = Dict{String,Float64}()
+            if !onlysubsystemmodel
+                for element in elements
+                    if element.typename == GLOBALENEQKEY
+                        enekvglobaldict[split(element.instancename,"GlobalEneq_")[2]] = element.value["Value"]
+                    end
+                end
+            end
+            dataset["enekvglobaldict"] = enekvglobaldict
         end
 
         horizons = gethorizons(config)
@@ -55,10 +59,9 @@ struct DefaultJulESInput <: AbstractJulESInput
 
         # TODO: use throw-away-dummy-modelobjs for data proc
 
-        return new(mainconfig, settings, onlysubsystemmodels,
+        return new(dataset, mainconfig, settings, onlysubsystemmodels,
             steps, steplength, simstarttime, datascenarios,
-            tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps,
-            elements, progelements)
+            tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
     end
 end
 
