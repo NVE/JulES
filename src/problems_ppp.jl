@@ -114,18 +114,24 @@ function solve_local_ppp(t, skipmed)
             update!(p.longprob, t)
             solve!(p.longprob)
 
-            update!(p.medprob, t)
             lhh = db.horizons[(scenix, "long", "Hydro")]
             mhh = db.horizons[(scenix, "med", "Hydro")]
-            transferduals!(p.longprob, lhh, p.medprob, mhh)
+            transferduals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
+            update!(p.medprob, t)
             solve!(p.medprob)
         end
 
-        update!(p.shortprob, t)
+        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(10))
+        allstorages = getstorages(getobjects(p.shortprob))
+        longtermstorages = setdiff(allstorages, shorttermstorages)
+        nonstorageobjects = getnonstorageobjects(getobjects(p.shortprob))
+        setendstates!(p.shortprob, shorttermstorages, db.startstates)
+        setstartstates!(p.shortprob, nonstorageobjects, db.startstates) # NB! Assumes same resolution in shortprob as market clearing
         if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
             shh = db.horizons[(scenix, "short", "Hydro")]
-            transferduals!(p.medprob, mhh, p.shortprob, shh)
+            transferduals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
         end
+        update!(p.shortprob, t)
         solve!(p.shortprob)
 
         sph = db.horizons[(scenix, "short", "Power")]
@@ -199,8 +205,7 @@ function getstartstates!(startstates::Dict, problemsconfig::Dict, problem::Strin
 end
 
 # Dual values from long problem used as end values for med problem
-function transferduals!(giverprob, giverhorizon, takerprob, takerhorizon)
-    storages = getstorages(getobjects(takerprob))
+function transferduals!(giverprob, giverhorizon, takerprob, takerhorizon, storages)
     period = getendperiodfromduration(giverhorizon, getduration(takerhorizon)) # which period in long problem correspond to end period in medium problem
     endvalues = getinsideduals(giverprob, storages, period) # get dual values from long problem at period which correspond to end period in medium problem
     
