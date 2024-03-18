@@ -177,10 +177,34 @@ function parse_methods(s::String)
     end
 end
 
-getnumscen_sim(input::AbstractJulESInput) = input.settings["scenariogeneration"]["simulation"]["numscen"]
-getnumscen_ppp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["prognosis"]["numscen"]
-getnumscen_evp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["endvalue"]["numscen"]
-getnumscen_sp(input::AbstractJulESInput) = input.settings["scenariogeneration"]["stochastic"]["numscen"]
+function getnumscen_sim(input::AbstractJulESInput)
+    if haskey(input.settings["scenariogeneration"], "simulation")
+        return input.settings["scenariogeneration"]["simulation"]["numscen"]
+    else
+        return length(input.datascenarios)
+    end
+end
+function getnumscen_ppp(input::AbstractJulESInput)
+    if haskey(input.settings["scenariogeneration"], "prognosis")
+        return input.settings["scenariogeneration"]["prognosis"]["numscen"]
+    else
+        return getnumscen_sim(input)
+    end
+end
+function getnumscen_evp(input::AbstractJulESInput)
+    if haskey(input.settings["scenariogeneration"], "endvalue")
+        return input.settings["scenariogeneration"]["endvalue"]["numscen"]
+    else
+        return getnumscen_ppp(input)
+    end
+end
+function getnumscen_sp(input::AbstractJulESInput)
+    if haskey(input.settings["scenariogeneration"], "stochastic")
+        return input.settings["scenariogeneration"]["stochastic"]["numscen"]
+    else
+        return getnumscen_evp(input)
+    end
+end
 
 function get_simulation_period(input)
     t = input.simtime

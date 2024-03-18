@@ -36,13 +36,7 @@ hourly:
         
         steplength_hours: 48
         skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
-    scenariogeneration:
-        simulation:
-            numscen: 15
-        prognosis:
-            numscen: 15
-        stochastic:
-            numscen: 15
+    scenariogeneration: # if empty use all datascenarios
     problems:
         stochastic:
             maxcuts: 13

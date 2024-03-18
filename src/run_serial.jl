@@ -429,7 +429,7 @@ function update_scenariomodelling!(thiscore, scenmodmethod, scenmodmethodoptions
     end
 end
 
-function update_simscenariomodelling(thiscore)
+function update_simscenariomodelling!(thiscore)
     db = get_local_db()
 
     update_scenariomodelling!(thiscore, db.simscenmodmethod, db.input.datascenmodmethod, true, db.input.simstarttime, Millisecond(0))
@@ -442,7 +442,7 @@ function update_simscenariomodelling(thiscore)
         end
     end
 end
-function update_progscenariomodelling(thiscore, simtime, skipmed)
+function update_progscenariomodelling!(thiscore, simtime, skipmed)
     db = get_local_db()
 
     update_scenariomodelling!(thiscore, db.progscenmodmethod, db.simscenmodmethod, true, simtime, skipmed)
@@ -455,7 +455,7 @@ function update_progscenariomodelling(thiscore, simtime, skipmed)
         end
     end
 end
-function update_evscenariomodelling(thiscore, simtime, skipmed)
+function update_evscenariomodelling!(thiscore, simtime, skipmed)
     db = get_local_db()
 
     update_scenariomodelling!(thiscore, db.evscenmodmethod, db.progscenmodmethod, false, simtime, skipmed)
@@ -468,7 +468,7 @@ function update_evscenariomodelling(thiscore, simtime, skipmed)
         end
     end
 end
-function update_stochscenariomodelling(thiscore, simtime, skipmed)
+function update_stochscenariomodelling!(thiscore, simtime, skipmed)
     db = get_local_db()
 
     update_scenariomodelling!(thiscore, db.stochscenmodmethod, db.evscenmodmethod, false, simtime, skipmed)
