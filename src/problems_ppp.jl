@@ -16,9 +16,9 @@ function create_ppp(db::LocalDB, scenarioix::Int)
     shh = db.horizons[(scenarioix, "short", "Hydro")]
     sph = db.horizons[(scenarioix, "short", "Power")]
 
-    aggzone = getaggzone(db.settings)
+    aggzone = getaggzone(db.input.settings)
     aggsupplyn = db.settings["problems"]["prognosis"]["aggsupplyn"]
-    removestoragehours = db.settings["problems"]["shorttermstoragecutoff_hours"]
+    removestoragehours = db.settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
     residualarealist = db.settings["problems"]["prognosis"]["residualarealist"]
 
     # Create long problems
@@ -121,7 +121,7 @@ function solve_local_ppp(t, skipmed)
             solve!(p.medprob)
         end
 
-        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(db.input.settings["problems"]["shorttermstoragecutoff_hours"]))
+        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(db.input.settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
         allstorages = getstorages(getobjects(p.shortprob))
         longtermstorages = setdiff(allstorages, shorttermstorages)
         nonstorageobjects = getnonstorageobjects(getobjects(p.shortprob))
@@ -161,7 +161,7 @@ end
 
 function get_startstates_ppp!(db)
     dummyprogstorages = getstorages(db.dummyprogobjects)
-    getstartstates!(db.startstates, db.settings["problems"], "prognosis", db.input.dataset, db.dummyprogobjects, dummyprogstorages, t)
+    getstartstates!(db.startstates, db.settings["problems"]["prognosis"], db.input.dataset, db.dummyprogobjects, dummyprogstorages, t)
     startstates_max!(dummyprogstorages, t, db.startstates)
     return
 end
@@ -190,10 +190,10 @@ function setstartstates!(p::Prob, startstates::Dict{String, Float64})
     return
 end
 
-function getstartstates!(startstates::Dict, problemsconfig::Dict, problem::String, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
-    startstorages = problemsconfig[problem]["startstorages"]
+function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
+    startstorages = problemconfig["startstorages"]
     if startstorages["function"] == "percentages"
-        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemsconfig["shorttermstoragecutoff_hours"]))
+        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
         longtermstorages = setdiff(storages, shorttermstorages)
         merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
         merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))

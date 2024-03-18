@@ -74,14 +74,13 @@ function init_databases(input::AbstractJulESInput)
     end
 
     @sync for core in cores
-        @spawnat core add_local_dummyobjects(input)
-    end
-
-    @sync for core in cores
-        @spawnat core add_local_scenmodmethods(input)
+        @spawnat core add_local_dummyobjects(core)
     end
 
     c = first(cores)
+    future = @spawnat c add_local_subsystem(c)
+    wait(future)
+    
     # will calculate distribution on core c and then 
     # transfer this data to all other cores
     future = @spawnat c add_local_problem_distribution(c)
@@ -89,6 +88,10 @@ function init_databases(input::AbstractJulESInput)
 
     @sync for core in cores
         @spawnat core add_local_horizons(core)
+    end
+
+    @sync for core in cores
+        @spawnat core add_local_scenmodmethods(input)
     end
 
     @sync for core in cores
@@ -125,15 +128,105 @@ function add_local_dummyobjects(thiscore)
 
     # Make dummy elements
     db.dummyobjects = make_obj(db.input.dataset["elements"], hydro_horizon, power_horizon, validate=true)
+    aggzonedict = Dict()
+    for (k,v) in getaggzone(db.settings)
+        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [modelobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+    end
+    aggzone!(db.dummyobjects, aggzonedict)
 
     # Make dummy prog elements
     if haskey(db.input.dataset, "progelements")
         db.dummyprogobjects = make_obj(db.input.dataset["progelements"], hydro_horizon, power_horizon, validate=true)
+        aggzone!(db.dummyprogobjects, aggzonedict)
     else
         db.dummyprogobjects = db.dummyobjects
     end
     return
 end
+
+"""
+Make vector of subsystems
+"""
+
+function add_local_subsystems(thiscore)
+    db = get_local_db()
+
+    subsystems = getsubsystems(db)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != thiscore
+            @spawnat core set_local_subsystems(subsystems)
+        end
+    end
+
+    return
+end
+
+# TODO: Implement this function for different methods
+function getsubsystems(db)
+    subsystems = []
+    if db.input.onlysubsystemmodel
+        return push!(subsystems, ExogenSubsystem())
+    else
+        method = db.input.settings["subsystems"]["function"]
+        if method = "twostorageduration"
+            modelobjects, dependencies = db.dummyobjects
+            storagesystems = getstoragesystems(modelobjects)
+            shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(db.input.settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            for storagesystem in shorttermstoragesystems
+                subsystemdeps = Int[]
+                for obj in storagesystem
+                    objdeps = dependencies[getid(obj)]
+                    for dep in objdeps
+                        push!(subsystemdeps, dep)
+                    end
+                end
+                priceareas = getpriceareas(storagesystem)
+                subsystem = SPSubsystem(priceareas, unique(deps), Hour(db.input.settings["subsystems"]["shortstochduration_hours"]))
+                push!(subsystems, subsystem)
+            end
+
+            longtermstoragesystems = getlongtermstoragesystems(storagesystems, Hour(db.input.settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            for storagesystem in storagesystems
+                subsystemdeps = Int[]
+                for obj in storagesystem
+                    objdeps = dependencies[getid(obj)]
+                    for dep in objdeps
+                        push!(subsystemdeps, dep)
+                    end
+                end
+                priceareas = getpriceareas(storagesystem)
+                subsystem = EVSubsystem(priceareas, unique(deps), Day(db.input.settings["subsystems"]["longevduration_days"]), Day(db.input.settings["subsystems"]["longstochduration_days"]))
+                push!(subsystems, subsystem)
+            end
+        else
+            error("getsubsystem() not implemented for $(method)")
+        end
+    end
+    return subsystems
+end
+
+function set_local_subsystems(subsystems)
+    db = get_local_db()
+    
+    db.subsystems = subsystems
+    return
+end
+
+function getpriceareas(objects)
+    priceareas = []
+    for obj in objects
+        if obj isa Flow
+            for arrow in getarrows(obj)
+                pricearea = getinstancename(getid(getbalance(arrow)))
+                push!(priceareas, area)
+            end
+        end
+    end
+    return unique(areas)
+end
+
 
 """
 Initial scenario modelling for simulation, prognosis and stochastic
@@ -151,7 +244,7 @@ function add_local_scenmodemethods()
     if simnumscen == datanumscen
         db.simscenmodmethod = db.datascenmodmethod
     else
-        db.simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen, values(db.input.dummyprogobjects))
+        db.simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen, values(first(db.input.dummyprogobjects)))
     end
 
     # Prognosis scenario modelling - choose scenarios for the price prognosis models
@@ -160,7 +253,7 @@ function add_local_scenmodemethods()
     if prognumscen == simnumscen
         db.progscenmodmethod = db.simscenmodmethod
     else
-        db.progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen, values(db.input.dummyprogobjects))
+        db.progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen, values(first(db.input.dummyprogobjects)))
     end
 
     # EVP scenario modelling - choose scenarios for the end values models
@@ -169,7 +262,7 @@ function add_local_scenmodemethods()
     if evnumscen == prognumscen
         db.evscenmodmethod = db.progscenmodmethod
     else
-        db.evscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["endvalue"], evnumscen, values(db.input.dummyobjects))
+        db.evscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["endvalue"], evnumscen, values(first(db.input.dummyobjects)))
     end
 
     # Stochastic scenario modelling - choose scenarios for the price stochastic models
@@ -178,7 +271,7 @@ function add_local_scenmodemethods()
     if stochnumscen == evnumscen
         db.stochscenmodmethod = db.progscenmodmethod
     else
-        db.stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen, values(db.input.dummyobjects))
+        db.stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen, values(first(db.input.dummyobjects)))
     end
 
     return
@@ -197,9 +290,9 @@ to all other cores.
 function add_local_problem_distribution(thiscore)
     db = get_local_db()
 
-    ppp_dist = get_ppp_dist(db.input)
-    evp_dist = get_evp_dist(db.input)
-    (mp_dist, sp_dist) = get_mp_sp_dist(db.input)
+    ppp_dist = get_ppp_dist(db)
+    evp_dist = get_evp_dist(db)
+    (mp_dist, sp_dist) = get_mp_sp_dist(db)
     cp_core = get_cp_core(db.input)
 
     db.ppp_dist = ppp_dist

@@ -37,12 +37,18 @@ threehour:
             numscen: 7
             scendelta_days: 365
             parts: 4
-    problems:
+    subsystems:
+        function: twostorageduration # dataset, twostorageduration
         shorttermstoragecutoff_hours: 10
+        shortstochduration_hours: 168
+        longstochduration_days: 420
+        longevduration_days: 840
+    problems:            
         prognosis: 
             shrinkable: both # long, med, both, no
             aggsupplyn: 4
             residualarealist: []
+            shorttermstoragecutoff_hours: 10
             long:
                 prob: HiGHS_Prob()
                 solver: HighsSimplexMethod()

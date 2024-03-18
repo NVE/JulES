@@ -6,7 +6,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     dataset::Dict
     mainconfig::Dict
     settings::Dict
-    onlysubsystemmodels::Bool
+    onlysubsystemmodels::Bool # TODO: can probably remove this
 
     steps::Int
     steplength::Millisecond
@@ -19,12 +19,14 @@ struct DefaultJulESInput <: AbstractJulESInput
     phaseindelta::Millisecond
     phaseinsteps::Int
 
+    horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
+
     function DefaultJulESInput(dataset, config)
         mainconfig = config["main"]
         settings = config[mainconfig["settings"]]
 
         onlysubsystemmodel = false
-        if !haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "stochastic") && !haskey(settings["problems"], "clearing")
+        if !haskey(settings["problems"], "prognosis") && !haskey(settings["problems"], "endvalue") && haskey(settings["problems"], "stochastic") && !haskey(settings["problems"], "clearing")
             onlysubsystemmodel = true
         end
 
@@ -55,13 +57,10 @@ struct DefaultJulESInput <: AbstractJulESInput
 
         horizons = gethorizons(config)
 
-        subsystems = getsubsystems(dataset, config, horizons)::Dict{String, Vector{DataElement}}
-
-        # TODO: use throw-away-dummy-modelobjs for data proc
-
         return new(dataset, mainconfig, settings, onlysubsystemmodels,
             steps, steplength, simstarttime, datascenarios,
-            tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+            tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps,
+            horizons)
     end
 end
 
@@ -220,8 +219,6 @@ function get_simulation_period(input)
 # TODO: complete
 get_cores(input) = nothing   # should return non-empty CorId[]
 get_horizons(input) = nothing # should return Dict{Tuple{TermName, CommodityName}, Horizon}
-get_startstates_ppp(input) = nothing   # should return...
-get_subsystems(input) = nothing   # should return...
 
 # Should live here and not in slot in PricePrognosisProblem?
 function get_medendvaluesdict(input)

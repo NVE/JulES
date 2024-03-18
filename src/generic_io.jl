@@ -5,16 +5,18 @@ Generic fallbacks for AbstractJulESInput and AbstractJulESOutput
 """
 How price prognosis problems (ppp) are distributed on cores initially
 """
-function get_ppp_dist(input::AbstractJulESInput) 
+function get_ppp_dist(db::LocalDB)
+    input = db.input
     cores = get_cores(input)
-    scenarios = getnumscen_ppp(input)
+    scenarios = db.progscenmodmethod.scenarios
 
+    S = length(scenarios)
     N = length(cores)
     
-    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, length(scenarios))
+    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, S)
     
-    for (i, s) in enumerate(scenarios)
-        j = (i - 1) % N + 1
+    for s in 1:S
+        j = (s - 1) % N + 1
         dist[i] = (s, cores[j])
     end
     
@@ -24,10 +26,11 @@ end
 """
 How end value problems (evp) are distributed on cores initially
 """
-function get_evp_dist(input::AbstractJulESInput) 
+function get_evp_dist(db::LocalDB) 
+    input = db.input
     cores = get_cores(input)
-    scenarios = getnumscen_evp(input)
-    subsystems = get_subsystems(input)
+    scenarios = db.evscenmodmethod.scenarios
+    subsystems, subixs = getevsubsystems(db)
 
     N = length(cores)
     S = length(scenarios)
@@ -37,8 +40,8 @@ function get_evp_dist(input::AbstractJulESInput)
 
     if N >= S*Y
         k = 0
-        for sub in subsystems
-            for scen in scenarios
+        for sub in 1:subixs
+            for scen in 1:S
                 k += 1
                 out[k] = (scen, sub, cores[k])
             end
@@ -50,13 +53,27 @@ function get_evp_dist(input::AbstractJulESInput)
 
     k = 0
     for sub in subsystems
-        for (i, s) in enumerate(scenarios)
+        for s in 1:S
             k += 1
-            j = (i - 1) % N + 1
+            j = (s - 1) % N + 1
             out[k] = (s, sub, cores[j])
         end
     end
     return out
+end
+
+function getevsubsystems(db)
+    allsubsystems = db.subsystems
+    evsubsystems = []
+    subixs = []
+    for (i, subsystem) in enumerate(allsubsystems)
+        if isevsubsystem(subsystem)
+            push!(evsubsystems, subsystem)
+            push!(subixs, i)
+        end
+    end
+
+    return evsubsystems, subixs
 end
 
 function get_cp_core(input::AbstractJulESInput) 
@@ -83,7 +100,8 @@ subsystems on cores by random choice.
 
 Scenario problems (sp) will be put on the same core as master problems (mp).
 """
-function get_mp_sp_dist(input::AbstractJulESInput)
+function get_mp_sp_dist(db::LocalDB)
+    input = db.input
     cores = get_cores(input)
     subsystems = get_subsystem_ids_by_decending_size(input)
 
@@ -135,9 +153,16 @@ function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores:
     return dist
 end
 
-function get_subsystem_ids_by_decending_size(input::AbstractJulESInput)
-    subsystems = get_subsystems(input)
-    subsystems = [(length(s), id) for (id, s) in subsystems]
+function get_subsystem_ids_by_decending_size(db::LocalDB)
+    allsubsystems = db.subsystems
+    subsystems = []
+    for (i, subsystem) in enumerate(allsubsystems)
+        if isspsubsystem(subsystem)
+            push!(spsubsystems, (i, subsystem))
+        end
+    end
+
+    subsystems = [(length(s.dataelements), ix) for (ix, s) in subsystems]
     sort!(subsystems, rev=true)
-    return [id for (n, id) in subsystems]
+    return [ix for (n, ix) in subsystems]
 end

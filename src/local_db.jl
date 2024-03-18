@@ -39,11 +39,13 @@ mutable struct LocalDB
     input::Union{Nothing, AbstractJulESInput}
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
-    dummyobjects::Vector
-    dummyprogobjects::Vector
+    dummyobjects::Tuple
+    dummyprogobjects::Tuple # TODO: Move summyobjects, scenariogeneration and subsystems to io
 
     startstates::Dict{String, Float64}
     stepnr_startstates::Int
+
+    subsystems::Vector{AbstractSubsystem}
 
     simscenmodmethod::AbstractScenarioModellingMethod
     progscenmodmethod::AbstractScenarioModellingMethod
@@ -75,16 +77,18 @@ mutable struct LocalDB
             nothing,   # input
             Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
 
-            [],   # dummyobjects
-            [],   # dummyprogobjects
+            (),   # dummyobjects
+            (),   # dummyprogobjects
 
             Dict{String, Float64}(),    # startstates
             1,                          # stepnr_startstates
 
-            NothingScenarioModellingMethod(),
-            NothingScenarioModellingMethod(),
-            NothingScenarioModellingMethod(),
-            NothingScenarioModellingMethod(),
+            AbstractSubsystem[],       # subsystems
+
+            NothingScenarioModellingMethod(), # simscenariomodelling
+            NothingScenarioModellingMethod(), # progscenariomodelling
+            NothingScenarioModellingMethod(), # evscenariomodelling
+            NothingScenarioModellingMethod(), # stochscenariomodelling
 
             Dict{ScenarioIx, PricePrognosisProblem}(),                 # ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),   # evp
