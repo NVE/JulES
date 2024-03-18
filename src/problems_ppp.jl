@@ -121,7 +121,7 @@ function solve_local_ppp(t, skipmed)
             solve!(p.medprob)
         end
 
-        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(10))
+        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(db.input.settings["problems"]["shorttermstoragecutoff_hours"]))
         allstorages = getstorages(getobjects(p.shortprob))
         longtermstorages = setdiff(allstorages, shorttermstorages)
         nonstorageobjects = getnonstorageobjects(getobjects(p.shortprob))
