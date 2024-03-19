@@ -20,8 +20,8 @@ struct EVPSubsystem <: AbstractSubsystem
 end
 get_priceareas(subsystem::EVPSubsystem) = subsystem.priceareas
 get_dataelements(subsystem::EVPSubsystem) = subsystem.dataelements
-get_evpduration(subsystem::EVPSubsystem) = subsystem.evpduration
-get_stochduration(subsystem::EVPSubsystem) = subsystem.stochduration
+get_duration_evp(subsystem::EVPSubsystem) = subsystem.duration_evp
+get_duration_stoch(subsystem::EVPSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::EVPSubsystem) = true
 is_subsystem_stoch(subsystem::EVPSubsystem) = true
 
@@ -33,7 +33,7 @@ struct StochSubsystem <: AbstractSubsystem
 end
 get_priceareas(subsystem::StochSubsystem) = subsystem.priceareas
 get_dataelements(subsystem::StochSubsystem) = subsystem.dataelements
-get_stochduration(subsystem::StochSubsystem) = subsystem.stochduration
+get_duration_stoch(subsystem::StochSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::StochSubsystem) = false
 is_subsystem_stoch(subsystem::StochSubsystem) = true
 
