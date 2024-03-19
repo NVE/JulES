@@ -5,13 +5,14 @@ Generic fallbacks for AbstractJulESInput and AbstractJulESOutput
 """
 How price prognosis problems (ppp) are distributed on cores initially
 """
-function get_dist_ppp(input::AbstractJulESInput, numscen::Int)
+function get_dist_ppp(input::AbstractJulESInput)
     cores = getcores(input)
     N = length(cores)
+    S = get_numscen_ppp(input)
     
-    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, numscen)
+    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, S)
     
-    for s in 1:numscen
+    for s in 1:S
         j = (s - 1) % N + 1
         dist[i] = (s, cores[j])
     end
@@ -22,23 +23,21 @@ end
 """
 How end value problems (evp) are distributed on cores initially
 """
-function get_dist_evp(input::AbstractJulESInput, subixs::Vector{S}) 
+function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}) 
     cores = getcores(input)
-    scenarios = db.evscenmodmethod.scenarios
-    subsystems, subixs = getevsubsystems(db)
 
     N = length(cores)
-    S = length(scenarios)
+    S = get_numscen_evp(input)
     Y = length(subsystems)
 
     out = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, S*Y)
 
     if N >= S*Y
         k = 0
-        for sub in subixs
-            for scen in 1:S
+        for (subix, sub) in subsystems
+            for scenix in 1:S
                 k += 1
-                out[k] = (scen, sub, cores[k])
+                out[k] = (scenix, subix, cores[k])
             end
         end
         return out
@@ -47,28 +46,14 @@ function get_dist_evp(input::AbstractJulESInput, subixs::Vector{S})
     # TODO: Do better when S < N < S*Y
 
     k = 0
-    for sub in subsystems
-        for s in 1:S
+    for (subix, sub) in subsystems
+        for scenix in 1:S
             k += 1
-            j = (s - 1) % N + 1
-            out[k] = (s, sub, cores[j])
+            j = (scenix - 1) % N + 1
+            out[k] = (scenix, subix, cores[j])
         end
     end
     return out
-end
-
-function getevsubsystems(db)
-    allsubsystems = db.subsystems
-    evsubsystems = []
-    subixs = []
-    for (i, subsystem) in enumerate(allsubsystems)
-        if isevsubsystem(subsystem)
-            push!(evsubsystems, subsystem)
-            push!(subixs, i)
-        end
-    end
-
-    return evsubsystems, subixs
 end
 
 function get_core_cp(input::AbstractJulESInput) 
@@ -95,12 +80,11 @@ subsystems on cores by random choice.
 
 Scenario problems (sp) will be put on the same core as master problems (mp).
 """
-function get_stoch_dist(db::LocalDB)
-    input = db.input
+function get_stoch_dist(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
     cores = get_cores(input)
-    subsystems = get_subsystem_ids_by_decending_size(input)
+    subsystems_desc = get_subsystem_ids_by_decending_size(subsystems)
 
-    mp_dist = _distribute_subsystems_by_size!(subsystems, cores)
+    mp_dist = _distribute_subsystems_by_size!(subsystems_desc, cores)
     
     N = get_numscen_sp(input)
     sp_dist = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(mp_dist))
@@ -148,16 +132,30 @@ function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores:
     return dist
 end
 
-function get_subsystem_ids_by_decending_size(db::LocalDB)
-    allsubsystems = db.subsystems
-    subsystems = []
+function get_subsystem_ids_by_decending_size(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+    subsystems = [(length(get_dataelements(s)), ix) for (ix, s) in subsystems]
+    sort!(subsystems, rev=true)
+    return [ix for (n, ix) in subsystems]
+end
+
+"""
+Find which subsystems should have evp and stoch problems
+"""
+function get_subsystems_evp(allsubsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+    subsystems = Tuple{SubsystemIx, AbstractSubsystem}[]
+    for (i, subsystem) in enumerate(allsubsystems)
+        if is_subsystem_evp(subsystem)
+            push!(subsystems, (i, subsystem))
+        end
+    end
+    return subsystems
+end
+function get_subsystems_stoch(allsubsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+    subsystems = Tuple{SubsystemIx, AbstractSubsystem}[]
     for (i, subsystem) in enumerate(allsubsystems)
         if is_subsystem_stoch(subsystem)
             push!(subsystems, (i, subsystem))
         end
     end
-
-    subsystems = [(length(get_dataelements(s)), ix) for (ix, s) in subsystems]
-    sort!(subsystems, rev=true)
-    return [ix for (n, ix) in subsystems]
+    return subsystems
 end

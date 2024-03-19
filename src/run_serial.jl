@@ -151,12 +151,14 @@ Make vector of subsystems
 function add_local_subsystems(thiscore)
     db = get_local_db()
 
-    subsystems = getsubsystems(db)
+    subsystems = get_subsystems(db)
+    subsystems_evp = get_subsystems_evp(subsystems)
+    subsystems_stoch = get_subsystems_stoch(subsystems)
 
     cores = get_cores(db.input)
     @sync for core in cores
         if core != thiscore
-            @spawnat core set_local_subsystems(subsystems)
+            @spawnat core set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
         end
     end
 
@@ -164,16 +166,17 @@ function add_local_subsystems(thiscore)
 end
 
 # TODO: Implement this function for different methods
-function getsubsystems(db)
+function get_subsystems(db)
     subsystems = []
-    if db.input.onlysubsystemmodel
+    if get_onlysubsystemmodel(db.input)
         return push!(subsystems, ExogenSubsystem())
     else
-        method = db.input.settings["subsystems"]["function"]
+        settings = get_settings(db.input)
+        method = settings["subsystems"]["function"]
         if method = "twostorageduration"
             modelobjects, dependencies = db.dummyobjects
             storagesystems = getstoragesystems(modelobjects)
-            shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(db.input.settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
             for storagesystem in shorttermstoragesystems
                 subsystemdeps = Int[]
                 for obj in storagesystem
@@ -182,12 +185,12 @@ function getsubsystems(db)
                         push!(subsystemdeps, dep)
                     end
                 end
-                priceareas = getpriceareas(storagesystem)
-                subsystem = SPSubsystem(priceareas, unique(deps), Hour(db.input.settings["subsystems"]["shortstochduration_hours"]))
+                priceareas = get_priceareas(storagesystem)
+                subsystem = StochSubsystem(priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]))
                 push!(subsystems, subsystem)
             end
 
-            longtermstoragesystems = getlongtermstoragesystems(storagesystems, Hour(db.input.settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            longtermstoragesystems = getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
             for storagesystem in storagesystems
                 subsystemdeps = Int[]
                 for obj in storagesystem
@@ -197,7 +200,7 @@ function getsubsystems(db)
                     end
                 end
                 priceareas = getpriceareas(storagesystem)
-                subsystem = EVSubsystem(priceareas, unique(deps), Day(db.input.settings["subsystems"]["longevduration_days"]), Day(db.input.settings["subsystems"]["longstochduration_days"]))
+                subsystem = EVPSubsystem(priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]))
                 push!(subsystems, subsystem)
             end
         else
@@ -207,14 +210,16 @@ function getsubsystems(db)
     return subsystems
 end
 
-function set_local_subsystems(subsystems)
+function set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
     db = get_local_db()
     
     db.subsystems = subsystems
+    db.subsystems_evp = subsystems_evp
+    db.subsystems_stoch = db.subsystems_stoch
     return
 end
 
-function getpriceareas(objects)
+function get_priceareas(objects)
     priceareas = []
     for obj in objects
         if obj isa Flow
@@ -290,9 +295,9 @@ to all other cores.
 function add_local_problem_distribution(thiscore)
     db = get_local_db()
 
-    dist_ppp = get_dist_ppp(db.input, length(db.progscenmodmethod.scenarios))
-    dist_evp = get_dist_evp(db.input, )
-    (dist_mp, dist_sp) = get_dist_stoch(db)
+    dist_ppp = get_dist_ppp(db.input)
+    dist_evp = get_dist_evp(db.input, db.subsystems_evp)
+    (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
     core_cp = get_core_cp(db.input)
 
     db.dist_ppp = dist_ppp
@@ -370,25 +375,25 @@ function add_local_problems(thiscore)
     db.ppp = d
 
     d = Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}()
-    for (scenix, subsystem, core) in db.dist_evp
+    for (scenix, subix, core) in db.dist_evp
         if core == thiscore
-            d[(scenix, subsystem)] = create_evp(db, scenix, subsystem)
+            d[(scenix, subix)] = create_evp(db, scenix, subix)
         end
     end
     db.evp = d
 
     d = Dict{SubsystemIx, MasterProblem}()
-    for (scenix, core) in db.dist_mp
+    for (subix, core) in db.dist_mp
         if core == thiscore
-            d[subsystem] = create_mp(db, subsystem)
+            d[subix] = create_mp(db, subsystem)
         end
     end
     db.mp = d
 
     d = Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}()
-    for (scenix, subsystem, core) in db.dist_sp
+    for (scenix, subix, core) in db.dist_sp
         if core == thiscore
-            d[(scenix, subsystem)] = create_sp(db, scenix, subsystem)
+            d[(scenix, subix)] = create_sp(db, scenix, subix)
         end
     end
     db.sp = d
@@ -407,10 +412,10 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     # Do global scenario modelling
     c = first(cores)
     if stepnr == 1 
-        f = @spawnat c update_simscenariomodelling!(c, skipmed)
+        f = @spawnat c update_scenmod_sim(c, skipmed)
         wait(f)
     end
-    f = @spawnat c update_progscenariomodelling!(c, t, skipmed)
+    f = @spawnat c update_scenmod_ppp(c, t, skipmed)
     wait(f)
 
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
@@ -420,7 +425,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_evpscenariomodelling!(c, t, skipmed)
+    f = @spawnat c update_scenmod_evp(c, t, skipmed)
     wait(f)
 
     @sync for core in cores
@@ -428,7 +433,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_stochscenariomodelling!(c, t, skipmed)
+    f = @spawnat c update_scenmod_stoch(c, t, skipmed)
     wait(f)
 
     @sync for core in cores
