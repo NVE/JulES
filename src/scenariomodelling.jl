@@ -16,6 +16,8 @@ mutable struct InflowClusteringMethod{T <: AbstractScenario} <: AbstractScenario
         return new{eltype(scenarios)}(scenarios, inflowfactors, objects, parts, scendelta)
     end
 end
+get_parts(method::InflowClusteringMethod{WeatherScenario}) = method.parts
+
 mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
     inflowfactors::Vector{Float64}
@@ -31,32 +33,43 @@ mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenari
         return new{eltype(scenarios)}(scenarios, inflowfactors, objects, maxquantile, a, b, c, scendelta, usedensity)
     end
 end
+get_maxquantile(method::SumInflowQuantileMethod) = method.maxquantile
+get_a(method::SumInflowQuantileMethod) = method.a
+get_b(method::SumInflowQuantileMethod) = method.b
+get_c(method::SumInflowQuantileMethod) = method.c
+get_usedensity(method::SumInflowQuantileMethod) = method.usedensity
 
-getchanges(scenmodmethod::NoScenarioModellingMethod) = (scenmodmethod.scenarios)
-getchanges(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = (scenmodmethod.scenarios, scenmodmethod.inflowfactors)
+get_scenarios(scenmod::NothingScenarioModellingMethod) = nothing
+get_scenarios(scenmod::AbstractScenarioModellingMethod) = scenmod.scenarios
 
-function setchanges(scenmodmethod::NoScenarioModellingMethod, changes::Tuple{Vector{WeatherScenario}})
-    scenmodmethod.scenarios = first(changes)
+get_objects(method::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = method.objects
+get_scendelta(method::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = method.scendelta
+
+get_changes(scenmod::NoScenarioModellingMethod) = (scenmod.scenarios)
+get_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = (scenmod.scenarios, scenmod.inflowfactors)
+
+function set_changes(scenmod::NoScenarioModellingMethod, changes::Tuple{Vector{WeatherScenario}})
+    scenmod.scenarios = first(changes)
 end
-function setchanges(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario}, Vector{Float64}})
+function set_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario}, Vector{Float64}})
     scenarios, inflowfactors = changes
 
-    scenmodmethod.scenarios = scenarios
-    scenmodmethod.inflowfactors = inflowfactors
+    scenmod.scenarios = scenarios
+    scenmod.inflowfactors = inflowfactors
 end
 
-getinflowfactors(scenmodmethod::AbstractScenarioModellingMethod) = [1/length(scenmodmethod.scenarios) for s in 1:length(scenmodmethod.scenarios)]
-getinflowfactors(scenmodmethod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = scenmodmethod.inflowfactors
+get_inflowfactors(scenmod::AbstractScenarioModellingMethod) = [1/length(scenmod.scenarios) for s in 1:length(scenmod.scenarios)]
+get_inflowfactors(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = scenmod.inflowfactors
 
-function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
-    numscen = length(scenmodmethod.scenarios)
-    scenariooptions = scenmodmethodoptions.scenarios
-    weightsoptions = [getprobability(scenario) for scenario in scenariooptions]
-    factoroptions = getinflowfactors(scenmodmethodoptions)
+function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
+    numscen = length(scenmod.scenarios)
+    scenariooptions = get_scenarios(scenmodmethodoptions)
+    weightsoptions = [get_probability(scenario) for scenario in scenariooptions]
+    factoroptions = get_inflowfactors(scenmodmethodoptions)
     
     # Calculate total energy inflow in the system for the scenariodelta
     totalsumenergyinflow = zeros(length(scenariooptions))
-    for obj in scenmodmethod.objects
+    for obj in scenmod.objects
         if obj isa Balance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
@@ -66,7 +79,7 @@ function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenari
                 for rhsterm in getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
                         time = getscenariotnormal(simtime, scenario, input)
-                        totalsumenergyinflow[i] += getparamvalue(rhsterm, time, scenmodmethod.scendelta)*enekvglobal*factoroptions[i]
+                        totalsumenergyinflow[i] += getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*factoroptions[i]
                     end
                 end
             end
@@ -75,11 +88,11 @@ function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenari
 
     # Fit values to normal distribution
     n = fit(Normal, totalsumenergyinflow, weightsoptions)
-    quantiles = [i for i in 1-scenmodmethod.maxquantile:(2*scenmodmethod.maxquantile-1)/(numscen-1):scenmodmethod.maxquantile] # get quantiles from maxquantile
+    quantiles = [i for i in 1-scenmod.maxquantile:(2*scenmod.maxquantile-1)/(numscen-1):scenmod.maxquantile] # get quantiles from maxquantile
     qvalues = quantile.(n, quantiles) # get quantile values from distribution
     
     # Could also use probability density of the quantiles in the calculation of the weights
-    if scenmodmethod.usedensity
+    if scenmod.usedensity
         d = pdf.(n, qvalues) # get probability density for each quantile
     else
         d = [1.0 for i in numscen] # ignore probabilty density
@@ -89,35 +102,35 @@ function choose_scenarios!(scenmodmethod::SumInflowQuantileMethod{WeatherScenari
     for i in 1:numscen
         qvalue = qvalues[i]
         idx = findmin(abs.(totalsumenergyinflow.-qvalue))[2]
-        scenmodmethod.scenarios[i] = scenariooptions[idx]
-        scenmodmethod.inflowfactors[i] = qvalue/totalsumenergyinflow[idx]
+        scenmod.scenarios[i] = scenariooptions[idx]
+        scenmod.inflowfactors[i] = qvalue/totalsumenergyinflow[idx]
     end
 
     # How much should each scenario be weighted - combination of weighting function and probability density
     x = collect(-numscen+1:2:numscen-1)
-    y = (scenmodmethod.a .* x .^ 2 .+ x .* scenmodmethod.b .+ scenmodmethod.c) .* d
+    y = (scenmod.a .* x .^ 2 .+ x .* scenmod.b .+ scenmod.c) .* d
     for i in numscen
-        scenmodmethod.scenarios[i].p_weather = y[i]/sum(y)
+        scenmod.scenarios[i].p_weather = y[i]/sum(y)
     end
-    @assert sum([scenario.p_weather for scenario in scenmodmethod.scenarios]) == 1
+    @assert sum([scenario.p_weather for scenario in scenmod.scenarios]) == 1
 
     return
 end
 
-function choose_scenarios!(scenmodmethod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
-    numscen = length(scenmodmethod.scenarios)
-    scenariooptions = scenmodmethodoptions.scenarios
+function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
+    numscen = length(scenmod.scenarios)
+    scenariooptions = get_scenarios(scenmodmethodoptions)
     weightsoptions = [getprobability(scenario) for scenario in scenariooptions]
     inflowfactoroptions = getinflowfactors(scenmodmethodoptions)
 
     # Calculate total energy inflow in the system for each part of the scenariodelta
     sumenergyinflow = zeros(length(scenariooptions))
-    partsumenergyinflow = zeros(scenmodmethod.parts ,length(scenariooptions))
-    scendeltapart = scenmodmethod.scendelta/scenmodmethod.parts
+    partsumenergyinflow = zeros(scenmod.parts ,length(scenariooptions))
+    scendeltapart = scenmod.scendelta/scenmod.parts
 
-	parts = scenmodmethod.parts
+	parts = scenmod.parts
 
-    for obj in scenmodmethod.objects
+    for obj in scenmod.objects
         if obj isa Balance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
@@ -127,7 +140,7 @@ function choose_scenarios!(scenmodmethod::InflowClusteringMethod{WeatherScenario
                 for rhsterm in getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
                         time = getscenariotnormal(simtime, scenario, input)
-                        sumenergyinflow[i] += getparamvalue(rhsterm, time, scenmodmethod.scendelta)*enekvglobal*inflowfactoroptions[i]
+                        sumenergyinflow[i] += getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*inflowfactoroptions[i]
                         for j in 1:parts
                             partsumenergyinflow[j,i] += getparamvalue(rhsterm, time + scendeltapart*(j-1), scendeltapart)*enekvglobal*factoroptions[i]
                         end
@@ -157,15 +170,15 @@ function choose_scenarios!(scenmodmethod::InflowClusteringMethod{WeatherScenario
         meanclustersumenergyinflow = mean(clustersumenergyinflows)
         clusteridx = findmin(x->abs(x-meanclustersumenergyinflow), clustersumenergyinflows)[2]
         totalidx = findfirst(x -> x == clustersumenergyinflows[clusteridx], sumenergyinflow)
-        scenmodmethod.scenarios[i] = scenariooptions[totalidx]
+        scenmod.scenarios[i] = scenariooptions[totalidx]
 
         # Adjust scenario to represent actual middle of cluster
-        scenmodmethod.inflowfactors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
+        scenmod.inflowfactors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
 
         # Weight based on amount of scenarios in cluster and weight of options
-        scenmodmethod.scenarios[i].p_weather = sum(weightsoptions[idxs])
+        scenmod.scenarios[i].p_weather = sum(weightsoptions[idxs])
     end
-    @assert sum([scenario.p_weather for scenario in scenmodmethod.scenarios]) == 1
+    @assert sum([scenario.p_weather for scenario in scenmod.scenarios]) == 1
 
     return
 end
@@ -173,18 +186,18 @@ end
 # Scale inflow of modelobjects given a scenario modelling method
 # Only implemented in subsystem models at the moment. If used in prognosis we loose correlation to rest of market
 # In practice this means Prognosis ignores part of scenario generation (SumInflow of cluster), especially if SumInflowQuantileMethod
-perform_scenmod!(scenmodmethod::AbstractScenarioModellingMethod, scenarioix, objects) = nothing # generic fallback
-function perform_scenmod!(scenmodmethod::Union{InflowClusteringMethod{WeatherScenario},SumInflowQuantileMethod{WeatherScenario}}, scenarioix, objects) # inflow methods has field factor
+perform_scenmod!(scenmod::AbstractScenarioModellingMethod, scenix, objects) = nothing # generic fallback
+function perform_scenmod!(scenmod::Union{InflowClusteringMethod{WeatherScenario},SumInflowQuantileMethod{WeatherScenario}}, scenix, objects) # inflow methods has field factor
     inflowfactors = getinflowfactors
-    inflowfactors[scenarioix] == 1.0 && return
+    inflowfactors[scenix] == 1.0 && return
     for obj in objects
         if obj isa BaseBalance
             if getinstancename(getid(getcommodity(obj))) == "Hydro"
                 for rhsterm in getrhsterms(obj)
                     if rhsterm.param isa TwoProductParam
-                        rhsterm.param = TwoProductParam(rhsterm.param.param1, ConstantParam(inflowfactors[scenarioix]))
+                        rhsterm.param = TwoProductParam(rhsterm.param.param1, ConstantParam(inflowfactors[scenix]))
                     else
-                        rhsterm.param = TwoProductParam(rhsterm.param, ConstantParam(inflowfactors[scenarioix]))
+                        rhsterm.param = TwoProductParam(rhsterm.param, ConstantParam(inflowfactors[scenix]))
                     end
                 end
             end
@@ -194,8 +207,8 @@ function perform_scenmod!(scenmodmethod::Union{InflowClusteringMethod{WeatherSce
 end
 
 # Renumber scenarios
-function renumber_scenmodmethod!(scenmodmethod::AbstractScenarioModellingMethod)
-    for (i, scenario) in enumerate(scenmodmethod.scenarios)
+function renumber_scenmodmethod!(scenmod::AbstractScenarioModellingMethod)
+    for (i, scenario) in enumerate(get_scenarios(scenmod))
         scenario.parentscenario = i
     end
 end

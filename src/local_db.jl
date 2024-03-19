@@ -22,8 +22,8 @@ between time steps. See fields ppp, evp, mp, sp and cp.
 
 Some fields hold info about on which cores problems are stored. 
 This also enables transfer of data between e.g. optimizion problems
-residing on different cores. See fields ppp_dist, evp_dist, mp_dist, 
-sp_dist and cp_core.
+residing on different cores. See fields dist_ppp, dist_evp, dist_mp, 
+dist_sp and core_cp.
 
 Many of the fields contain timing data. This is useful both for results
 and to inform dynamic load balancer.
@@ -40,17 +40,19 @@ mutable struct LocalDB
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
     dummyobjects::Tuple
-    dummyprogobjects::Tuple # TODO: Move summyobjects, scenariogeneration and subsystems to io
+    dummyobjects_ppp::Tuple # TODO: Move dummyobjects, scenariogeneration and subsystems to io
 
     startstates::Dict{String, Float64}
     stepnr_startstates::Int
 
     subsystems::Vector{AbstractSubsystem}
+    subsystems_evp::Vector{Tuple{SubsystemIx, AbstractSubsystem}}
+    subsystems_stoch::Vector{Tuple{SubsystemIx, AbstractSubsystem}}
 
-    simscenmodmethod::AbstractScenarioModellingMethod
-    progscenmodmethod::AbstractScenarioModellingMethod
-    evscenmodmethod::AbstractScenarioModellingMethod
-    stochscenmodmethod::AbstractScenarioModellingMethod
+    scenmod_sim::AbstractScenarioModellingMethod
+    scenmod_ppp::AbstractScenarioModellingMethod
+    scenmod_evp::AbstractScenarioModellingMethod
+    scenmod_stoch::AbstractScenarioModellingMethod
 
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
@@ -58,17 +60,13 @@ mutable struct LocalDB
     sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
     cp::Union{Nothing, ClearingProblem}
 
-    ppp_dist::Vector{Tuple{ScenarioIx, CoreId}}
-    evp_dist::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
-    mp_dist::Vector{Tuple{ScenarioIx, CoreId}}
-    sp_dist::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
-    cp_core::CoreId
+    dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}
+    dist_evp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
+    dist_mp::Vector{Tuple{ScenarioIx, CoreId}}
+    dist_sp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
+    core_cp::CoreId
 
-    cp_time_solve::Float64
-    cp_time_update::Float64
-    cp_time_cuts::Float64
-    cp_time_startstates::Float64
-    cp_time_endstates::Float64
+    # time_cp::Float64
 
     div::Dict
 
@@ -78,40 +76,74 @@ mutable struct LocalDB
             Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
 
             (),   # dummyobjects
-            (),   # dummyprogobjects
+            (),   # dummyobjects_ppp
 
             Dict{String, Float64}(),    # startstates
             1,                          # stepnr_startstates
 
             AbstractSubsystem[],       # subsystems
 
-            NothingScenarioModellingMethod(), # simscenariomodelling
-            NothingScenarioModellingMethod(), # progscenariomodelling
-            NothingScenarioModellingMethod(), # evscenariomodelling
-            NothingScenarioModellingMethod(), # stochscenariomodelling
+            NothingScenarioModellingMethod(), # scenmod_sim
+            NothingScenarioModellingMethod(), # scenmod_ppp
+            NothingScenarioModellingMethod(), # scenmod_evp
+            NothingScenarioModellingMethod(), # scenmod_stoch
 
             Dict{ScenarioIx, PricePrognosisProblem}(),                 # ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),   # evp
             Dict{SubsystemIx, MasterProblem}(),                        # mp
             Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),   # sp
-            nothing,   # cp
+            nothing,                                                   # cp
 
-            Tuple{ScenarioIx, CoreId}[],                # ppp_dist
-            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # evp_dist
-            Tuple{SubsystemIx, CoreId}[],               # mp_dist
-            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # sp_dist
-            -1,   # cp_core
-
-            -1.0,   # cp_time_solve
-            -1.0,   # cp_time_update
-            -1.0,   # cp_time_cuts
-            -1.0,   # cp_time_startstates
-            -1.0,   # cp_time_endstates
+            Tuple{ScenarioIx, CoreId}[],                # dist_ppp
+            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_evp
+            Tuple{SubsystemIx, CoreId}[],               # dist_mp
+            Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_sp
+            -1,   # core_cp
 
             Dict(),   # div
         )
     end
 end
+
+get_input(db::LocalDB) = db.input
+get_horizons(db::LocalDB) = db.horizons
+get_dummyobjects(db::LocalDB) = db.dummyobjects
+get_dummyobjects_ppp(db::LocalDB) = db.dummyobjects_ppp
+get_startstates(db::LocalDB) = db.startstates
+get_stepnr_startstates(db::LocalDB) = db.stepnr_startstates
+get_subsystems(db::LocalDB) = db.subsystems
+get_subsystems_evp(db::LocalDB) = db.subsystems_evp
+get_subsystems_stoch(db::LocalDB) = db.subsystems_stoch
+get_scenmod_sim(db::LocalDB) = db.scenmod_sim
+get_scenmod_ppp(db::LocalDB) = db.scenmod_ppp
+get_scenmod_evp(db::LocalDB) = db.scenmod_evp
+get_scenmod_stoch(db::LocalDB) = db.scenmod_stoch
+get_ppp(db::LocalDB) = db.ppp
+get_evp(db::LocalDB) = db.evp
+get_mp(db::LocalDB) = db.mp
+get_sp(db::LocalDB) = db.sp
+get_cp(db::LocalDB) = db.cp
+get_dist_ppp(db::LocalDB) = db.dist_ppp
+get_dist_evp(db::LocalDB) = db.dist_evp
+get_dist_mp(db::LocalDB) = db.dist_mp
+get_dist_sp(db::LocalDB) = db.dist_sp
+get_core_cp(db::LocalDB) = db.core_cp
+get_div(db::LocalDB) = db.div
+
+get_dataset(db::LocalDB) = get_dataset(get_input(db))
+get_mainconfig(db::LocalDB) = get_mainconfig(get_input(db))
+get_settings(db::LocalDB) = get_settings(get_input(db))
+get_onlysubsystemmodel(db::LocalDB) = get_onlysubsystemmodel(get_input(db))
+get_steps(db::LocalDB) = get_steps(get_input(db))
+get_steplength(db::LocalDB) = get_steplength(get_input(db))
+get_simstarttime(db::LocalDB) = get_simstarttime(get_input(db))
+get_scenmod_data(db::LocalDB) = get_scenmod_data(get_input(db))
+get_numscen_data(db::LocalDB) = get_numscen_data(get_input(db))
+get_tnormaltype(db::LocalDB) = get_tnormaltype(get_input(db))
+get_tphaseintype(db::LocalDB) = get_tphaseintype(get_input(db))
+get_phaseinoffset(db::LocalDB) = get_phaseinoffset(get_input(db))
+get_phaseindelta(db::LocalDB) = get_phaseindelta(get_input(db))
+get_phaseinsteps(db::LocalDB) = get_phaseinsteps(get_input(db))
 
 function create_local_db()
     if (_LOCAL_DB_NAME in names(Main)) 

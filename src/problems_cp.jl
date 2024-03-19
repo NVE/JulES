@@ -1,8 +1,20 @@
+struct ClearingProblem
+    prob
+    states
+    endstates # startstates in next iteration
+end
+get_prob(cp::ClearingProblem) = cp.prob
+get_states(cp::ClearingProblem) = cp.states
+get_endstates(cp::ClearingProblem) = cp.endstates
 
-get_startstates_from_cp() = get_local_db().cp
+function create_cp(db::LocalDB)
+end
 
-function getstartstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
-    startstates_ = getstates(getobjects(clearing))
+get_startstates_from_cp() = get_endstates(get_cp(get_local_db()))
+
+# TODO: Rename to update_startstates
+function get_startstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
+    startstates_ = get_states(getobjects(clearing))
     getoutgoingstates!(clearing, startstates_)
     
     for var in keys(startstates_)

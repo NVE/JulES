@@ -7,34 +7,41 @@ struct PricePrognosisProblem
     short_prices::
     short_nonstoragestates::Dict{StateVariableInfo, Float64}
 end
+get_longprob(ppp::PricePrognosisProblem) = ppp.longprob
+get_medprob(ppp::PricePrognosisProblem) = ppp.medprob
+get_shortprob(ppp::PricePrognosisProblem) = ppp.shortprob
 
-function create_ppp(db::LocalDB, scenarioix::Int)
-    lhh = db.horizons[(scenarioix, "long", "Hydro")]
-    lph = db.horizons[(scenarioix, "long", "Power")]
-    mhh = db.horizons[(scenarioix, "med", "Hydro")]
-    mph = db.horizons[(scenarioix, "med", "Power")]
-    shh = db.horizons[(scenarioix, "short", "Hydro")]
-    sph = db.horizons[(scenarioix, "short", "Power")]
+function create_ppp(db::LocalDB, scenix::Int)
+    settings = get_settings(db.input)
+    elements_ppp = get_elements_ppp(db.input)
 
-    aggzone = getaggzone(db.input.settings)
-    aggsupplyn = db.settings["problems"]["prognosis"]["aggsupplyn"]
-    removestoragehours = db.settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
-    residualarealist = db.settings["problems"]["prognosis"]["residualarealist"]
+    horizons = get_horizons(db)
+    lhh = horizons[(scenix, "long", "Hydro")]
+    lph = horizons[(scenix, "long", "Power")]
+    mhh = horizons[(scenix, "med", "Hydro")]
+    mph = horizons[(scenix, "med", "Power")]
+    shh = horizons[(scenix, "short", "Hydro")]
+    sph = horizons[(scenix, "short", "Power")]
+
+    aggzone = get_aggzone(settings)
+    aggsupplyn = settings["problems"]["prognosis"]["aggsupplyn"]
+    removestoragehours = settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]
+    residualarealist = settings["problems"]["prognosis"]["residualarealist"]
 
     # Create long problems
-    longobjects = make_obj(db.input.progelements, lhh, lph)
+    longobjects = make_obj(elements_ppp, lhh, lph)
     simplify!(longobjects; aggzone=aggzone, aggsupplyn=aggsuplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
-    addPowerUpperSlack!(longobjects)
+    add_PowerUpperSlack!(longobjects)
 
-    longprobmethod = parse_methods(db.settings["problems"]["prognosis"]["long"]["prob"])
+    longprobmethod = parse_methods(settings["problems"]["prognosis"]["long"]["prob"])
     longprob = buildprob(longprobmethod, longobjects)
 
     # Create med problems
-    medobjects = make_obj(db.input.progelements, mhh, mph)
+    medobjects = make_obj(elements_ppp, mhh, mph)
     simplify!(medobjects; aggzone=aggzone, aggsupplyn=aggsuplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
-    addPowerUpperSlack!(medobjects)
+    add_PowerUpperSlack!(medobjects)
 
-    medprobmethod = parse_methods(db.settings["problems"]["prognosis"]["med"]["prob"])
+    medprobmethod = parse_methods(settings["problems"]["prognosis"]["med"]["prob"])
     medprob = buildprob(medprobmethod, medobjects)
 
     # TODO: Possible to improve? Not needed to make endvaluesobj and store it in probobjects
@@ -44,20 +51,21 @@ function create_ppp(db::LocalDB, scenarioix::Int)
     push!(medprob.objects, medendvaluesobj) # push end values object to med problem objects
 
     # Create short problems
-    shortobjects = make_obj(db.input.progelements, shh, sph)
+    shortobjects = make_obj(elements_ppp, shh, sph)
     simplify!(shortobjects; aggzone=aggzone, removestartup=false)
-    addPowerUpperSlack!(shortobjects)
+    add_PowerUpperSlack!(shortobjects)
 
-    shortprobmethod = parse_methods(db.settings["problems"]["prognosis"]["short"]["prob"])
+    shortprobmethod = parse_methods(settings["problems"]["prognosis"]["short"]["prob"])
     shortprob = buildprob(shortprobmethod, shortobjects)
 
     shortstorages = getstorages(getobjects(shortprob))
     shortendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
     shortendvaluesobj = EndValues(shortendvaluesid, longtermstorages)
-    push!(shortprob.objects, shortendvaluesobj)
+    push!(getobjects(shortprob), shortendvaluesobj)
 
-    nonstoragestates = getnonstoragestatevariables(shortprob.objects) 
+    nonstoragestates = get_nonstoragestatevariables(getobjects(shortprob)) 
 
+    # TODO: use set_ppp!
     db.ppp[scenarioix] = PricePrognosisProblem(longprob, medprob, shortprob, nonstoragestates)
     return
 end
@@ -100,7 +108,7 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
 end
 
 function solve_ppp(T, t, delta, stepnr, skipmed, thiscore)
-    update_startstates_ppp!(stepnr, t) # TODO: A bit uncessesary to to update startstates for long and med if skipmed != 0
+    update_startstates_ppp(stepnr, t) # TODO: A bit uncessesary to to update startstates for long and med if skipmed != 0
     skipmed.value == 0 && update_endstates_longppp()
     solve_local_ppp(t, skipmed)
     skipmed.value == 0 && syncronize_horizons(thiscore)
@@ -109,32 +117,36 @@ end
 
 function solve_local_ppp(t, skipmed)
     db = get_local_db()
+    horizons = get_horizons(db)
+    startstates = get_startstates(db)
+    settings = get_settings(db)
+
     for (scenix, p) in db.ppp
         if skipmed.value == 0
             update!(p.longprob, t)
             solve!(p.longprob)
 
-            lhh = db.horizons[(scenix, "long", "Hydro")]
-            mhh = db.horizons[(scenix, "med", "Hydro")]
-            transferduals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
+            lhh = horizons[(scenix, "long", "Hydro")]
+            mhh = horizons[(scenix, "med", "Hydro")]
+            transfer_duals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
             update!(p.medprob, t)
             solve!(p.medprob)
         end
 
-        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(db.input.settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
+        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
         allstorages = getstorages(getobjects(p.shortprob))
         longtermstorages = setdiff(allstorages, shorttermstorages)
-        nonstorageobjects = getnonstorageobjects(getobjects(p.shortprob))
-        setendstates!(p.shortprob, shorttermstorages, db.startstates)
-        setstartstates!(p.shortprob, nonstorageobjects, db.startstates) # NB! Assumes same resolution in shortprob as market clearing
+        nonstorageobjects = get_nonstorageobjects(getobjects(p.shortprob))
+        set_endstates!(p.shortprob, shorttermstorages, startstates)
+        set_startstates!(p.shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
         if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
-            shh = db.horizons[(scenix, "short", "Hydro")]
-            transferduals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
+            shh = horizons[(scenix, "short", "Hydro")]
+            transfer_duals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
         end
         update!(p.shortprob, t)
         solve!(p.shortprob)
 
-        sph = db.horizons[(scenix, "short", "Power")]
+        sph = horizons[(scenix, "short", "Power")]
         update_nonstoragestates!(p, db, sph)
     end
 end
@@ -146,23 +158,24 @@ function update_startstates_ppp(stepnr, t)
         get_startstates_ppp(db, t)
     else
         if stepnr == db.stepnr_startstates
-            get_startstates_ppp!(db)
+            get_startstates_ppp!(db, t)
         else
             get_startstates_ppp_from_cp!(db)
             db.stepnr_startstates = stepnr
         end
     end
     for p in db.ppp
-        setstartstates!(p.longprob, db.startstates)
-        setstartstates!(p.medprob, db.startstates)
-        setstartstates!(p.shortprob, db.startstates)
+        set_startstates!(p.longprob, db.startstates)
+        set_startstates!(p.medprob, db.startstates)
+        set_startstates!(p.shortprob, db.startstates)
     end
 end
 
-function get_startstates_ppp!(db)
-    dummyprogstorages = getstorages(db.dummyprogobjects)
-    getstartstates!(db.startstates, db.settings["problems"]["prognosis"], db.input.dataset, db.dummyprogobjects, dummyprogstorages, t)
-    startstates_max!(dummyprogstorages, t, db.startstates)
+function get_startstates_ppp!(db, t)
+    settings = get_settings(db)
+    dummystorages_ppp = getstorages(db.dummyobjects_ppp)
+    get_startstates!(db.startstates, settings["problems"]["prognosis"], get_dataset(db), db.dummyobjects_ppp, dummystorages_ppp, t)
+    startstates_max!(dummystorages_ppp, t, db.startstates)
     return
 end
 
@@ -186,11 +199,11 @@ end
 
 function setstartstates!(p::Prob, startstates::Dict{String, Float64})
     storages = getstorages(getobjects(p))
-    setstartstates!(p, storages, startstates)
+    set_startstates!(p, storages, startstates)
     return
 end
 
-function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
+function get_startstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
     startstorages = problemconfig["startstorages"]
     if startstorages["function"] == "percentages"
         shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
@@ -205,11 +218,11 @@ function getstartstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, 
 end
 
 # Dual values from long problem used as end values for med problem
-function transferduals!(giverprob, giverhorizon, takerprob, takerhorizon, storages)
+function transfer_duals!(giverprob, giverhorizon, takerprob, takerhorizon, storages)
     period = getendperiodfromduration(giverhorizon, getduration(takerhorizon)) # which period in long problem correspond to end period in medium problem
-    endvalues = getinsideduals(giverprob, storages, period) # get dual values from long problem at period which correspond to end period in medium problem
+    endvalues = get_insideduals(giverprob, storages, period) # get dual values from long problem at period which correspond to end period in medium problem
     
-    endvaluesobj = takerprob.objects[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), takerprob.objects)]
+    endvaluesobj = getobjects(takerprob)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(takerprob))]
     updateendvalues!(takerprob, endvaluesobj, endvalues) # update end values in problem object and in problem formulation
     return
 end
@@ -218,7 +231,7 @@ end
 # TODO: Only getoutgoingstates!, init should handle changeendtoinsidestates!
 function update_nonstoragesstates!(shortprob, db, sph, stepnr)
     if stepnr == 1
-        clearingperiod = getendperiodfromduration(sph, db.input.steplength) # which period in short problem correspond to end period in market clearing problem
+        clearingperiod = getendperiodfromduration(sph, get_steplength(db)) # which period in short problem correspond to end period in market clearing problem
         changeendtoinsidestates!(shortprob, shortprob.short_nonstoragestates, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
     else
         getoutgoingstates!(shortprob, shortprob.short_nonstoragestates)
@@ -235,7 +248,7 @@ function syncronize_horizons(thiscore)
             continue
         end
 
-        changes = getchanges(horizon)
+        changes = get_changes(horizon)
 
         if length(changes) > 0
             @sync for (other_scen, other_core) in db.ppp_dist

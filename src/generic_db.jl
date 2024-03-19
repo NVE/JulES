@@ -5,17 +5,13 @@ Generic fallbacks for AbstractJulESInput and AbstractJulESOutput
 """
 How price prognosis problems (ppp) are distributed on cores initially
 """
-function get_ppp_dist(db::LocalDB)
-    input = db.input
-    cores = get_cores(input)
-    scenarios = db.progscenmodmethod.scenarios
-
-    S = length(scenarios)
+function get_dist_ppp(input::AbstractJulESInput, numscen::Int)
+    cores = getcores(input)
     N = length(cores)
     
-    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, S)
+    dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, numscen)
     
-    for s in 1:S
+    for s in 1:numscen
         j = (s - 1) % N + 1
         dist[i] = (s, cores[j])
     end
@@ -26,9 +22,8 @@ end
 """
 How end value problems (evp) are distributed on cores initially
 """
-function get_evp_dist(db::LocalDB) 
-    input = db.input
-    cores = get_cores(input)
+function get_dist_evp(input::AbstractJulESInput, subixs::Vector{S}) 
+    cores = getcores(input)
     scenarios = db.evscenmodmethod.scenarios
     subsystems, subixs = getevsubsystems(db)
 
@@ -40,7 +35,7 @@ function get_evp_dist(db::LocalDB)
 
     if N >= S*Y
         k = 0
-        for sub in 1:subixs
+        for sub in subixs
             for scen in 1:S
                 k += 1
                 out[k] = (scen, sub, cores[k])
@@ -76,7 +71,7 @@ function getevsubsystems(db)
     return evsubsystems, subixs
 end
 
-function get_cp_core(input::AbstractJulESInput) 
+function get_core_cp(input::AbstractJulESInput) 
     return first(get_cores(input))
 end 
 
@@ -100,14 +95,14 @@ subsystems on cores by random choice.
 
 Scenario problems (sp) will be put on the same core as master problems (mp).
 """
-function get_mp_sp_dist(db::LocalDB)
+function get_stoch_dist(db::LocalDB)
     input = db.input
     cores = get_cores(input)
     subsystems = get_subsystem_ids_by_decending_size(input)
 
     mp_dist = _distribute_subsystems_by_size!(subsystems, cores)
     
-    N = getnumscen_sp(input)
+    N = get_numscen_sp(input)
     sp_dist = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(mp_dist))
     i = 0
     for scen in 1:N
@@ -157,12 +152,12 @@ function get_subsystem_ids_by_decending_size(db::LocalDB)
     allsubsystems = db.subsystems
     subsystems = []
     for (i, subsystem) in enumerate(allsubsystems)
-        if isspsubsystem(subsystem)
-            push!(spsubsystems, (i, subsystem))
+        if is_subsystem_stoch(subsystem)
+            push!(subsystems, (i, subsystem))
         end
     end
 
-    subsystems = [(length(s.dataelements), ix) for (ix, s) in subsystems]
+    subsystems = [(length(get_dataelements(s)), ix) for (ix, s) in subsystems]
     sort!(subsystems, rev=true)
     return [ix for (n, ix) in subsystems]
 end
