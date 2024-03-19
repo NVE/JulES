@@ -93,7 +93,7 @@ File "Possible improvements to JulES" is temporarily removed
 ### Contact:
 Julien Cabrol: jgrc@nve.no
 
-Harald Endresen: haen@nve.no
+Harald Endresen Haukeli: haen@nve.no
 
 ### Licensing:
 Copyright 2023 The Norwegian Water Resources and Energy Directorate, and contributors.
