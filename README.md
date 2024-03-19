@@ -88,14 +88,14 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - However, the project's codebase needs to be professionalized with better structure to make the model more user-friendly, allowing not only developers to run the model. Unit testing is also important to ensure that the model functions as intended. So far, we have been working on the model concept alone, so it will be crucial to involve analysts who will use the models and developers outside of NVE who can contribute to further developing the concept.
 
 #### Possible improvements to JulES:
-File "Possible improvements to JulES" is temporarly removed
+File "Possible improvements to JulES" is temporarily removed
 
 ### Contact:
 Julien Cabrol: jgrc@nve.no
 
-Harald Endresen:
+Harald Endresen: haen@nve.no
 
 ### Licensing:
 Copyright 2023 The Norwegian Water Resources and Energy Directorate, and contributors.
 
-Specific license not decided, but the code will be open-source.
+JulES is free software; you can redistribute it and/or modify it under the terms of the MIT license. See [COPYING](https://github.com/NVE/JulES/blob/master/COPYING) for the license text.
