@@ -13,11 +13,13 @@ get_probability(scen::WeatherScenario) = scen.p_weather
 # Calculates end values with deterministic end value models
 # TODO: Add name
 struct EVPSubsystem <: AbstractSubsystem
+    commodities::Vector{CommodityName}
     priceareas::Vector{String}
     dataelements::Vector{Int}
-    evpduration::Millisecond
-    stochduration::Millisecond
+    duration_evp::Millisecond
+    duration_stoch::Millisecond
 end
+get_commodities(subsystem::EVPSubsystem) = subsystem.commodities
 get_priceareas(subsystem::EVPSubsystem) = subsystem.priceareas
 get_dataelements(subsystem::EVPSubsystem) = subsystem.dataelements
 get_duration_evp(subsystem::EVPSubsystem) = subsystem.duration_evp
@@ -27,10 +29,12 @@ is_subsystem_stoch(subsystem::EVPSubsystem) = true
 
 # Collects end value from price prognosis models
 struct StochSubsystem <: AbstractSubsystem
+    commodities::Vector{CommodityName}
     priceareas::Vector{String}
     dataelements::Vector{Int}
-    stochduration::Millisecond
+    duration_stoch::Millisecond
 end
+get_commodities(subsystem::StochSubsystem) = subsystem.commodities
 get_priceareas(subsystem::StochSubsystem) = subsystem.priceareas
 get_dataelements(subsystem::StochSubsystem) = subsystem.dataelements
 get_duration_stoch(subsystem::StochSubsystem) = subsystem.duration_stoch
@@ -38,7 +42,10 @@ is_subsystem_evp(subsystem::StochSubsystem) = false
 is_subsystem_stoch(subsystem::StochSubsystem) = true
 
 # Only subsystem model (no ppp, ev or clearing)
-struct ExogenSubsystem <: AbstractSubsystem end
+struct ExogenSubsystem <: AbstractSubsystem 
+    commodities::Vector{CommodityName}
+end
+get_commodities(subsystem::ExogenSubsystem) = subsystem.commodities
 is_subsystem_evp(subsystem::ExogenSubsystem) = false
 is_subsystem_stoch(subsystem::ExogenSubsystem) = true
 

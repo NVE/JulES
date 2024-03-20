@@ -169,7 +169,8 @@ end
 function get_subsystems(db)
     subsystems = []
     if get_onlysubsystemmodel(db.input)
-        return push!(subsystems, ExogenSubsystem())
+        commodities = get_commoditites_from_dataelements(get_elements(db.input))
+        return push!(subsystems, ExogenSubsystem(commodities))
     else
         settings = get_settings(db.input)
         method = settings["subsystems"]["function"]
@@ -185,8 +186,9 @@ function get_subsystems(db)
                         push!(subsystemdeps, dep)
                     end
                 end
+                commodities = get_commodities_from_storagesystem(storagesystem)
                 priceareas = get_priceareas(storagesystem)
-                subsystem = StochSubsystem(priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]))
+                subsystem = StochSubsystem(commodities, priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]))
                 push!(subsystems, subsystem)
             end
 
@@ -199,8 +201,9 @@ function get_subsystems(db)
                         push!(subsystemdeps, dep)
                     end
                 end
+                commodities = get_commodities_from_storagesystem(storagesystem)
                 priceareas = getpriceareas(storagesystem)
-                subsystem = EVPSubsystem(priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]))
+                subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]))
                 push!(subsystems, subsystem)
             end
         else
@@ -208,6 +211,34 @@ function get_subsystems(db)
         end
     end
     return subsystems
+end
+    
+function get_commoditites_from_dataelements(elements::Vector{DataElement})
+    commodities = CommodityName[]
+    for element in elements
+        if element.conceptname == BALANCE_CONCEPT
+            commodity = element.value[COMMODITY_CONCEPT]
+            if !(commodity in commodities)
+                push!(commodities, commodity)
+            end
+        end
+    end
+    return commodities
+end
+
+function get_commodities_from_storagesystem(storagesystem::Vector)
+    commodities = Set{CommodityName}()
+    for obj in storagesystem
+        if obj isa Flow
+            for arrow in getarrows(obj)
+                commodity = getcommodity(getbalance(arrow))
+                if !(commodity in commodities)
+                    push!(commodities, commodity)
+                end
+            end
+        end
+    end
+    return commodities
 end
 
 function set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
