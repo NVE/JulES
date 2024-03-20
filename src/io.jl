@@ -222,7 +222,7 @@ function get_numscen_evp(input::AbstractJulESInput)
         return get_numscen_ppp(input)
     end
 end
-function get_numscen_sp(input::AbstractJulESInput)
+function get_numscen_stoch(input::AbstractJulESInput)
     settings = get_settings(input)
     if haskey(settings["scenariogeneration"], "stochastic")
         return settings["scenariogeneration"]["stochastic"]["numscen"]

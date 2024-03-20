@@ -55,6 +55,7 @@ mutable struct LocalDB
     scenmod_stoch::AbstractScenarioModellingMethod
 
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
+    prices_ppp::Dict{Tuple{TermName, ScenarioIx, String}, Tuple{Int, Vector{Float64}}}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
     mp::Dict{SubsystemIx, MasterProblem}
     sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
@@ -88,11 +89,12 @@ mutable struct LocalDB
             NothingScenarioModellingMethod(), # scenmod_evp
             NothingScenarioModellingMethod(), # scenmod_stoch
 
-            Dict{ScenarioIx, PricePrognosisProblem}(),                 # ppp
-            Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),   # evp
-            Dict{SubsystemIx, MasterProblem}(),                        # mp
-            Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),   # sp
-            nothing,                                                   # cp
+            Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
+            Dict{Tuple{TermName, ScenarioIx, String}, Tuple{Int, Vector{Float64}}}() # prices_ppp
+            Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),                 # evp
+            Dict{SubsystemIx, MasterProblem}(),                                      # mp
+            Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),                 # sp
+            nothing,                                                                 # cp
 
             Tuple{ScenarioIx, CoreId}[],                # dist_ppp
             Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_evp

@@ -2,14 +2,12 @@ struct PricePrognosisProblem
     longprob::Prob
     medprob::Prob
     shortprob::Prob
-    long_prices::
-    med_prices::
-    short_prices::
-    short_nonstoragestates::Dict{StateVariableInfo, Float64}
+    nonstoragestates_short::Dict{StateVariableInfo, Float64}
 end
 get_longprob(ppp::PricePrognosisProblem) = ppp.longprob
 get_medprob(ppp::PricePrognosisProblem) = ppp.medprob
 get_shortprob(ppp::PricePrognosisProblem) = ppp.shortprob
+get_nonstoragestates_short(ppp::PricePrognosisProblem) = ppp.nonstoragestates_short
 
 function create_ppp(db::LocalDB, scenix::Int)
     settings = get_settings(db.input)
@@ -232,9 +230,9 @@ end
 function update_nonstoragesstates!(shortprob, db, sph, stepnr)
     if stepnr == 1
         clearingperiod = getendperiodfromduration(sph, get_steplength(db)) # which period in short problem correspond to end period in market clearing problem
-        changeendtoinsidestates!(shortprob, shortprob.short_nonstoragestates, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
+        changeendtoinsidestates!(shortprob, shortprob.nonstoragestates_short, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
     else
-        getoutgoingstates!(shortprob, shortprob.short_nonstoragestates)
+        getoutgoingstates!(shortprob, shortprob.nonstoragestates_short)
     end
 end
 
