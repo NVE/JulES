@@ -153,23 +153,21 @@ function update_startstates_ppp(stepnr, t)
     db = get_local_db()
 
     if stepnr == 1
-        get_startstates_ppp(db, t)
+        get_startstates_ppp_from_input(db, t)
     else
-        if stepnr == db.stepnr_startstates
-            get_startstates_ppp!(db, t)
-        else
-            get_startstates_ppp_from_cp!(db)
+        if stepnr != db.stepnr_startstates
+            get_startstates_from_cp(db)
             db.stepnr_startstates = stepnr
         end
     end
-    for p in db.ppp
-        set_startstates!(p.longprob, db.startstates)
-        set_startstates!(p.medprob, db.startstates)
-        set_startstates!(p.shortprob, db.startstates)
+    for (scenix, p) in db.ppp # should we assume that all problems in dict are active?
+        set_startstates!(p.longprob, getstorages(getobjects(p.longprob)), db.startstates)
+        set_startstates!(p.medprob, getstorages(getobjects(p.medprob)), db.startstates)
+        set_startstates!(p.shortprob, getstorages(getobjects(p.shortprob)), db.startstates)
     end
 end
 
-function get_startstates_ppp!(db, t)
+function get_startstates_ppp_from_input(db, t)
     settings = get_settings(db)
     dummystorages_ppp = getstorages(db.dummyobjects_ppp)
     get_startstates!(db.startstates, settings["problems"]["prognosis"], get_dataset(db), db.dummyobjects_ppp, dummystorages_ppp, t)
@@ -177,7 +175,7 @@ function get_startstates_ppp!(db, t)
     return
 end
 
-function get_startstates_ppp_from_cp!(db)
+function get_startstates_from_cp(db)
     f = @spawnat db.cp_core get_startstates_from_cp()
     startstates_cp = fetch(f)
 
@@ -190,7 +188,7 @@ end
 function update_endstates_longppp()
     db = get_local_db()
 
-    for p in db.ppp
+    for (scenix, p) in db.ppp
         setstartstates!(p.longprob, db.startstates)
     end
 end

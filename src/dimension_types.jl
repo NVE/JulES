@@ -26,6 +26,7 @@ get_duration_evp(subsystem::EVPSubsystem) = subsystem.duration_evp
 get_duration_stoch(subsystem::EVPSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::EVPSubsystem) = true
 is_subsystem_stoch(subsystem::EVPSubsystem) = true
+get_endvaluemethod_sp(subsystem::EVPSubsystem) = "evp"
 
 # Collects end value from price prognosis models
 struct StochSubsystem <: AbstractSubsystem
@@ -33,6 +34,7 @@ struct StochSubsystem <: AbstractSubsystem
     priceareas::Vector{String}
     dataelements::Vector{Int}
     duration_stoch::Millisecond
+    endvaluemethod_sp::String
 end
 get_commodities(subsystem::StochSubsystem) = subsystem.commodities
 get_priceareas(subsystem::StochSubsystem) = subsystem.priceareas
@@ -40,17 +42,23 @@ get_dataelements(subsystem::StochSubsystem) = subsystem.dataelements
 get_duration_stoch(subsystem::StochSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::StochSubsystem) = false
 is_subsystem_stoch(subsystem::StochSubsystem) = true
+get_endvaluemethod_sp(subsystem::StochSubsystem) = subsystem.endvaluemethod_sp
 
-# Only subsystem model (no ppp, ev or clearing)
+# Only subsystem model (no ppp, evp or cp)
 struct ExogenSubsystem <: AbstractSubsystem 
     commodities::Vector{CommodityName}
+    endvaluemethod_sp::String
 end
 get_commodities(subsystem::ExogenSubsystem) = subsystem.commodities
 is_subsystem_evp(subsystem::ExogenSubsystem) = false
 is_subsystem_stoch(subsystem::ExogenSubsystem) = true
+get_endvaluemethod_sp(subsystem::ExogenSubsystem) = subsystem.endvaluemethod_sp
 
 const ScenarioIx = Int
 const SubsystemIx = Int
 const TermName = String
+const ShortTermName = "Short"
+const MedTermName = "Med"
+const LongTermName = "Long"
 const CommodityName = String
 const CoreId = Int

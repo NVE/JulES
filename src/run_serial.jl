@@ -170,7 +170,8 @@ function get_subsystems(db)
     subsystems = []
     if get_onlysubsystemmodel(db.input)
         commodities = get_commoditites_from_dataelements(get_elements(db.input))
-        return push!(subsystems, ExogenSubsystem(commodities))
+        endvaluemethod_sp = get_settings(db.input)["subsystems"]["endvaluemethod_sp"] # TODO: Parse to struct
+        return push!(subsystems, ExogenSubsystem(commodities, endvaluemethod_sp))
     else
         settings = get_settings(db.input)
         method = settings["subsystems"]["function"]
@@ -188,7 +189,7 @@ function get_subsystems(db)
                 end
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 priceareas = get_priceareas(storagesystem)
-                subsystem = StochSubsystem(commodities, priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]))
+                subsystem = StochSubsystem(commodities, priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]), "start_equal_stop")
                 push!(subsystems, subsystem)
             end
 
@@ -499,20 +500,6 @@ function solve_evp(T, t, delta, stepnr, thiscore)
     update_endstates_evp()
     update_prices_evp()
     solve_local_evp(t)
-    return
-end
-
-function solve_mp(T, t, delta, stepnr, thiscore)
-    update_startstates_mp(stepnr)
-    update_endstates_sp(stepnr)
-    scale_inflow_sp(stepnr)
-    update_prices_mp()
-    update_prices_sp()
-    update_statedependent_mp()
-    update_mp(t)
-    update_sp(t)
-    solve_benders(stepnr)
-    final_solve_mp()
     return
 end
 

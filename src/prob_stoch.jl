@@ -48,6 +48,97 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
+function solve_mp(T, t, delta, stepnr, thiscore)
+    for (scenix, mp) in db.mp
+        update_startstates_mp(stepnr, t)
+        update_endstates_sp(stepnr, t)
+        scale_inflow_sp(stepnr)
+        update_prices_mp()
+        update_prices_sp()
+        update_statedependent_mp()
+        update_mp(t)
+        update_sp(t)
+        solve_benders(stepnr)
+        final_solve_mp()
+    return
+end
+
+# Util functions for solve_mp ----------------------------------------------------------------------------------------------
+
+function update_endstates_sp(stepnr, t)
+    db = get_local_db()
+
+    for ((scenix, subix), sp) in db.sp
+        subsystem = get_subsystems(db)[subix]
+        endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
+
+        storages = getstorages(sp.objects)
+        if endvaluemethod_sp == "monthly_price"
+            exogenprice = findfirstprice(sp.objects)
+            scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "normaltime")
+            scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
+
+            for obj in storages
+                enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
+                T = getnumperiods(gethorizon(getbalance(obj)))
+                setobjcoeff!(sp, getid(obj), T, -enddual)
+            end
+        elseif endvaluemethod_sp == "startequalstop"
+            setendstates!(sp, storages, startstates)
+        elseif endvaluemethod_sp == "evp"
+            for obj in storages
+                commodity = getcommodity(getbalance(obj))
+                term_ppp = get_term_ppp(db, subix, scenix)
+                horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
+                period = getendperiodfromduration(horizon_evp, get_duration_stoch(subsystem))
+
+                for (_scenix, _subix, _core) in db.dist_evp
+                    if (_scenix==scenix) && (_subix==subix)
+                        evp_core = _core
+                    end
+                end
+                bid = getid(getbalance(storage))
+                future = @spawnat evp_core get_balancedual_evp(scenix, subix, bid, period)
+                dual_evp = fetch(future)
+
+                setobjcoeff!(p, getid(obj), period, dual_evp)
+            end
+        end # TODO: Endvalue from ppp
+    end
+end
+
+function get_balancedual_evp(scenix, subix, bid, period)
+    db = get_local_db()
+
+    evp = db.evp[(scenix, subix)]
+    dual_evp = -getcondual(evp.prob, bid, period)
+    return dual_evp
+end
+
+function update_startstates_mp(stepnr, t)
+    db = get_local_db()
+
+    if stepnr == 1 # TODO: Might already be done by evp
+        get_startstates_stoch_from_input(db, t)
+    else # TODO: Copies all startstates
+        if stepnr != db.stepnr_startstates
+            get_startstates_from_cp(db)
+            db.stepnr_startstates = stepnr
+        end
+    end
+    for (subix, mp) in db.mp # TODO: set nonstorage startstates
+        set_startstates!(mp.prob, get_storages(mp.prob), db.startstates)
+    end
+end
+
+function get_startstates_stoch_from_input(db, t)
+    settings = get_settings(db)
+    dummystorages = getstorages(db.dummyobjects)
+    get_startstates!(db.startstates, settings["problems"]["stochastic"], get_dataset(db), db.dummyobjects, dummystorages, t)
+    startstates_max!(dummystorages, t, db.startstates)
+    return
+end
+
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
 function make_stochasticmodelobjects(db, scenix, subix, startduration, endduration, master)
     subsystem = get_subsystems(db)[subix]
@@ -148,17 +239,17 @@ function get_term_ppp(db::LocalDB, subix::SubsystemIx, scenix::ScenarioIx)
     dummycommodity = get_commodities(subsystem)[1] # all of them have the same length
     duration_stoch = get_duration_stoch(subsystem)
 
-    horizon_short = horizons[(scenix, "Short", dummycommodity)]
+    horizon_short = horizons[(scenix, ShortTermName, dummycommodity)]
     if duration_stoch < getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
-        return "Short"
+        return ShortTermName
     end
-    horizon_med = horizons[(scenix, "Med", dummycommodity)]
+    horizon_med = horizons[(scenix, MedTermName, dummycommodity)]
     if duration_stoch < getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
-        return "Med"
+        return MedTermName
     end
-    horizon_long = horizons[(scenix, "Long", dummycommodity)]
+    horizon_long = horizons[(scenix, LongTermName, dummycommodity)]
     @assert duration_stoch < getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
-    return "Long"    
+    return LongTermName   
 end
 
 function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond)
@@ -173,7 +264,6 @@ function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, Commodi
     return ShortenedHorizon(subhorizon, startperiod, endperiod)
 end
 
-# Initialize cuts
 function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int)
     # Make a cutid
     cutname = getinstancename(getid(modelobjects[1]))
@@ -186,7 +276,6 @@ function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int
     return cuts
 end
 
-# Get cutobjects
 function getcutobjects(modelobjects::Vector)
     cutobjects = Vector{Any}()
     for obj in modelobjects

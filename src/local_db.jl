@@ -40,7 +40,7 @@ mutable struct LocalDB
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
     dummyobjects::Tuple
-    dummyobjects_ppp::Tuple # TODO: Move dummyobjects, scenariogeneration and subsystems to io
+    dummyobjects_ppp::Tuple # TODO: Move dummyobjects, scenariogeneration and subsystems to io?
 
     startstates::Dict{String, Float64}
     stepnr_startstates::Int
