@@ -70,6 +70,10 @@ function init_databases(input::AbstractJulESInput)
     end
 
     @sync for core in cores
+        @spawnat core add_local_core(core)
+    end
+
+    @sync for core in cores
         @spawnat core add_local_input(input)
     end
 
@@ -109,6 +113,15 @@ except the core that owns the input-object.
 function add_local_input(input::AbstractJulESInput)
     db = get_local_db()
     db.input = input
+    return
+end
+
+"""
+Add local core
+"""
+function add_local_core(core::CoreId)
+    db = get_local_db()
+    db.core = core
     return
 end
 

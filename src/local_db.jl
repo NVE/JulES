@@ -36,6 +36,8 @@ const _LOCAL_DB_NAME = :_local_db
 
 # TODO: Complete this (add more timings and maybe other stuff)
 mutable struct LocalDB
+    core::CoreId
+    
     input::Union{Nothing, AbstractJulESInput}
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
@@ -73,6 +75,8 @@ mutable struct LocalDB
 
     function LocalDB()
         return new(
+            -1,
+        
             nothing,   # input
             Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
 
@@ -107,6 +111,7 @@ mutable struct LocalDB
     end
 end
 
+get_core(db::LocalDB) = db.core
 get_input(db::LocalDB) = db.input
 get_horizons(db::LocalDB) = db.horizons
 get_dummyobjects(db::LocalDB) = db.dummyobjects
