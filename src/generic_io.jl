@@ -80,7 +80,7 @@ subsystems on cores by random choice.
 
 Scenario problems (sp) will be put on the same core as master problems (mp).
 """
-function get_stoch_dist(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
     cores = get_cores(input)
     subsystems_desc = get_subsystem_ids_by_decending_size(subsystems)
 
