@@ -51,13 +51,13 @@ end
 function solve_mp(T, t, delta, stepnr, thiscore)
     db = get_local_db()
 
-    for (scenix, mp) in db.mp
+    for (scenix, mp) in db.mp # Should db be input to all these functions?
         update_startstates_mp(stepnr, t)
         update_endstates_sp(stepnr, t)
         perform_scenmod_sp(stepnr)
         update_prices_mp(stepnr)
         update_prices_sp(stepnr)
-        update_statedependent_mp()
+        update_statedependent_mp(stepnr)
         update_mp(t)
         update_sp(t)
         solve_benders(stepnr)
@@ -66,6 +66,22 @@ function solve_mp(T, t, delta, stepnr, thiscore)
 end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
+
+function update_statedependent_mp(stepnr)
+    db = get_local_db()
+    settings = get_settings(db)
+
+    init = false
+    if stepnr == 1
+        init = true
+    end
+
+    for (subix, mp) in db.mp
+        getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp, db.startstates, init=init)
+        getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp, db.startstates)
+    end
+    return
+end
 
 function update_prices_mp(stepnr)
     db = get_local_db()
@@ -390,7 +406,7 @@ function getcutobjects(modelobjects::Vector)
     for obj in modelobjects
         if hasstatevariables(obj)
             if length(getstatevariables(obj)) > 1
-                error("Not supported")
+                error("Not supported") # TODO
             else
                 push!(cutobjects,obj)
             end
