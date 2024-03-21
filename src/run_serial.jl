@@ -351,7 +351,7 @@ function add_local_problem_distribution(thiscore)
 end
 
 function set_local_dists(dists)
-    (ppp_dist, dist_evp, dist_sp, dist_mp, core_cp) = dists
+    (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
 
     db = get_local_db()
     
@@ -373,13 +373,13 @@ or change which hours are mapped to load blocks). We want to store a synced set 
 non-master copies of this horizon residing on other cores than the core holding the master. Since we for 
 non-master horizons do update-by-transfer, we want to turn off update-by-solve behaviour for these horizons. 
 Hence, we wrap them in ExternalHorizon, which specializes the update! method to do nothing. 
-Which cores own which scenarios are defined in db.ppp_dist at any given time. 
+Which cores own which scenarios are defined in db.dist_ppp at any given time. 
 """
 function add_local_horizons(thiscore)
     db = get_local_db()
     horizons = get_horizons(db.input)
     d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
-    for (scenarioix, ownercore) in db.ppp_dist
+    for (scenarioix, ownercore) in db.dist_ppp
         for ((term, commodity), horizon) in horizons
             horizon = getlightweightself(horizon)
             horizon = deepcopy(horizon)

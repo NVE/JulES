@@ -6,7 +6,7 @@ Generic fallbacks for AbstractJulESInput and AbstractJulESOutput
 How price prognosis problems (ppp) are distributed on cores initially
 """
 function get_dist_ppp(input::AbstractJulESInput)
-    cores = getcores(input)
+    cores = get_cores(input)
     N = length(cores)
     S = get_numscen_ppp(input)
     
@@ -24,7 +24,7 @@ end
 How end value problems (evp) are distributed on cores initially
 """
 function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}) 
-    cores = getcores(input)
+    cores = get_cores(input)
 
     N = length(cores)
     S = get_numscen_evp(input)
@@ -84,19 +84,19 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     cores = get_cores(input)
     subsystems_desc = get_subsystem_ids_by_decending_size(subsystems)
 
-    mp_dist = _distribute_subsystems_by_size!(subsystems_desc, cores)
+    dist_mp = _distribute_subsystems_by_size!(subsystems_desc, cores)
     
     N = get_numscen_sp(input)
-    sp_dist = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(mp_dist))
+    dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(mp_dist))
     i = 0
     for scen in 1:N
-        for (sub, core) in mp_dist
+        for (sub, core) in dist_mp
             i += 1
-            sp_dist[i] = (scen, sub, core)
+            dist_sp[i] = (scen, sub, core)
         end
     end
 
-    return (mp_dist, sp_dist)
+    return (dist_mp, dist_sp)
 end
 
 function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
