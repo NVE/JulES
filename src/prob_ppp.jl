@@ -119,33 +119,36 @@ function solve_local_ppp(t, skipmed)
     startstates = get_startstates(db)
     settings = get_settings(db)
 
-    for (scenix, p) in db.ppp
-        if skipmed.value == 0
-            update!(p.longprob, t)
-            solve!(p.longprob)
+    for (scenix, core) in db.dist_ppp
+        if core == db.core
+            p = db.ppp[scenix]
+            if skipmed.value == 0
+                update!(p.longprob, t)
+                solve!(p.longprob)
 
-            lhh = horizons[(scenix, "long", "Hydro")]
-            mhh = horizons[(scenix, "med", "Hydro")]
-            transfer_duals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
-            update!(p.medprob, t)
-            solve!(p.medprob)
+                lhh = horizons[(scenix, "long", "Hydro")]
+                mhh = horizons[(scenix, "med", "Hydro")]
+                transfer_duals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
+                update!(p.medprob, t)
+                solve!(p.medprob)
+            end
+
+            shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
+            allstorages = getstorages(getobjects(p.shortprob))
+            longtermstorages = setdiff(allstorages, shorttermstorages)
+            nonstorageobjects = get_nonstorageobjects(getobjects(p.shortprob))
+            set_endstates!(p.shortprob, shorttermstorages, startstates)
+            set_startstates!(p.shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
+            if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
+                shh = horizons[(scenix, "short", "Hydro")]
+                transfer_duals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
+            end
+            update!(p.shortprob, t)
+            solve!(p.shortprob)
+
+            sph = horizons[(scenix, "short", "Power")]
+            update_nonstoragestates!(p, db, sph)
         end
-
-        shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
-        allstorages = getstorages(getobjects(p.shortprob))
-        longtermstorages = setdiff(allstorages, shorttermstorages)
-        nonstorageobjects = get_nonstorageobjects(getobjects(p.shortprob))
-        set_endstates!(p.shortprob, shorttermstorages, startstates)
-        set_startstates!(p.shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
-        if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
-            shh = horizons[(scenix, "short", "Hydro")]
-            transfer_duals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
-        end
-        update!(p.shortprob, t)
-        solve!(p.shortprob)
-
-        sph = horizons[(scenix, "short", "Power")]
-        update_nonstoragestates!(p, db, sph)
     end
 end
 
@@ -160,10 +163,13 @@ function update_startstates_ppp(stepnr, t)
             db.stepnr_startstates = stepnr
         end
     end
-    for (scenix, p) in db.ppp # should we assume that all problems in dict are active?
-        set_startstates!(p.longprob, getstorages(getobjects(p.longprob)), db.startstates)
-        set_startstates!(p.medprob, getstorages(getobjects(p.medprob)), db.startstates)
-        set_startstates!(p.shortprob, getstorages(getobjects(p.shortprob)), db.startstates)
+    for (scenix, core) in db.dist_ppp
+        if core == db.core
+            p = db.ppp[scenix]
+            set_startstates!(p.longprob, getstorages(getobjects(p.longprob)), db.startstates)
+            set_startstates!(p.medprob, getstorages(getobjects(p.medprob)), db.startstates)
+            set_startstates!(p.shortprob, getstorages(getobjects(p.shortprob)), db.startstates)
+        end
     end
 end
 
@@ -188,8 +194,11 @@ end
 function update_endstates_longppp()
     db = get_local_db()
 
-    for (scenix, p) in db.ppp
-        setstartstates!(p.longprob, db.startstates)
+    for (scenix, core) in db.dist_ppp
+        if core == db.core
+            p = db.ppp[scenix]
+            setstartstates!(p.longprob, db.startstates)
+        end
     end
 end
 
