@@ -49,12 +49,14 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
 end
 
 function solve_mp(T, t, delta, stepnr, thiscore)
+    db = get_local_db()
+
     for (scenix, mp) in db.mp
         update_startstates_mp(stepnr, t)
         update_endstates_sp(stepnr, t)
-        scale_inflow_sp(stepnr)
-        update_prices_mp()
-        update_prices_sp()
+        perform_scenmod_sp(stepnr)
+        update_prices_mp(stepnr)
+        update_prices_sp(stepnr)
         update_statedependent_mp()
         update_mp(t)
         update_sp(t)
@@ -65,8 +67,109 @@ end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
 
-function update_endstates_sp(stepnr, t)
+function update_prices_mp(stepnr)
     db = get_local_db()
+    scenix = 1 # Which price to use for master problem?
+
+    for (subix, mp) in db.mp
+        for obj in getobjects(mp)
+            update_prices_obj(db, scenix, subix, stepnr, obj)
+        end
+    end
+
+    return
+end
+
+function update_prices_sp(stepnr)
+    db = get_local_db()
+
+    for ((scenix, subix), sp) in db.sp
+        for obj in getobjects(sp)
+            update_prices_obj(db, scenix, subix, stepnr, obj)
+        end
+    end
+
+    return
+end
+
+function update_prices_obj(db, scenix, subix, stepnr, obj)
+    if obj isa ExogenBalance
+        term_ppp = get_term_ppp(db, subix, scenix)
+        periods = get_periods(gethorizon(obj)) # TODO: Implement get_periods
+        bid = getid(obj)
+
+        isupdated = isupdated_prices(db, scenix, term_ppp, bid, stepnr)
+        !isupdated && update_local_price(db, scenix, term_ppp, bid)
+
+        updated, allvalues = db.prices_ppp[(scenix, term_ppp, bid)]
+        obj.price.values .= allvalues[periods]
+    end
+end
+
+function update_local_price(db, scenix, term_ppp, bid)
+    core_ppp = get_core_ppp(db, scenix)
+    future = @spawnat core_ppp get_prices_from_core(scenix, term_ppp, bid)
+    db.prices_ppp[(scenix, term_ppp, bid)] = fetch(future) # TODO: Should we collect all prices or just relevant periods?
+end
+
+function get_core_ppp(db::LocalDB, scenix)
+    for (_scenix, _core) in db.dist_ppp
+        if _scenix == scenix
+            return _core
+        end
+    end
+end
+
+function isupdated_prices(db, scenix, term_ppp, bid, stepnr)
+    if haskey(db.prices_ppp, (scenix, term_ppp, bid))
+        updated, allvalues = db.prices_ppp[(scenix, term_ppp, bid)]
+        if updated != stepnr
+            return false
+        else
+            return true
+        end
+    else
+        return false
+    end
+end
+
+function find_obj_by_id(objects::Any, bid::Id)
+    for obj in objects
+        if getid(obj) == bid
+            return obj
+        end
+    end
+    return nothing
+end
+
+function get_prices_from_core(scenix, term_ppp, bid)
+    db = get_local_db()
+
+    ppp = get_ppp_term(db.ppp[scenix], term_ppp)
+
+    obj = find_obj_by_id(ppp, bid)
+    horizon = gethorizon(obj)
+
+    return [getcondual(ppp, bid, t) for t in 1:getnumperiods(horizon)]
+end
+
+get_ppp_term(ppp, ::LongTermName) = ppp.longprob
+get_ppp_term(ppp, ::MedTermName) = ppp.medprob      
+get_ppp_term(ppp, ::ShortTermName) = ppp.shortprob
+
+function perform_scenmod_sp()
+    db = get_local_db()
+
+    scenmod_stoch = get_scenmod_stoch(db)
+    for ((scenix, subix), sp) in db.sp
+        perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
+    end
+
+    return
+end
+
+function update_endstates_sp(stepnr, t)
+    db = get_local_db(scenmod_stoch)
 
     for ((scenix, subix), sp) in db.sp
         subsystem = get_subsystems(db)[subix]
@@ -92,18 +195,24 @@ function update_endstates_sp(stepnr, t)
                 horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
                 period = getendperiodfromduration(horizon_evp, get_duration_stoch(subsystem))
 
-                for (_scenix, _subix, _core) in db.dist_evp
-                    if (_scenix==scenix) && (_subix==subix)
-                        evp_core = _core
-                    end
-                end
+                core_evp = get_core_evp(db, scenix, subix)
                 bid = getid(getbalance(storage))
-                future = @spawnat evp_core get_balancedual_evp(scenix, subix, bid, period)
+                future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period)
                 dual_evp = fetch(future)
 
                 setobjcoeff!(p, getid(obj), period, dual_evp)
             end
         end # TODO: Endvalue from ppp
+    end
+
+    return
+end
+
+function get_core_evp(db::LocalDB, scenix, subix)
+    for (_scenix, _subix, _core) in db.dist_evp
+        if (_scenix == scenix) && (_subix == subix)
+            return _core
+        end
     end
 end
 
@@ -140,7 +249,7 @@ function get_startstates_stoch_from_input(db, t)
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
-function make_stochasticmodelobjects(db, scenix, subix, startduration, endduration, master)
+function make_stochastic_modelobjects(db, scenix, subix, startduration, endduration, master)
     subsystem = get_subsystems(db)[subix]
     subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subix, startduration, endduration)
 
@@ -215,7 +324,7 @@ function get_elements_with_horizons(db, scenix, subix, startduration, endduratio
     subelements = get_subelements(db, subsystem)
     term_ppp = get_term_ppp(db, subix, scenix)
     for commodity in get_commodities(subsystem)
-        horizon = get_shortendhorizon_mp(horizons, scenix, term_ppp, commodity, duration_mp)
+        horizon = get_shortendhorizon_mp(horizons, scenix, term_ppp, commodity, startduration, endduration)
         set_horizon!(subelements, commodity, horizon)
         if commodity == "Power"
             numperiods_powerhorizon = getnumperiods(horizon)

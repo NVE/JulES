@@ -39,12 +39,12 @@ update!(::ExternalHorizon, ::ProbTime) = nothing
 In JulES, we would like subsystem models to use same horizon 
 as price prognosis models, but not neccesary the whole horizon. For many systems, 
 the first 2-3 years would be sufficiently long horizon. ShortendHorizon meets
-this need, as it wraps another horison, and only use some of the first periods.
+this need, as it wraps another horizon, and only use some of the first periods.
 """
-struct ShortendHorizon{H <: Horizon} <: Horizon
+struct ShortenedHorizon{H <: Horizon} <: Horizon
     subhorizon::H
     n:Int
-    function ShortendHorizon(h::Horizon, n::Int)
+    function ShortenedHorizon(h::Horizon, n::Int)
         @assert 0 < n <= getnumperiods(h) 
         new{typeof(h)}(h, n)
     end
