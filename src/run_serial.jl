@@ -466,7 +466,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
 
     @sync for core in cores
-        @spawnat core solve_ppp(T, t, delta, stepnr, skipmed, core)
+        @spawnat core solve_ppp(T, t, delta, stepnr, skipmed)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -474,7 +474,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     wait(f)
 
     @sync for core in cores
-        @spawnat core solve_evp(T, t, delta, stepnr, core)
+        @spawnat core solve_evp(T, t, delta, stepnr)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -482,11 +482,11 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     wait(f)
 
     @sync for core in cores
-        @spawnat core solve_mp(T, t, delta, stepnr, core)
+        @spawnat core solve_mp(T, t, delta, stepnr)
     end
 
     @sync for core in cores
-        @spawnat core solve_cp(T, t, delta, stepnr, core)
+        @spawnat core solve_cp(T, t, delta, stepnr)
     end
 
     update_output(output, t, delta, stepnr)

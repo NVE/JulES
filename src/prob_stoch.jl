@@ -65,6 +65,33 @@ end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
 
+function update_mp(t)
+    db = get_local_db()
+    settings = get_settings(db)
+
+    for (subix, core) in db.dist_mp
+        if core == db.core
+            mp = db.mp[subix]
+            update!(mp, t)
+        end
+    end
+    return
+end
+
+function update_sp(t)
+    db = get_local_db()
+    settings = get_settings(db)
+
+    for (scenix, subix, core) in db.dist_sp
+        if core == db.core
+            sp = db_sp[(scenix, subix)]
+            scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "phaseintime")
+            update!(sp, scentime)
+        end
+    end
+    return
+end
+
 function update_statedependent_mp(stepnr)
     db = get_local_db()
     settings = get_settings(db)
