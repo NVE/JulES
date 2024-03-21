@@ -48,21 +48,19 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
-function solve_mp(T, t, delta, stepnr, thiscore)
+function solve_mp(T, t, delta, stepnr)
     db = get_local_db()
 
-    for (scenix, mp) in db.mp # Should db be input to all these functions?
-        update_startstates_mp(stepnr, t)
-        update_endstates_sp(stepnr, t)
-        perform_scenmod_sp(stepnr)
-        update_prices_mp(stepnr)
-        update_prices_sp(stepnr)
-        update_statedependent_mp(stepnr)
-        update_mp(t)
-        update_sp(t)
-        solve_benders(stepnr)
-        final_solve_mp()
-    return
+    update_startstates_mp(stepnr, t)
+    update_endstates_sp(stepnr, t)
+    perform_scenmod_sp(stepnr)
+    update_prices_mp(stepnr)
+    update_prices_sp(stepnr)
+    update_statedependent_mp(stepnr)
+    update_mp(t)
+    update_sp(t)
+    solve_benders(stepnr)
+    final_solve_mp()
 end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
@@ -76,9 +74,12 @@ function update_statedependent_mp(stepnr)
         init = true
     end
 
-    for (subix, mp) in db.mp
-        getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp, db.startstates, init=init)
-        getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp, db.startstates)
+    for (subix, core) in db.dist_mp
+        if core == db.core
+            mp = db.mp[subix]
+            getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp, db.startstates, init=init)
+            getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp, db.startstates)
+        end
     end
     return
 end
@@ -87,9 +88,12 @@ function update_prices_mp(stepnr)
     db = get_local_db()
     scenix = 1 # Which price to use for master problem?
 
-    for (subix, mp) in db.mp
-        for obj in getobjects(mp)
-            update_prices_obj(db, scenix, subix, stepnr, obj)
+    for (subix, core) in db.dist_mp
+        if core == db.core
+            mp = db.mp[subix]
+            for obj in getobjects(mp)
+                update_prices_obj(db, scenix, subix, stepnr, obj)
+            end
         end
     end
 
@@ -99,9 +103,12 @@ end
 function update_prices_sp(stepnr)
     db = get_local_db()
 
-    for ((scenix, subix), sp) in db.sp
-        for obj in getobjects(sp)
-            update_prices_obj(db, scenix, subix, stepnr, obj)
+    for (scenix, subix, core) in db.dist_sp
+        if core == db.core
+            sp = db_sp[(scenix, subix)]
+            for obj in getobjects(sp)
+                update_prices_obj(db, scenix, subix, stepnr, obj)
+            end
         end
     end
 
@@ -177,8 +184,11 @@ function perform_scenmod_sp()
     db = get_local_db()
 
     scenmod_stoch = get_scenmod_stoch(db)
-    for ((scenix, subix), sp) in db.sp
-        perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
+    for (scenix, subix, core) in db.dist_sp
+        if core == db.core
+            sp = db_sp[(scenix, subix)]
+            perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
+        end
     end
 
     return
@@ -187,38 +197,41 @@ end
 function update_endstates_sp(stepnr, t)
     db = get_local_db(scenmod_stoch)
 
-    for ((scenix, subix), sp) in db.sp
-        subsystem = get_subsystems(db)[subix]
-        endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
+    for (scenix, subix, core) in db.dist_sp
+        if core == db.core
+            sp = db_sp[(scenix, subix)]
+            subsystem = get_subsystems(db)[subix]
+            endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
 
-        storages = getstorages(sp.objects)
-        if endvaluemethod_sp == "monthly_price"
-            exogenprice = findfirstprice(sp.objects)
-            scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "normaltime")
-            scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
+            storages = getstorages(sp.objects)
+            if endvaluemethod_sp == "monthly_price"
+                exogenprice = findfirstprice(sp.objects)
+                scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "normaltime")
+                scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
 
-            for obj in storages
-                enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
-                T = getnumperiods(gethorizon(getbalance(obj)))
-                setobjcoeff!(sp, getid(obj), T, -enddual)
-            end
-        elseif endvaluemethod_sp == "startequalstop"
-            setendstates!(sp, storages, startstates)
-        elseif endvaluemethod_sp == "evp"
-            for obj in storages
-                commodity = getcommodity(getbalance(obj))
-                term_ppp = get_term_ppp(db, subix, scenix)
-                horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
-                period = getendperiodfromduration(horizon_evp, get_duration_stoch(subsystem))
+                for obj in storages
+                    enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
+                    T = getnumperiods(gethorizon(getbalance(obj)))
+                    setobjcoeff!(sp, getid(obj), T, -enddual)
+                end
+            elseif endvaluemethod_sp == "startequalstop"
+                setendstates!(sp, storages, startstates)
+            elseif endvaluemethod_sp == "evp"
+                for obj in storages
+                    commodity = getcommodity(getbalance(obj))
+                    term_ppp = get_term_ppp(db, subix, scenix)
+                    horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
+                    period = getendperiodfromduration(horizon_evp, get_duration_stoch(subsystem))
 
-                core_evp = get_core_evp(db, scenix, subix)
-                bid = getid(getbalance(storage))
-                future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period)
-                dual_evp = fetch(future)
+                    core_evp = get_core_evp(db, scenix, subix)
+                    bid = getid(getbalance(storage))
+                    future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period)
+                    dual_evp = fetch(future)
 
-                setobjcoeff!(p, getid(obj), period, dual_evp)
-            end
-        end # TODO: Endvalue from ppp
+                    setobjcoeff!(p, getid(obj), period, dual_evp)
+                end
+            end # TODO: Endvalue from ppp
+        end
     end
 
     return
