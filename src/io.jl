@@ -129,13 +129,20 @@ function get_timeparams(mainconfig::Dict, settings::Dict)
     return (steps, steplength, simstarttime, scenmod_data, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
 end
 
-function _get_scenariotime(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput, inputtime::String)
+function get_scenariotime(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput, normal_phasein::String)
     phaseinoffset = get_phaseinoffset(input)
     phaseindelta = get_phaseindelta(input)
     phaseinsteps = get_phaseinsteps(input)
     datasimtime = getdattime(simtime)
     weathersimtime = getscenariotime(simtime)
     weatherscenariotime = getscenariotime(simtime) + scenario.weatheroffset
+
+    if normal_phasein == "normaltime"
+        timetype = get_settings(input)["time"]["probtime"]["normaltime"]
+    else
+        @assert normal_phasein == "phaseintime"
+        timetype = get_settings(input)["time"]["probtime"]["phaseintime"]
+    end
 
     if timetype == "PrognosisTime"
         return PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
