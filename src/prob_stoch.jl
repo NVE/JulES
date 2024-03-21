@@ -6,6 +6,8 @@ end
 
 struct ScenarioProblem
     prob::Prob
+    scenslopes::Vector{Float64}
+    scenconstant::Float64
 end
 
 function create_mp(db::LocalDB, subix::SubsystemIx)
@@ -65,9 +67,124 @@ end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
 
-function update_mp(t)
+function solve_benders(stepnr)
     db = get_local_db()
     settings = get_settings(db)
+
+    for (subix, core) in db.dist_mp
+        if core == db.core
+            mp = db.mp[subix]
+
+            count = 0
+            cutreuse = false
+            ub = 0
+            lb = mp.cuts.lower_bound
+            reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
+
+            while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
+
+                count == 0 && setwarmstart!(mp.prob, false)
+        
+                if cutreuse # try to reuse cuts from last time step
+                    try
+                        solve!(mp.prob)
+                    catch
+                        count == 0 && println("Retrying first iteration without cuts from last time step")
+                        count > 0 && println("Restarting iterations without cuts from last time step")
+                        clearcuts!(mp.prob, mp.cuts)
+                        solve!(mp.prob)
+                        cutreuse = false
+                    end
+                else
+                    solve!(mp.prob)
+                end
+        
+                lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
+                ub = 0
+        
+                count == 0 && setwarmstart!(mp.prob, true)
+                (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
+                
+                getoutgoingstates!(mp, mp.states)
+                cutix = oldcutix + 1
+                if cutix > maxcuts
+                    cutix = 1
+                end
+
+                _cores = get_cores(db.input) # TODO: From db.input?
+                @sync for _core in _cores
+                    @spawnat _core solve_sp(mp.states)
+                end
+
+                for (_scenix, _subix, _core) in db.dist_sp
+                    if _subix == subix
+                        future = @spawnat _core get_data_sp(_scenix, _subix)
+                        objectivevalue, scenslopes, scenconstants = fetch(future)
+
+                        ub += objectivevalue*mp.cuts.probabilities[_scenix]
+                        mp.cuts.scenslopes[_scenix, cutix, :] .= scenscenslopes
+                        mp.cuts.scenconstants[_scenix, cutix] = scenconstant
+                    end
+                end
+        
+                updatecutparameters!(mp.prob, mp.cuts)
+                if (count == 0 && cutreuse) 
+                    updatecuts!(mp.prob, mp.cuts)
+                else
+                    updatelastcut!(mp.prob, mp.cuts)
+                end
+                count += 1
+                # display(ub)
+                # display(abs((lb-ub)/lb))
+                # display(abs(ub-lb))
+                # display(cuts.slopes)
+            end
+        end
+    end
+    return
+end
+
+function get_data_sp(scenix, subix)
+    db = get_local_db()
+
+    sp = db.sp[(scenix, subix)]
+
+    objectivevalue = getobjectivevalue(sp.prob)
+    scenslopes = sp.scenslopes
+    scenconstant = sp.scenconstant
+
+    return (objectivevalue, scenslopes, scenconstant)
+end
+
+function solve_sp(states)
+    db = get_local_db()
+
+    for (scenix, subix, core) in db.dist_sp
+        if core == db.core
+            sp = db_sp[(scenix, subix)]
+            setingoingstates!(sp.prob, states)  
+            solve!(sp.prob)
+            get_scencutparameters!(sp, states)
+        end
+    end
+end
+
+# TODO: Simplify TuLiPa version of getscencutparameters?
+function get_scencutparameters!(sp::ScenarioProblem, states::Dict{StateVariableInfo, Float64})
+    sp.scenconstant = getobjectivevalue(sp.prob)
+    
+    for (i, (statevar, value)) in enumerate(states)
+        (id, ix) = getvarin(statevar)
+        slope = getfixvardual(sp.prob, id, ix)
+        sp.scenconstant -= slope * value
+        sp.scenslopes[i] = slope
+    end
+
+    return
+end
+
+function update_mp(t)
+    db = get_local_db()
 
     for (subix, core) in db.dist_mp
         if core == db.core
@@ -80,7 +197,6 @@ end
 
 function update_sp(t)
     db = get_local_db()
-    settings = get_settings(db)
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core

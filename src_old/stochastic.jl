@@ -328,6 +328,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
             subtime += @elapsed solve!(sub)
 
             ub += getobjectivevalue(sub)*cuts.probabilities[i]
+            
             getscencutparameters!(sub, cuts, states, i)
         end
 
