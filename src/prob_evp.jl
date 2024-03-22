@@ -33,7 +33,8 @@ function solve_local_evp(t)
     for (scenix, subix, core) in db.dist_evp
         if core == db.core
             evp = db.evp[(scenix, subix)]
-            update!(evp.prob, t)
+            scentime = get_scenariotime(t, get_scenarios(db.scenmod_evp)[scenix], db.input, "phaseintime")
+            update!(evp.prob, scentime)
             solve!(evp.prob)
         end
     end

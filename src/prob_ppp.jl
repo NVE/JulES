@@ -121,15 +121,18 @@ function solve_local_ppp(t, skipmed)
 
     for (scenix, core) in db.dist_ppp
         if core == db.core
-            p = db.ppp[scenix]
             if skipmed.value == 0
-                update!(p.longprob, t)
+                p = db.ppp[scenix]
+                scentime = get_scenariotime(t, get_scenarios(db.scenmod_ppp)[scenix], db.input, "phaseintime")
+                # TODO: Should scentime depend on Dynamic og Static RHSAHData
+
+                update!(p.longprob, scentime)
                 solve!(p.longprob)
 
                 lhh = horizons[(scenix, "long", "Hydro")]
                 mhh = horizons[(scenix, "med", "Hydro")]
                 transfer_duals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
-                update!(p.medprob, t)
+                update!(p.medprob, scentime)
                 solve!(p.medprob)
             end
 
@@ -143,7 +146,7 @@ function solve_local_ppp(t, skipmed)
                 shh = horizons[(scenix, "short", "Hydro")]
                 transfer_duals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
             end
-            update!(p.shortprob, t)
+            update!(p.shortprob, scentime)
             solve!(p.shortprob)
 
             sph = horizons[(scenix, "short", "Power")]
