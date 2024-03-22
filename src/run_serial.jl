@@ -411,40 +411,32 @@ end
 function add_local_problems(thiscore)
     db = get_local_db()
 
-    d = Dict{ScenarioIx, PricePrognosisProblem}()
     for (scenix, core) in db.dist_ppp
         if core == thiscore
-            d[scenix] = create_ppp(db, scenix)
+            create_ppp(db, scenix)
         end
     end
-    db.ppp = d
 
-    d = Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}()
     for (scenix, subix, core) in db.dist_evp
         if core == thiscore
-            d[(scenix, subix)] = create_evp(db, scenix, subix)
+            create_evp(db, scenix, subix)
         end
     end
-    db.evp = d
 
-    d = Dict{SubsystemIx, MasterProblem}()
     for (subix, core) in db.dist_mp
         if core == thiscore
-            d[subix] = create_mp(db, subsystem)
+            create_mp(db, subsystem)
         end
     end
-    db.mp = d
 
-    d = Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}()
     for (scenix, subix, core) in db.dist_sp
         if core == thiscore
-            d[(scenix, subix)] = create_sp(db, scenix, subix)
+            create_sp(db, scenix, subix)
         end
     end
-    db.sp = d
 
     if thiscore == db.core_cp
-        db.cp = create_cp(db)
+        create_cp(db)
     end
     return
 end
