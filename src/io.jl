@@ -3,6 +3,7 @@ Definition of default input and output types
 """
 
 struct DefaultJulESInput <: AbstractJulESInput
+    cores::Vector{CoreId}
     dataset::Dict
     mainconfig::Dict
     settings::Dict
@@ -22,6 +23,8 @@ struct DefaultJulESInput <: AbstractJulESInput
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
     function DefaultJulESInput(dataset, config)
+        numcores = mainconfig["numcores"]
+        cores = collect(1:numcores)
         mainconfig = config["main"]
         settings = config[mainconfig["settings"]]
 
@@ -57,13 +60,14 @@ struct DefaultJulESInput <: AbstractJulESInput
 
         horizons = get_horizons(config)
 
-        return new(dataset, mainconfig, settings, onlysubsystemmodels,
+        return new(cores, dataset, mainconfig, settings, onlysubsystemmodels,
             steps, steplength, simstarttime, scenmod_data,
             tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps,
             horizons)
     end
 end
 
+get_cores(input::DefaultJulESInput) = input.cores
 get_dataset(input::DefaultJulESInput) = input.dataset
 get_elements(input::DefaultJulESInput) = get_dataset(input)["elements"]
 get_elements_ppp(input::DefaultJulESInput) = get_dataset(input)["elements_ppp"]
@@ -318,14 +322,14 @@ end
 # -------------------------------------------------------------------------------------------
 
 # TODO: complete
-get_cores(input) = nothing   # should return non-empty CorId[]
 get_horizons(input) = nothing # should return Dict{Tuple{TermName, CommodityName}, Horizon}
 
-# Should live here and not in slot in PricePrognosisProblem?
-function get_medendvaluesdict(input)
-end
-
-
 struct DefaultJulESOutput <: AbstractJulESOutput
-    # TODO: complete
+    cores::Vector{CoreId}
+    function DefaultJulESOutput(input)
+        cores = get_cores(input)
+        return new(cores)
+    end
 end
+get_cores(output::DefaultJulESOutput) = output.cores
+cleanup_output(output) = nothing

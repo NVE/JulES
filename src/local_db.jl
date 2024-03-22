@@ -137,6 +137,7 @@ get_dist_sp(db::LocalDB) = db.dist_sp
 get_core_cp(db::LocalDB) = db.core_cp
 get_div(db::LocalDB) = db.div
 
+get_cores(db::LocalDB) = get_cores(get_input(db))
 get_dataset(db::LocalDB) = get_dataset(get_input(db))
 get_mainconfig(db::LocalDB) = get_mainconfig(get_input(db))
 get_settings(db::LocalDB) = get_settings(get_input(db))
