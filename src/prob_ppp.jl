@@ -155,7 +155,7 @@ end
 function update_startstates_ppp(stepnr, t)
     db = get_local_db()
 
-    if stepnr == 1
+    if stepnr == 1 # TODO: Check if any of the scenarios are on this core first
         get_startstates_ppp_from_input(db, t)
     else
         if stepnr != db.stepnr_startstates
@@ -182,7 +182,7 @@ function get_startstates_ppp_from_input(db, t)
 end
 
 function get_startstates_from_cp(db)
-    f = @spawnat db.cp_core get_startstates_from_cp()
+    f = @spawnat db.core_cp get_startstates_from_cp()
     startstates_cp = fetch(f)
 
     for (k, v) in startstates_cp

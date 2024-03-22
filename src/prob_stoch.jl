@@ -416,6 +416,7 @@ end
 function update_startstates_mp(stepnr, t)
     db = get_local_db()
 
+    # TODO: Check if any of the scenarios are on this core first
     if stepnr == 1 # TODO: Might already be done by evp
         get_startstates_stoch_from_input(db, t)
     else # TODO: Copies all startstates
@@ -423,9 +424,14 @@ function update_startstates_mp(stepnr, t)
             get_startstates_from_cp(db)
             db.stepnr_startstates = stepnr
         end
-    end
-    for (subix, mp) in db.mp # TODO: set nonstorage startstates
-        set_startstates!(mp.prob, get_storages(mp.prob), db.startstates)
+    end 
+        
+    # TODO: set nonstorage startstates
+    for (subix, core) in db.dist_mp
+        if core == db.core
+            mp = db.mp[subix]
+            set_startstates!(mp.prob, get_storages(mp.prob), db.startstates)
+        end
     end
 end
 

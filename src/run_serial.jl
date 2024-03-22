@@ -510,7 +510,7 @@ end
 
 function solve_cp(T, t, delta, stepnr, thiscore)
     db = get_local_db()
-    if thiscore == db.cp_core        
+    if thiscore == db.core_cp        
         db.time_cp_startstates = @elapsed update_startstates_cp(stepnr)
         db.time_cp_endstates   = @elapsed update_endstates_cp()
         db.time_cp_cuts        = @elapsed update_cuts_cp()
