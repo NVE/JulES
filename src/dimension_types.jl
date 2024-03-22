@@ -18,6 +18,7 @@ struct EVPSubsystem <: AbstractSubsystem
     dataelements::Vector{Int}
     duration_evp::Millisecond
     duration_stoch::Millisecond
+    endvaluemethod_evp::String
 end
 get_commodities(subsystem::EVPSubsystem) = subsystem.commodities
 get_priceareas(subsystem::EVPSubsystem) = subsystem.priceareas
@@ -26,6 +27,7 @@ get_duration_evp(subsystem::EVPSubsystem) = subsystem.duration_evp
 get_duration_stoch(subsystem::EVPSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::EVPSubsystem) = true
 is_subsystem_stoch(subsystem::EVPSubsystem) = true
+get_endvaluemethod_evp(subsystem::EVPSubsystem) = subsystem.endvaluemethod_evp
 get_endvaluemethod_sp(subsystem::EVPSubsystem) = "evp"
 
 # Collects end value from price prognosis models

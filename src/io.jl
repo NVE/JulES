@@ -301,24 +301,6 @@ function getoutputindex(mainconfig::Dict, datayear::Int64, scenarioyear::Int64)
     end
 end
 
-# Get dictionary with each detailed reservoir and their water value for each scenario
-# TODO: Detailed run-of-river reservoirs get water value from aggregated reservoir hydro
-function getendvaluesdicts(endvaluesobjs::Any, detailedrescopl::Dict, enekvglobaldict::Dict)
-    endvaluesdicts = Dict[];
-    for endvaluesobj in endvaluesobjs
-        instance = [getinstancename(getid(obj)) for obj in endvaluesobj.objects]
-        endvalues = endvaluesobj.values
-        endvaluesdict = Dict(instance .=> endvalues)
-
-        for (k,v) in detailedrescopl
-            endvaluesdict["Reservoir_" * k] = endvaluesdict["Reservoir_" * v * "_hydro_reservoir"] * enekvglobaldict[k]
-        end
-        push!(endvaluesdicts, endvaluesdict)
-    end
-    
-    return endvaluesdicts
-end
-
 # Prognosis util functions
 function getrhsdata(rhsdata::Dict, datayear::Int64, scenarioyearstart::Int64, scenarioyearstop::Int64)
     method = rhsdata["function"]

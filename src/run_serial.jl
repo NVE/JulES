@@ -217,7 +217,7 @@ function get_subsystems(db)
                 end
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 priceareas = getpriceareas(storagesystem)
-                subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]))
+                subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp")
                 push!(subsystems, subsystem)
             end
         else
@@ -441,6 +441,7 @@ function add_local_problems(thiscore)
     return
 end
 
+# TODO: Use or remove delta
 function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     cores = get_cores(output)
 
@@ -458,7 +459,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
 
     @sync for core in cores
-        @spawnat core solve_ppp(T, t, delta, stepnr, skipmed)
+        @spawnat core solve_ppp(t, delta, stepnr, skipmed)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -466,7 +467,7 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     wait(f)
 
     @sync for core in cores
-        @spawnat core solve_evp(T, t, delta, stepnr)
+        @spawnat core solve_evp(t, delta, stepnr)
     end
 
     # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -474,11 +475,11 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     wait(f)
 
     @sync for core in cores
-        @spawnat core solve_mp(T, t, delta, stepnr)
+        @spawnat core solve_mp(t, delta, stepnr)
     end
 
     @sync for core in cores
-        @spawnat core solve_cp(T, t, delta, stepnr)
+        @spawnat core solve_cp(t, delta, stepnr)
     end
 
     update_output(output, t, delta, stepnr)
@@ -500,29 +501,6 @@ end
 # TODO: input parameters ok?
 
 # TODO: consistent use of states and duals
-function solve_evp(T, t, delta, stepnr, thiscore)
-    update_startstates_evp(stepnr)
-    update_endstates_evp()
-    update_prices_evp()
-    solve_local_evp(t)
-    return
-end
-
-function solve_cp(T, t, delta, stepnr, thiscore)
-    db = get_local_db()
-    if thiscore == db.core_cp        
-        db.time_cp_startstates = @elapsed update_startstates_cp(stepnr)
-        db.time_cp_endstates   = @elapsed update_endstates_cp()
-        db.time_cp_cuts        = @elapsed update_cuts_cp()
-        db.time_cp_update      = @elapsed update!(db.cp, t)
-        db.time_cp_solve       = @elapsed solve!(db.cp)
-    end
-    return
-end
-
-function update_startstates_evp(stepnr)
-
-end
 
 function set_scenmodchanges_sim(changes)
     db = get_local_db()

@@ -105,7 +105,7 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
     length(residualarealist) > 0 && residualloadareas!(modelobjects, residualarealist)
 end
 
-function solve_ppp(T, t, delta, stepnr, skipmed)
+function solve_ppp(t, delta, stepnr, skipmed)
     update_startstates_ppp(stepnr, t) # TODO: A bit uncessesary to to update startstates for long and med if skipmed != 0
     skipmed.value == 0 && update_endstates_longppp()
     solve_local_ppp(t, skipmed)

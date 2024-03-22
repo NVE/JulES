@@ -17,7 +17,7 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
 
     startduration = Millisecond(0)
     endduration = Millisecond(Hour(get_settings(db)["time"]["steplength_hours"]))
-    modelobjects = make_stochastic_modelobjects(db, scenix, subix, startduration, endduration, true)
+    modelobjects = make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, true)
 
     maxcuts = settings["problems"]["stochastic"]["maxcuts"] # preallocate fixed number of cuts, no cut selection
     lb = settings["problems"]["stochastic"]["lb"] # lower bound of the future value in the first iteration
@@ -40,7 +40,7 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
 
     startduration = Millisecond(Hour(get_settings(db)["time"]["steplength_hours"]))
     endduration = get_duration_stoch(subsystem)
-    modelobjects = make_stochastic_modelobjects(db, scenix, subix, startduration, endduration, false)
+    modelobjects = make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, false)
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["sub"]["solver"])
     prob = buildprob(probmethod, modelobjects)
@@ -50,7 +50,7 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
-function solve_mp(T, t, delta, stepnr)
+function solve_mp(t, delta, stepnr)
     db = get_local_db()
 
     update_startstates_mp(stepnr, t)
@@ -251,8 +251,10 @@ function update_prices_mp(stepnr)
     for (subix, core) in db.dist_mp
         if core == db.core
             mp = db.mp[subix]
+            subsystem = db.subsystems[subix]
+            duration_stoch = get_duration_stoch(subsystem)
             for obj in getobjects(mp.prob)
-                update_prices_obj(db, scenix, subix, stepnr, obj)
+                update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
             end
         end
     end
@@ -266,8 +268,10 @@ function update_prices_sp(stepnr)
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
             sp = db_sp[(scenix, subix)]
+            subsystem = db.subsystems[subix]
+            duration_stoch = get_duration_stoch(subsystem)
             for obj in getobjects(sp.prob)
-                update_prices_obj(db, scenix, subix, stepnr, obj)
+                update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
             end
         end
     end
@@ -275,9 +279,9 @@ function update_prices_sp(stepnr)
     return
 end
 
-function update_prices_obj(db, scenix, subix, stepnr, obj)
+function update_prices_obj(db, scenix, subix, stepnr, obj, duration)
     if obj isa ExogenBalance
-        term_ppp = get_term_ppp(db, subix, scenix)
+        term_ppp = get_term_ppp(db, subix, scenix, duration)
         periods = get_periods(gethorizon(obj)) # TODO: Implement get_periods
         bid = getid(obj)
 
@@ -355,7 +359,7 @@ function perform_scenmod_sp()
 end
 
 function update_endstates_sp(stepnr, t)
-    db = get_local_db(scenmod_stoch)
+    db = get_local_db()
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
@@ -379,9 +383,10 @@ function update_endstates_sp(stepnr, t)
             elseif endvaluemethod_sp == "evp"
                 for obj in storages
                     commodity = getcommodity(getbalance(obj))
-                    term_ppp = get_term_ppp(db, subix, scenix)
+                    duration_stoch = get_duration_stoch(subsystem)
+                    term_ppp = get_term_ppp(db, subix, scenix, duration_stoch)
                     horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
-                    period = getendperiodfromduration(horizon_evp, get_duration_stoch(subsystem))
+                    period = getendperiodfromduration(horizon_evp, duration_stoch)
 
                     core_evp = get_core_evp(db, scenix, subix)
                     bid = getid(getbalance(storage))
@@ -444,7 +449,7 @@ function get_startstates_stoch_from_input(db, t)
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
-function make_stochastic_modelobjects(db, scenix, subix, startduration, endduration, master)
+function make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, master)
     subsystem = get_subsystems(db)[subix]
     subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subix, startduration, endduration)
 
@@ -517,9 +522,10 @@ function get_elements_with_horizons(db, scenix, subix, startduration, endduratio
     subsystem = get_subsystems(db)[subix]
     horizons = get_horizons(db)
     subelements = get_subelements(db, subsystem)
-    term_ppp = get_term_ppp(db, subix, scenix)
+    duration_stoch = get_duration_stoch(subsystem)
+    term_ppp = get_term_ppp(db, subix, scenix, duration_stoch)
     for commodity in get_commodities(subsystem)
-        horizon = get_shortendhorizon_mp(horizons, scenix, term_ppp, commodity, startduration, endduration)
+        horizon = get_shortenedhorizon(horizons, scenix, term_ppp, commodity, startduration, endduration)
         set_horizon!(subelements, commodity, horizon)
         if commodity == "Power"
             numperiods_powerhorizon = getnumperiods(horizon)
@@ -536,23 +542,22 @@ end
 
 # Which time resolution (short, med, long) should we use horizons and prices from
 # TODO: Should we use different terms for master and subproblems?
-function get_term_ppp(db::LocalDB, subix::SubsystemIx, scenix::ScenarioIx)
+function get_term_ppp(db::LocalDB, subix::SubsystemIx, scenix::ScenarioIx, duration::Millisecond)
     subsystem = get_subsystems(db)[subix]
     horizons = get_horizons(db)
 
     dummycommodity = get_commodities(subsystem)[1] # all of them have the same length
-    duration_stoch = get_duration_stoch(subsystem)
 
     horizon_short = horizons[(scenix, ShortTermName, dummycommodity)]
-    if duration_stoch < getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
+    if duration < getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
         return ShortTermName
     end
     horizon_med = horizons[(scenix, MedTermName, dummycommodity)]
-    if duration_stoch < getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
+    if duration < getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
         return MedTermName
     end
     horizon_long = horizons[(scenix, LongTermName, dummycommodity)]
-    @assert duration_stoch < getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
+    @assert duration < getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
     return LongTermName   
 end
 
