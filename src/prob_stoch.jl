@@ -62,10 +62,27 @@ function solve_mp(T, t, delta, stepnr)
     update_mp(t)
     update_sp(t)
     solve_benders(stepnr)
-    final_solve_mp()
+    final_solve_mp(t)
 end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
+
+function final_solve_mp(t::ProbTime)
+    db = get_local_db()
+    settings = get_settings(db)
+
+    if getheadlosscost(settings["problems"]["stochastic"]["master"])
+        for (subix, core) in db.dist_mp
+            if core == db.core
+                mp = db.mp[subix]
+
+                updateheadlosscosts!(ReservoirCurveSlopeMethod(), mp.prob, [mp.prob], t)
+                solve!(mp.prob)
+                resetheadlosscosts!(mp.prob)
+            end
+        end
+    end
+end
 
 function solve_benders(stepnr)
     db = get_local_db()
@@ -105,7 +122,7 @@ function solve_benders(stepnr)
                 count == 0 && setwarmstart!(mp.prob, true)
                 (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
                 
-                getoutgoingstates!(mp, mp.states)
+                getoutgoingstates!(mp.prob, mp.states)
                 cutix = oldcutix + 1
                 if cutix > maxcuts
                     cutix = 1
@@ -189,7 +206,7 @@ function update_mp(t)
     for (subix, core) in db.dist_mp
         if core == db.core
             mp = db.mp[subix]
-            update!(mp, t)
+            update!(mp.prob, t)
         end
     end
     return
@@ -202,7 +219,7 @@ function update_sp(t)
         if core == db.core
             sp = db_sp[(scenix, subix)]
             scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "phaseintime")
-            update!(sp, scentime)
+            update!(sp.prob, scentime)
         end
     end
     return
@@ -220,8 +237,8 @@ function update_statedependent_mp(stepnr)
     for (subix, core) in db.dist_mp
         if core == db.core
             mp = db.mp[subix]
-            getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp, db.startstates, init=init)
-            getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp, db.startstates)
+            getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp.prob, db.startstates, init=init)
+            getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp.prob, db.startstates)
         end
     end
     return
@@ -234,7 +251,7 @@ function update_prices_mp(stepnr)
     for (subix, core) in db.dist_mp
         if core == db.core
             mp = db.mp[subix]
-            for obj in getobjects(mp)
+            for obj in getobjects(mp.prob)
                 update_prices_obj(db, scenix, subix, stepnr, obj)
             end
         end
@@ -249,7 +266,7 @@ function update_prices_sp(stepnr)
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
             sp = db_sp[(scenix, subix)]
-            for obj in getobjects(sp)
+            for obj in getobjects(sp.prob)
                 update_prices_obj(db, scenix, subix, stepnr, obj)
             end
         end
@@ -346,19 +363,19 @@ function update_endstates_sp(stepnr, t)
             subsystem = get_subsystems(db)[subix]
             endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
 
-            storages = getstorages(sp.objects)
+            storages = getstorages(getobjects(sp.prob))
             if endvaluemethod_sp == "monthly_price"
-                exogenprice = findfirstprice(sp.objects)
+                exogenprice = findfirstprice(getobjects(sp.prob))
                 scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "normaltime")
                 scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
 
                 for obj in storages
                     enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
                     T = getnumperiods(gethorizon(getbalance(obj)))
-                    setobjcoeff!(sp, getid(obj), T, -enddual)
+                    setobjcoeff!(sp.prob, getid(obj), T, -enddual)
                 end
             elseif endvaluemethod_sp == "startequalstop"
-                setendstates!(sp, storages, startstates)
+                setendstates!(sp.prob, storages, startstates)
             elseif endvaluemethod_sp == "evp"
                 for obj in storages
                     commodity = getcommodity(getbalance(obj))
