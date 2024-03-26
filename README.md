@@ -71,7 +71,7 @@ With pkg prompt and while being inside the project folder, activate the project
 
 Prompts shows the project is activated, then installs the libraries needed with instantiate
 ```console
-(TuLiPa) pkg> instantiate
+(JulES) pkg> instantiate
 ```
 
 To start running the demos, run jupyter notebook from the terminal while being inside the JulES project folder (make sure the kernel is julia 1.9.2)
