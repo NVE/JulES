@@ -128,9 +128,10 @@ function solve_benders(stepnr)
                     cutix = 1
                 end
 
-                _cores = get_cores(db.input) # TODO: From db.input?
-                @sync for _core in _cores
-                    @spawnat _core solve_sp(mp.states)
+                @sync for (_scenix, _subix, _core) in db.dist_sp
+                    if _subix == subix
+                        @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                    end
                 end
 
                 for (_scenix, _subix, _core) in db.dist_sp
@@ -173,17 +174,13 @@ function get_data_sp(scenix, subix)
     return (objectivevalue, scenslopes, scenconstant)
 end
 
-function solve_sp(states)
+function solve_sp(scenix, subix, states)
     db = get_local_db()
 
-    for (scenix, subix, core) in db.dist_sp
-        if core == db.core
-            sp = db_sp[(scenix, subix)]
-            setingoingstates!(sp.prob, states)  
-            solve!(sp.prob)
-            get_scencutparameters!(sp, states)
-        end
-    end
+    sp = db_sp[(scenix, subix)]
+    setingoingstates!(sp.prob, states)  
+    solve!(sp.prob)
+    get_scencutparameters!(sp, states)
 end
 
 # TODO: Simplify TuLiPa version of getscencutparameters?
