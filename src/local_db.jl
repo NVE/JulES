@@ -4,7 +4,7 @@ In-memory process-local database for JulES.
 We utilize some of Julia's reflection (names, getfield) 
 and metaprogramming (eval, Expr) capabilities to implement 
 a database object in the global scope of a Julia process.
-We leared this technique from this package: 
+We learned about this technique from this package: 
 https://github.com/ChrisRackauckas/ParallelDataTransfer.jl
 
 The database is just a struct with fields for all the different
