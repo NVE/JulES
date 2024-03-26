@@ -71,7 +71,7 @@ function final_solve_mp(t::ProbTime)
     db = get_local_db()
     settings = get_settings(db)
 
-    if getheadlosscost(settings["problems"]["stochastic"]["master"])
+    if get_headlosscost(settings["problems"]["stochastic"]["master"])
         for (subix, core) in db.dist_mp
             if core == db.core
                 mp = db.mp[subix]
@@ -234,8 +234,8 @@ function update_statedependent_mp(stepnr)
     for (subix, core) in db.dist_mp
         if core == db.core
             mp = db.mp[subix]
-            getstatedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp.prob, db.startstates, init=init)
-            getstatedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp.prob, db.startstates)
+            get_statedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp.prob, db.startstates, init=init)
+            get_statedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp.prob, db.startstates)
         end
     end
     return

@@ -29,23 +29,9 @@ threehour:
             phaseindelta_days: 120
             phaseinsteps: 5
         
-        steplength_hours: 48
         skipmax: 4 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
-    scenariogeneration:
-        endvalue:
-            function: InflowClusteringMethod
-            numscen: 7
-            scendelta_days: 365
-            parts: 4
-    subsystems:
-        function: twostorageduration # dataset, twostorageduration
-        shorttermstoragecutoff_hours: 10
-        shortstochduration_hours: 168
-        longstochduration_days: 420
-        longevduration_days: 840
     problems:            
         prognosis: 
-            shrinkable: both # long, med, both, no
             aggsupplyn: 4
             residualarealist: []
             shorttermstoragecutoff_hours: 10
@@ -76,55 +62,68 @@ threehour:
             statedependentprod: true
             statedependentpump: true
             headlosscost: true
+    scenariogeneration:
+        endvalue:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 365
+            parts: 4
+    subsystems:
+        function: twostorageduration # dataset, twostorageduration
+        shorttermstoragecutoff_hours: 10
+        shortstochduration_hours: 168
+        longstochduration_days: 406 # 420 - 14 # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
+        longevduration_days: 840
     horizons:
-        long: # only support sequential hydro and adaptive power
-            horizonduration_weeks: 260
-            hydroperiodduration_days: 42
-            rhsdata:
-                function: DynamicExogenPriceAHData
-                balance: PowerBalance_TYSKLAND
-            rhsmethod: KMeansAHMethod()
-            clusters: 4
-            unitduration_hours: 6
-        med: # only support sequential hydro and adaptive power
-            horizonduration_days: 420
-            hydroperiodduration_days: 7
-            rhsdata:
-                function: DynamicExogenPriceAHData
-                balance: PowerBalance_TYSKLAND
-            rhsmethod: KMeansAHMethod()
-            clusters: 4
-            unitduration_hours: 4
-        short: # only support sequential hydro and power
-            horizonduration_hours: 168
-            hydroperiodduration_hours: 24
-            powerparts: 8
-        stochastic:
-            med:
-                horizonduration_days: 406 # 420 - 14 # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
-                master:
-                    power:
-                        periodduration_hours: 24
-                    hydro:
-                        periodduration_hours: 24
-                subs:
-                    power:
-                        periodduration_hours: 168
-                    hydro:
-                        periodduration_hours: 168
-        clearing:
-            power:
-                periodduration_hours: 3
+        commodities: ["hydro", "power"]
+        long:
+            horizonduration_weeks: 200
             hydro:
+                function: SequentialHorizon
+                periodduration_days: 42
+            power:
+                function: AdaptiveHorizon
+                macro: hydro
+                rhsdata:
+                    function: DynamicExogenPriceAHData
+                    balance: PowerBalance_TYSKLAND
+                rhsmethod: KMeansAHMethod()
+                clusters: 4
+                unitduration_hours: 6
+        med:
+            termduration_days: 413
+            hydro:
+                function: SequentialHorizon
+                periodduration_days: 7
+            power:
+                function: AdaptiveHorizon
+                macro: hydro
+                rhsdata:
+                    function: DynamicExogenPriceAHData
+                    balance: PowerBalance_TYSKLAND
+                rhsmethod: KMeansAHMethod()
+                clusters: 4
+                unitduration_hours: 4
+        short:
+            termduration_hours: 120
+            hydro:
+                function: SequentialHorizon
+                periodduration_hours: 24
+            power:
+                function: SequentialHorizon
+                periodduration_hours: 3
+        clearing:
+            termduration_hours: 48
+            hydro:
+                function: SequentialHorizon
                 periodduration_hours: 6
+            power:
+                function: SequentialHorizon
+                periodduration_hours: 3
     results:
         mainresults: ["SORLAND"]
         times: true
         storagevalues: true
-
-
-
-
 
 #############################################################
 fast: # 24 hour steps, 7 static scenarios, aggregated hydro, shrinkablehorizon, no phasein, 1 year long, 18 week med, 2 day short

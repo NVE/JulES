@@ -3,6 +3,8 @@ Definition of default input and output types
 """
 
 struct DefaultJulESInput <: AbstractJulESInput
+    datayear::
+
     cores::Vector{CoreId}
     dataset::Dict
     mainconfig::Dict
@@ -22,7 +24,7 @@ struct DefaultJulESInput <: AbstractJulESInput
 
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
-    function DefaultJulESInput(dataset, config)
+    function DefaultJulESInput(config, dataset, datayear, weatheryear)
         numcores = mainconfig["numcores"]
         cores = collect(1:numcores)
         mainconfig = config["main"]
@@ -34,7 +36,7 @@ struct DefaultJulESInput <: AbstractJulESInput
         end
 
         println("Time parameters")
-        @time timeparams = get_timeparams(mainconfig, settings)
+        @time timeparams = get_timeparams(mainconfig, settings, datayear, weatheryear)
         steps, steplength, simstarttime, scenmod_data, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps = timeparams
 
         println("Handle elements")
@@ -58,7 +60,7 @@ struct DefaultJulESInput <: AbstractJulESInput
             dataset["enekvglobaldict"] = enekvglobaldict
         end
 
-        horizons = get_horizons(config)
+        horizons = get_horizons(settings, datayear)
 
         return new(cores, dataset, mainconfig, settings, onlysubsystemmodels,
             steps, steplength, simstarttime, scenmod_data,
@@ -108,7 +110,7 @@ function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64
     return (simtime, NoScenarioModellingMethod(datascenarios))
 end
 
-function get_timeparams(mainconfig::Dict, settings::Dict)
+function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weatheryear::Int)
     weekstart = mainconfig["weekstart"]
     
     weatheryearstart = settings["time"]["weatheryearstart"]
@@ -259,19 +261,7 @@ function get_aggzone(settings::Dict)
     end
 end
 
-# -------------------------------------------------------------------------------------
-# Other inpututils not used yet
-# Get if onlyagghydro
-function getonlyagghydro(settings::Dict)
-    if haskey(settings["problems"], "onlyagghydro")
-        return settings["problems"]["onlyagghydro"]
-    else
-        return false
-    end
-end
-
-# Get if statedependentprod
-function getstatedependentprod(settings::Dict)
+function get_statedependentprod(settings::Dict)
     if haskey(settings, "statedependentprod")
         return settings["statedependentprod"]
     else
@@ -279,8 +269,7 @@ function getstatedependentprod(settings::Dict)
     end
 end
 
-# Get if statedependentpump
-function getstatedependentpump(settings::Dict)
+function get_statedependentpump(settings::Dict)
     if haskey(settings, "statedependentpump")
         return settings["statedependentpump"]
     else
@@ -288,10 +277,19 @@ function getstatedependentpump(settings::Dict)
     end
 end
 
-# Get if statedependentpump
-function getheadlosscost(settings::Dict)
+function get_headlosscost(settings::Dict)
     if haskey(settings, "headlosscost")
         return settings["headlosscost"]
+    else
+        return false
+    end
+end
+
+# -------------------------------------------------------------------------------------
+# Other inpututils not used yet
+function get_onlyagghydro(settings::Dict)
+    if haskey(settings["problems"], "onlyagghydro")
+        return settings["problems"]["onlyagghydro"]
     else
         return false
     end
@@ -321,9 +319,122 @@ end
 
 # -------------------------------------------------------------------------------------------
 
-# TODO: complete
-get_horizons(input) = nothing # should return Dict{Tuple{TermName, CommodityName}, Horizon}
+function get_horizons(settings, datayear)
+    horizons = Dict{Tuple{TermName, CommodityName}, Horizon}()
+    commoditites = settings["horizons"]["commodities"]
+    n_durations = Dict{Tuple{TermName, CommodityName}, Tuple(Int, Millisecond)}()
 
+    for term in keys(settings["horizons"])
+        if terms != "commodities"
+            for commodity in keys(settings["horizons"]["term"])
+                n_durations[(term, commodity)] = get_n_duration(term, commodity, settings["horizons"][term])
+            end
+        end
+    end
+
+    for (term, commodity) in keys(n_durations)
+        method = settings["horizons"]["term"]["commodity"]["function"]
+        if method == "SequentialHorizon"
+            horizons[(term, commodity)] = build_sequentialhorizon(term, commodity, settings, n_durations)
+        elseif method == "AdaptiveHorizon"
+            horizons[(term, commodity)] = build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
+        end
+    end
+    return horizons
+end
+
+function build_sequentialhorizon(term, commodity, settings, n_durations)
+    int_periods = get_int_periods(term, commodity, n_durations)
+
+    horizon = SequentialHorizon(int_periods...)
+
+    # TODO: Shrinkable
+    # if settings["horizons"][term]["shrinkable"]
+    #     horizon = ShrinkableHorizon(horizon, )
+    # end
+
+    return horizon
+end
+
+function build_adaptivehorizon(term, commodity, settings, datayear)
+    scenarioyearstart = settings["time"]["scenarioyearstart"]
+    scenarioyearstop = settings["time"]["scenarioyearstop"]
+    rhsdata = getrhsdata(settings["horizons"][term][commodity]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
+    rhsmethod = parse_methods(settings["horizons"][term][commodity]["rhsmethod"])
+    clusters = settings["horizons"][term][commodity]["clusters"]
+    unitduration = Millisecond(Hour(settings["horizons"][term][commodity]["unitduration_hours"]))
+
+    int_periods = get_int_periods(term, commodity, n_durations)
+
+    horizon = AdaptiveHorizon(clusters, unitduration, rhsdata, rhsmethod, int_periods...)
+
+    # TODO: Shrinkable
+    # if settings["horizons"][term]["shrinkable"]
+    #     horizon = ShrinkableHorizon(horizon)
+    # end
+
+    return horizon
+end
+
+function get_shrinkable(settings::Dict)
+    if haskey(settings, "shrinkable")
+        return settings["shrinkable"]
+    else
+        return false
+    end
+end
+
+function get_n_duration(term, commodity, termconfig)
+    commodityconfig = termconfig[commodity]
+
+    method = commodityconfig["function"]
+    if method == "AdaptiveHorizon"
+        commodityconfig = termconfig[commodityconfig["macro"]]
+    end
+
+    termduration = parse_duration(termconfig, "termduration")
+    periodduration = parse_duration(commodityconfig, "periodduration")
+
+    n = termduration.value / periodduration.value
+    if !isinteger(n)
+        error("Period $periodduration don't fit termduration $termduration for term $term and commodity $commodity")
+    end
+    return (Int(n), duration)
+end
+
+function get_int_periods(term, commodity, n_durations)
+
+    if term == ClearingTermName
+        return [n_durations[(ClearingTermName, commodity)]]
+
+    elseif term == ShortTermName
+        return [n_durations[(ClearingTermName, commodity)], n_durations[(ShortTermName, commodity)]]
+
+    elseif term == MediumTermName
+        return [n_durations[(ClearingTermName, commodity)], n_durations[(ShortTermName, commodity)], n_durations[(MediumTermName, commodity)]]
+
+    elseif term == LongTermName
+        return [n_durations[(ClearingTermName, commodity)], n_durations[(ShortTermName, commodity)], n_durations[(MediumTermName, commodity)], n_durations[(LongTermName, commodity)]]
+    end
+end
+
+function parse_duration(config, namestart)
+    for key in keys(config)
+        if startswith(key, namestart)
+            res = split(key, "_")[2]
+            if res == "hours"
+                return Hour(config[key])
+            elseif res == "days"
+                return Day(config[key])
+            elseif res == "weeks"
+                return Week(config[key])
+            end
+        end
+    end
+end
+
+
+# -----------------------------------------------------------
 struct DefaultJulESOutput <: AbstractJulESOutput
     cores::Vector{CoreId}
     function DefaultJulESOutput(input)

@@ -90,11 +90,11 @@ function update_statedependent_cp(db, stepnr, t)
         init = true
     end
 
-    getstatedependentprod(settings["problems"]["clearing"]) && statedependentprod!(db.cp.prob, db.startstates, init=init)
-    getstatedependentpump(settings["problems"]["clearing"]) && statedependentpump!(db.cp.prob, db.startstates)
+    get_statedependentprod(settings["problems"]["clearing"]) && statedependentprod!(db.cp.prob, db.startstates, init=init)
+    get_statedependentpump(settings["problems"]["clearing"]) && statedependentpump!(db.cp.prob, db.startstates)
 
     # Headlosscosts
-    if getheadlosscost(settings["problems"]["clearing"])
+    if get_headlosscost(settings["problems"]["clearing"])
         for (_subix, _core) in db.dist_stoch
             future = @spawnat _core get_headlosscost_data(subix, t)
             headlosscost_data = fetch(future)
