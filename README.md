@@ -49,6 +49,42 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 #### See also demos:
 - TODO
 
+### Setup
+*  Install julia version 1.9.2:
+https://julialang.org/downloads/
+* Clone repository
+```console
+git clone https://github.com/NVE/JulES.git
+``` 
+
+Enter the folder with project.toml using a terminal window and run Julia and these commands:
+
+With julia prompt change to Julias Pkg mode using ] and enter
+
+```console
+Julia> ]
+```
+With pkg prompt and while being inside the project folder, activate the project
+```console
+(@v1.9) pkg> activate .
+```
+
+Prompts shows the project is activated, then installs the libraries needed with instantiate
+```console
+(TuLiPa) pkg> instantiate
+```
+
+To start running the demos, run jupyter notebook from the terminal while being inside the JulES project folder (make sure the kernel is julia 1.9.2)
+```console
+jupyter notebook 
+```
+
+If jupyter is not installed then it can be installed using IJulia
+```console
+Julia> using IJulia
+Julia> Julia.notebook()
+```
+
 #### Results:
 We are at the moment testing JulES as a medium term parallel prognosis model. The results can then be compared to our other prognosis model (EMPS) and quickly be compared to the real market and historical data. We will publish results from this work at a later stage.
 
