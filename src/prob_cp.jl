@@ -6,11 +6,19 @@ get_startstates_from_cp() = get_endstates(get_local_db().cp)
 
 function create_cp(db::LocalDB)
     settings = get_settings(db)
-    
-    # horizons TODO
 
-    elements = get_elements(db.input)
-    modelobjects = make_obj(elements, hh, ph)
+    elements = copy(get_elements(db.input))
+    horizons = get_horizons(db.input)
+
+    for ((term, commodity), horizon) in horizons
+        if term == ClearingTermName
+            set_horizon!(elements, commodity, horizon)
+            if commodity == "Power"
+                set_horizon!(elements, "Battery", horizon)
+            end
+        end
+    end
+    modelobjects = getmodelobjects(elements)
     add_PowerUpperSlack!(modelobjects)
 
     for (subix, core) in db.dist_mp # or get list of cuts from each core?

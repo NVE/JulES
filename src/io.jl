@@ -12,7 +12,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     steps::Int
     steplength::Millisecond
     simstarttime::ProbTime
-    scenmod_data::Vector{AbstractScenario}
+    scenmod_data::AbstractScenarioModellingMethod
 
     tnormaltype::String
     tphaseintype::String
@@ -20,13 +20,13 @@ struct DefaultJulESInput <: AbstractJulESInput
     phaseindelta::Millisecond
     phaseinsteps::Int
 
-    horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
+    horizons::Dict{Tuple{TermName, CommodityName}, Horizon}
 
     function DefaultJulESInput(config, dataset, datayear, weatheryear)
-        numcores = mainconfig["numcores"]
-        cores = collect(1:numcores)
         mainconfig = config["main"]
         settings = config[mainconfig["settings"]]
+        numcores = mainconfig["numcores"]
+        cores = collect(1:numcores)
 
         onlysubsystemmodel = false
         if !haskey(settings["problems"], "prognosis") && !haskey(settings["problems"], "endvalue") && haskey(settings["problems"], "stochastic") && !haskey(settings["problems"], "clearing")
@@ -40,11 +40,11 @@ struct DefaultJulESInput <: AbstractJulESInput
         println("Handle elements")
         @time begin
             elements = dataset["elements"]
-            addscenariotimeperiod_vector!(elements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
+            add_scenariotimeperiod_int!(elements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
     
             if haskey(dataset, "progelements")
                 progelements = dataset["progelements"]
-                addscenariotimeperiod_vector!(progelements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
+                add_scenariotimeperiod_int!(progelements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
             end
 
             enekvglobaldict = Dict{String,Float64}()
@@ -60,7 +60,7 @@ struct DefaultJulESInput <: AbstractJulESInput
 
         horizons = get_horizons(settings, datayear)
 
-        return new(cores, dataset, mainconfig, settings, onlysubsystemmodels,
+        return new(cores, dataset, mainconfig, settings, onlysubsystemmodel,
             steps, steplength, simstarttime, scenmod_data,
             tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps,
             horizons)
@@ -95,14 +95,14 @@ function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64
     # Standard time for market clearing - perfect information so simple time type
     datasimtime = getisoyearstart(datayear) + Week(weekstart-1)
     weathersimtime = getisoyearstart(weatheryear) + Week(weekstart-1)
-    simtime = gettnormal(simtimetype, datasimtime, weathersimtime)
+    simtime = get_tnormal(simtimetype, datasimtime, weathersimtime)
 
     # Make scenariooffset for all uncertainty scenarios
-    datascenarios = Vector{Scenario}(undef, datanumscen)
+    datascenarios = Vector{AbstractScenario}(undef, datanumscen)
     for scen in 1:datanumscen
         weatherscenariotime = getisoyearstart(weatheryear + scen - 1) + Week(weekstart-1)
         weatheroffset = weatherscenariotime - weathersimtime
-        datascenarios[scen] = Scenarios(weatheroffset, 1/datanumscen, Dict{String, Tuple{Any,Float64}}, scen)
+        datascenarios[scen] = WeatherScenario(weatheroffset, 1/datanumscen, scen)
     end
 
     return (simtime, NoScenarioModellingMethod(datascenarios))
@@ -113,24 +113,34 @@ function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weather
     
     weatheryearstart = settings["time"]["weatheryearstart"]
     weatheryearstop = settings["time"]["weatheryearstop"]
-    datanumscen = scenarioyearstop - scenarioyearstart # scenarios to consider uncertainty for
+    datanumscen = weatheryearstop - weatheryearstart # scenarios to consider uncertainty for
     
     simulationyears = mainconfig["simulationyears"]
     extrasteps = mainconfig["extrasteps"]
-    steplength = Millisecond(Hour(settings["time"]["steplength_hours"]))
+    steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
     steps = Int(ceil((getisoyearstart(datayear + simulationyears) - getisoyearstart(datayear)).value/steplength.value) + extrasteps);
     
     # Phasein settings
     phaseinoffset = steplength # phase in straight away from second stage scenarios
-    phaseindelta = Millisecond(Day(settings["time"]["probtime"]["phaseindelta_days"])) # Phase in the second stage scenario over 5 weeks
+    phaseindelta = parse_duration(settings["time"]["probtime"], "phaseindelta") # Phase in the second stage scenario over 5 weeks
     phaseinsteps = settings["time"]["probtime"]["phaseinsteps"] # Phase in second stage scenario in 5 steps
 
     # Make standard time and scenario uncertainty times
     tnormaltype = settings["time"]["probtime"]["normaltime"]
     tphaseintype = settings["time"]["probtime"]["phaseintime"]
-    simstarttime, scenmod_data = get_datascenarios(datayear, weatheryear, weekstart, datanumscen, simtimetype)
+    simstarttime, scenmod_data = get_datascenarios(datayear, weatheryear, weekstart, datanumscen, tnormaltype)
 
     return (steps, steplength, simstarttime, scenmod_data, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+end
+
+function get_tnormal(type::String, datatime::DateTime, scenariotime::DateTime)
+    if type == "PrognosisTime"
+        return PrognosisTime(datatime, datatime, scenariotime)
+    elseif type == "FixedDataTwoTime"
+        return FixedDataTwoTime(datatime, scenariotime)
+    else
+        error("$type not implementet in get_normal-function")
+    end
 end
 
 function get_scenariotime(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput, normal_phasein::String)
@@ -163,6 +173,11 @@ function get_scenariotime(simtime::ProbTime, scenario::AbstractScenario, input::
     else
         error("$timetype not implementet in getscenariotime-function")
     end
+end
+
+function add_scenariotimeperiod_int!(elements::Vector{DataElement}, start::Int, stop::Int)
+    push!(elements, getelement(TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
+            ("Start", getisoyearstart(start)), ("Stop", getisoyearstart(stop))))
 end
 
 function get_scentnormal(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
@@ -247,7 +262,7 @@ function get_simperiod(input::AbstractJulESInput)
     N = get_steps(input)
     delta = get_steplength(input)
     skipmed = Millisecond(Hour(0))
-    skipmax = Millisecond(Hour(delta*(db.settings["time"]["skipmax"]-1)))
+    skipmax = Millisecond(Hour(delta*(input.settings["time"]["skipmax"]-1)))
 
     return (t, N, delta, skipmed, skipmax)
 end
@@ -294,21 +309,21 @@ function get_onlyagghydro(settings::Dict)
     end
 end
 
-function getoutputindex(mainconfig::Dict, datayear::Int64, scenarioyear::Int64)
+function getoutputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     if mainconfig["outputindex"] == "datayear"
         return datayear
-    elseif mainconfig["outputindex"] == "scenarioyear"
-        return scenarioyear
+    elseif mainconfig["outputindex"] == "weatheryear"
+        return weatheryear
     end
 end
 
 # Prognosis util functions
-function getrhsdata(rhsdata::Dict, datayear::Int64, scenarioyearstart::Int64, scenarioyearstop::Int64)
+function getrhsdata(rhsdata::Dict, datayear::Int64, weatheryearstart::Int64, weatheryearstop::Int64)
     method = rhsdata["function"]
     if method == "DynamicExogenPriceAHData"
         return DynamicExogenPriceAHData(Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
     elseif method == "StaticRHSAHData"
-        return StaticRHSAHData("Power", datayear, scenarioyearstart, scenarioyearstop)
+        return StaticRHSAHData("Power", datayear, weatheryearstart, weatheryearstop)
     elseif method == "DynamicRHSAHData"
         return DynamicRHSAHData("Power")
     else
@@ -321,31 +336,28 @@ end
 function get_horizons(settings, datayear)
     horizons = Dict{Tuple{TermName, CommodityName}, Horizon}()
     commoditites = settings["horizons"]["commodities"]
-    n_durations = Dict{Tuple{TermName, CommodityName}, Tuple(Int, Millisecond)}()
+    n_durations = Dict{Tuple{TermName, CommodityName}, Tuple{Int, Millisecond}}()
 
     for term in keys(settings["horizons"])
-        if terms != "commodities"
-            for commodity in keys(settings["horizons"]["term"])
-                n_durations[(term, commodity)] = get_n_duration(term, commodity, settings["horizons"][term])
+        if term != "commodities"
+            for commodity in commoditites
+                n_durations = get_n_durations(term, commodity, settings)
+
+                method = settings["horizons"][term][commodity]["function"]
+                if method == "SequentialHorizon"
+                    horizons[(term, commodity)] = build_sequentialhorizon(term, commodity, settings, n_durations)
+                elseif method == "AdaptiveHorizon"
+                    horizons[(term, commodity)] = build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
+                end
             end
         end
     end
 
-    for (term, commodity) in keys(n_durations)
-        method = settings["horizons"]["term"]["commodity"]["function"]
-        if method == "SequentialHorizon"
-            horizons[(term, commodity)] = build_sequentialhorizon(term, commodity, settings, n_durations)
-        elseif method == "AdaptiveHorizon"
-            horizons[(term, commodity)] = build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
-        end
-    end
     return horizons
 end
 
 function build_sequentialhorizon(term, commodity, settings, n_durations)
-    int_periods = get_int_periods(term, commodity, n_durations)
-
-    horizon = SequentialHorizon(int_periods...)
+    horizon = SequentialHorizon(n_durations...)
 
     # TODO: Shrinkable
     # if settings["horizons"][term]["shrinkable"]
@@ -355,17 +367,15 @@ function build_sequentialhorizon(term, commodity, settings, n_durations)
     return horizon
 end
 
-function build_adaptivehorizon(term, commodity, settings, datayear)
-    scenarioyearstart = settings["time"]["scenarioyearstart"]
-    scenarioyearstop = settings["time"]["scenarioyearstop"]
-    rhsdata = getrhsdata(settings["horizons"][term][commodity]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
+function build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
+    weatheryearstart = settings["time"]["weatheryearstart"]
+    weatheryearstop = settings["time"]["weatheryearstop"]
+    rhsdata = getrhsdata(settings["horizons"][term][commodity]["rhsdata"], datayear, weatheryearstart, weatheryearstop)
     rhsmethod = parse_methods(settings["horizons"][term][commodity]["rhsmethod"])
     clusters = settings["horizons"][term][commodity]["clusters"]
     unitduration = Millisecond(Hour(settings["horizons"][term][commodity]["unitduration_hours"]))
 
-    int_periods = get_int_periods(term, commodity, n_durations)
-
-    horizon = AdaptiveHorizon(clusters, unitduration, rhsdata, rhsmethod, int_periods...)
+    horizon = AdaptiveHorizon(clusters, unitduration, rhsdata, rhsmethod, n_durations...)
 
     # TODO: Shrinkable
     # if settings["horizons"][term]["shrinkable"]
@@ -383,38 +393,45 @@ function get_shrinkable(settings::Dict)
     end
 end
 
-function get_n_duration(term, commodity, termconfig)
-    commodityconfig = termconfig[commodity]
+function get_n_durations(term, commodity, settings)
+    maintermconfig = settings["horizons"][term]
+    maincommodityconfig = maintermconfig[commodity]
 
-    method = commodityconfig["function"]
+    method = maincommodityconfig["function"]
     if method == "AdaptiveHorizon"
-        commodityconfig = termconfig[commodityconfig["macro"]]
+        maincommodityconfig = maintermconfig[maincommodityconfig["macro"]]
     end
 
-    termduration = parse_duration(termconfig, "termduration")
-    periodduration = parse_duration(commodityconfig, "periodduration")
+    mainperiodduration = parse_duration(maincommodityconfig, "periodduration")
 
-    n = termduration.value / periodduration.value
-    if !isinteger(n)
-        error("Period $periodduration don't fit termduration $termduration for term $term and commodity $commodity")
-    end
-    return (Int(n), duration)
-end
-
-function get_int_periods(term, commodity, n_durations)
-
-    if term == ClearingTermName
-        return [n_durations[(ClearingTermName, commodity)]]
-
+    if term == LongTermName
+        subterms = [ClearingTermName, ShortTermName, MedTermName, LongTermName]
+    elseif term == MedTermName
+        subterms = [ClearingTermName, ShortTermName, MedTermName]
     elseif term == ShortTermName
-        return [n_durations[(ClearingTermName, commodity)], n_durations[(ShortTermName, commodity)]]
-
-    elseif term == MediumTermName
-        return [n_durations[(ClearingTermName, commodity)], n_durations[(ShortTermName, commodity)], n_durations[(MediumTermName, commodity)]]
-
-    elseif term == LongTermName
-        return [n_durations[(ClearingTermName, commodity)], n_durations[(ShortTermName, commodity)], n_durations[(MediumTermName, commodity)], n_durations[(LongTermName, commodity)]]
+        subterms = [ClearingTermName, ShortTermName]
+    elseif term == ClearingTermName
+        subterms = [ClearingTermName]
     end
+
+    n_durations = []
+    for subterm in subterms
+        subtermduration = parse_duration(settings["horizons"][subterm], "termduration")
+
+        n = subtermduration.value / mainperiodduration.value
+        if n < 1
+            push!(n_durations, 1)
+            push!(n_durations, subtermduration)
+        else
+            if !isinteger(n)
+                error("Period $mainperiodduration don't fit termduration $subtermduration for term $term, subterm $subterm and commodity $commodity")
+            end
+            push!(n_durations, Int(n))
+            push!(n_durations, mainperiodduration)
+        end
+    end
+
+    return n_durations
 end
 
 function parse_duration(config, namestart)
@@ -422,14 +439,16 @@ function parse_duration(config, namestart)
         if startswith(key, namestart)
             res = split(key, "_")[2]
             if res == "hours"
-                return Hour(config[key])
+                return Millisecond(Hour(config[key]))
             elseif res == "days"
-                return Day(config[key])
+                return Millisecond(Day(config[key]))
             elseif res == "weeks"
-                return Week(config[key])
+                return Millisecond(Week(config[key]))
             end
         end
     end
+    println(config)
+    error("Key $namestart not in config")
 end
 
 
