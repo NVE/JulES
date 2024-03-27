@@ -1,7 +1,3 @@
-struct EndValueProblem
-    prob::Prob
-end
-
 function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     subsystem = get_subsystems(db)[subix]
     settings = get_settings(db)

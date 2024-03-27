@@ -3,6 +3,16 @@ Here we define some id/key-like types, that will make it easier to understand
 the dimensions of the code, eg. understanding vectors and dicts in LocalDB
 """
 
+const ScenarioIx = Int
+const SubsystemIx = Int
+const TermName = String
+const ShortTermName = "short"
+const MedTermName = "med"
+const LongTermName = "long"
+const ClearingTermName = "clearing"
+const CommodityName = String
+const CoreId = Int
+
 mutable struct WeatherScenario <: AbstractScenario
     weather::Millisecond # as an offset from the simulationtime
     p_weather::Float64
@@ -55,13 +65,3 @@ get_commodities(subsystem::ExogenSubsystem) = subsystem.commodities
 is_subsystem_evp(subsystem::ExogenSubsystem) = false
 is_subsystem_stoch(subsystem::ExogenSubsystem) = true
 get_endvaluemethod_sp(subsystem::ExogenSubsystem) = subsystem.endvaluemethod_sp
-
-const ScenarioIx = Int
-const SubsystemIx = Int
-const TermName = String
-const ShortTermName = "short"
-const MedTermName = "med"
-const LongTermName = "long"
-const ClearingTermName = "clearing"
-const CommodityName = String
-const CoreId = Int

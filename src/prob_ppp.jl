@@ -1,9 +1,3 @@
-struct PricePrognosisProblem
-    longprob::Prob
-    medprob::Prob
-    shortprob::Prob
-    nonstoragestates_short::Dict{StateVariableInfo, Float64}
-end
 get_longprob(ppp::PricePrognosisProblem) = ppp.longprob
 get_medprob(ppp::PricePrognosisProblem) = ppp.medprob
 get_shortprob(ppp::PricePrognosisProblem) = ppp.shortprob

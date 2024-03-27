@@ -94,7 +94,7 @@ mutable struct LocalDB
             NothingScenarioModellingMethod(), # scenmod_stoch
 
             Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
-            Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}() # prices_ppp
+            Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}(), # prices_ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),                 # evp
             Dict{SubsystemIx, MasterProblem}(),                                      # mp
             Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),                 # sp

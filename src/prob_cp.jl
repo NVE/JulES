@@ -1,8 +1,3 @@
-struct ClearingProblem
-    prob
-    states
-    endstates # startstates in next iteration
-end
 get_prob(cp::ClearingProblem) = cp.prob
 get_states(cp::ClearingProblem) = cp.states
 get_endstates(cp::ClearingProblem) = cp.endstates

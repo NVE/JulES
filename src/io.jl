@@ -3,8 +3,6 @@ Definition of default input and output types
 """
 
 struct DefaultJulESInput <: AbstractJulESInput
-    datayear::
-
     cores::Vector{CoreId}
     dataset::Dict
     mainconfig::Dict
@@ -14,7 +12,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     steps::Int
     steplength::Millisecond
     simstarttime::ProbTime
-    scenmod_data::Vector{Scenarios}
+    scenmod_data::Vector{AbstractScenario}
 
     tnormaltype::String
     tphaseintype::String
@@ -135,7 +133,7 @@ function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weather
     return (steps, steplength, simstarttime, scenmod_data, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
 end
 
-function get_scenariotime(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput, normal_phasein::String)
+function get_scenariotime(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput, normal_phasein::String)
     phaseinoffset = get_phaseinoffset(input)
     phaseindelta = get_phaseindelta(input)
     phaseinsteps = get_phaseinsteps(input)
@@ -167,11 +165,11 @@ function get_scenariotime(simtime::ProbTime, scenario::Scenario, input::Abstract
     end
 end
 
-function get_scentnormal(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput)
+function get_scentnormal(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
     timetype = get_tnormaltype(input)
     return _get_scentime(simtime, scenario, input, timetype)
 end
-function get_scentphasein(simtime::ProbTime, scenario::Scenario, input::AbstractJulESInput)
+function get_scentphasein(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
     timetype = get_tphaseintype(input)
     return _get_scentime(simtime, scenario, input, timetype)
 end
@@ -252,6 +250,7 @@ function get_simperiod(input::AbstractJulESInput)
     skipmax = Millisecond(Hour(delta*(db.settings["time"]["skipmax"]-1)))
 
     return (t, N, delta, skipmed, skipmax)
+end
 
 function get_aggzone(settings::Dict)
     if haskey(settings["problems"], "aggzone")

@@ -1,15 +1,3 @@
-struct MasterProblem
-    prob::Prob
-    cuts::SimpleSingleCuts
-    states::Dict{StateVariableInfo, Float64}
-end
-
-struct ScenarioProblem
-    prob::Prob
-    scenslopes::Vector{Float64}
-    scenconstant::Float64
-end
-
 function create_mp(db::LocalDB, subix::SubsystemIx)
     scenix = 1 # TODO: Which scenario should be represented in the master problem? Not important due to phasein?
     subsystem = get_subsystems(db)[subix]
@@ -337,9 +325,15 @@ function get_prices_from_core(scenix, term_ppp, bid)
     return [getcondual(ppp, bid, t) for t in 1:getnumperiods(horizon)]
 end
 
-get_ppp_term(ppp, ::LongTermName) = ppp.longprob
-get_ppp_term(ppp, ::MedTermName) = ppp.medprob      
-get_ppp_term(ppp, ::ShortTermName) = ppp.shortprob
+function get_ppp_term(ppp, term::TermName)
+    if term == LongTermName
+        return ppp.longprob
+    elseif term == MedTermName
+        return ppp.medprob
+    elseif term == ShortTermName
+        return ppp.shortprob
+    end
+end
 
 function perform_scenmod_sp()
     db = get_local_db()

@@ -188,7 +188,7 @@ function get_subsystems(db)
     else
         settings = get_settings(db.input)
         method = settings["subsystems"]["function"]
-        if method = "twostorageduration"
+        if method == "twostorageduration"
             modelobjects, dependencies = db.dummyobjects
             storagesystems = getstoragesystems(modelobjects)
             shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
