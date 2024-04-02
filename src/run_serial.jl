@@ -520,8 +520,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
     end
     
     # Total time use and per step
-    println(string("\nThe simulation took: ", totaltime/60, " minutes"))
-    println(string("Time usage per timestep: ", totaltime/steps, " seconds\n"))
+    println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
+    println(string("Time usage per timestep: ", round(totaltime/steps; digits=2), " seconds\n"))
     
     println("Handle output")
     @time begin
