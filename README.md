@@ -46,44 +46,12 @@ TODO: Benefits of [TuLiPa](https://github.com/NVE/TuLiPa/)
 - src/scenariomodelling.jl - Code for scenario modelling
 - src/util.jl - Various useful functions
 
-#### See also demos:
-- TODO
-
-### Setup
-*  Install julia version 1.9.2:
-https://julialang.org/downloads/
-* Clone repository
-```console
-git clone https://github.com/NVE/JulES.git
-``` 
-
-Enter the folder with project.toml using a terminal window and run Julia and these commands:
-
-With julia prompt change to Julias Pkg mode using ] and enter
-
-```console
-Julia> ]
-```
-With pkg prompt and while being inside the project folder, activate the project
-```console
-(@v1.9) pkg> activate .
-```
-
-Prompts shows the project is activated, then installs the libraries needed with instantiate
-```console
-(JulES) pkg> instantiate
-```
-
-To start running the demos, run jupyter notebook from the terminal while being inside the JulES project folder (make sure the kernel is julia 1.9.2)
-```console
-jupyter notebook 
-```
-
-If jupyter is not installed then it can be installed using IJulia
-```console
-Julia> using IJulia
-Julia> Julia.notebook()
-```
+#### See also demos (&#x2714; = open data so you can run it yourself):
+- NB!!! For this release we have not prioritized the demos, so they have no comments.
+- demos/Demo la.ipynb
+- demos/Demo prognosis.ipynb
+- demos/Demo solar battery.ipynb :heavy_check_mark:
+- demos/Demo watercourse.ipynb :heavy_check_mark:
 
 #### Results:
 We are at the moment testing JulES as a medium term parallel prognosis model. The results can then be compared to our other prognosis model (EMPS) and quickly be compared to the real market and historical data. We will publish results from this work at a later stage.
@@ -122,6 +90,42 @@ We have also seen the effects of scenario modelling and head dependencies. Scena
 We are also very happy with the modelling choice of modularity, using time-series datasets and using Julia. This has made TuLiPa and JulES very pleasant to work with, as they provide a great deal of flexibility in adding complex functionality without having to make extensive changes to the existing code. Additionally, the models can be run with different methods and time resolutions without adaptations of the dataset. These design choices contribute to the model's suitability for further development and modeling the future power system when new modeling requirements arise.
 
 However, the project's codebase needs to be professionalized with better structure to make the model more user-friendly, allowing not only developers to run the model. Unit testing is also important to ensure that the model functions as intended. So far, we have been working on the model concept alone, so it will be crucial to involve analysts who will use the models and developers outside of NVE who can contribute to further developing the concept.
+
+### Setup
+*  Install julia version 1.9.2:
+https://julialang.org/downloads/
+* Clone repository
+```console
+git clone https://github.com/NVE/JulES.git
+``` 
+
+Enter the folder with project.toml using a terminal window and run Julia and these commands:
+
+With julia prompt change to Julias Pkg mode using ] and enter
+
+```console
+Julia> ]
+```
+With pkg prompt and while being inside the project folder, activate the project
+```console
+(@v1.9) pkg> activate .
+```
+
+Prompts shows the project is activated, then installs the libraries needed with instantiate
+```console
+(JulES) pkg> instantiate
+```
+
+To start running the demos, run jupyter notebook from the terminal while being inside the JulES project folder (make sure the kernel is julia 1.9.2)
+```console
+jupyter notebook 
+```
+
+If jupyter is not installed then it can be installed using IJulia
+```console
+Julia> using IJulia
+Julia> Julia.notebook()
+```
 
 ### Contact:
 Julien Cabrol: jgrc@nve.no
