@@ -77,6 +77,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         else
             global simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen)
             simscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["simulation"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+            println("Simulation scenario modelling")
             @time scenariomodelling!(simscenmodmethod, values(dummyprogobjects), simnumscen, datascenmodmethod, simscendelta) # see JulES/scenariomodelling.jl
             renumber_scenmodmethod!(simscenmodmethod)
         end
@@ -88,6 +89,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         else
             global progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen)
             progscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["prognosis"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
+            println("Prognosis scenario modelling")
             @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
             prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
         end
@@ -99,8 +101,10 @@ function run_serial(config, datayear, scenarioyear, dataset)
         else
             stochscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["stochastic"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
             global stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen)
+            println("Stochastic scenario modelling")
             @time scenariomodelling!(stochscenmodmethod, values(dummyobjects), stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
         end
+        println("Total scenario modelling")
     end
 
     medendvaluesdicts = Dict[]
@@ -203,11 +207,13 @@ function run_serial(config, datayear, scenarioyear, dataset)
             # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
 
             # Initialize price prognosis models and run for first time step. Run scenarios in parallell
+            println("Calling pl_prognosis_init!")
             @time pl_prognosis_init!(probmethodsprognosis, probs, progelements, horizons, proginput, progoutput)
 
             # Convert DistributedArray of prices to local process
             medpriceslocal = convert(Vector{Dict}, medprices)
             shortpriceslocal = convert(Vector{Dict}, shortprices)
+            println("Total init prognosis")
         end
 
         println("Mapping between aggregated and detailed storages")
@@ -252,6 +258,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 @assert ceil(Int64, steplength/smpdp) == ceil(Int64, steplength/smpdh)
                 @assert ceil(Int64, (shorttotalduration-steplength)/sspdp) == ceil(Int64, (shorttotalduration-steplength)/sspdh)
 
+                println("Make modelobjects for short-term subsystemmodels")
                 @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts, settings)
             end
             
@@ -266,6 +273,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 @assert ceil(Int64, steplength/mmpdp) == ceil(Int64, steplength/mmpdh)
                 @assert ceil(Int64, (medtotalduration-steplength)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
 
+                println("Make modelobjects for medium-term subsystemmodels")
                 @time stochasticmodelobjects = makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts, settings)
             end
             # TODO: Print info about number of short and med term systems
@@ -304,22 +312,27 @@ function run_serial(config, datayear, scenarioyear, dataset)
             probmethodsstochastic = [parse_methods(settings["problems"]["stochastic"]["master"]["solver"]), parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])]
 
             # Initialize subsystemmodel problems and run for first time step. Run subsystemmodels in parallell
+            println("Calling pl_stochastic_init!")
             @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storagevalues, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
+            println("Update start states for next time step")
             @time masterslocal = convert(Vector{Prob}, masters)
             if !haskey(settings["problems"], "clearing")
                 @assert length(masterslocal) == 1
                 getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
             end
         end
+        println("Total init stochastic")
     end
 
     if haskey(settings["problems"], "clearing")
         println("Init clearing")
         @time begin
             # Bring data to local core
+            println("Bring cuts to local core")
             @time cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
+            println("Bring nonstoragestates to local core")
             @time nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
             if settings["results"]["storagevalues"]
                 clearingstoragevalues = zeros(Float64, steps, 1, sum([length(cuts.objects) for cuts in cutslocal]))
@@ -334,6 +347,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
             # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
             # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
+            println("Calling clearing_init")
             @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
 
             # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
@@ -354,6 +368,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 end
             end
         end
+        println("Total init clearing")
     end
 
     println("Init results")
@@ -424,6 +439,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         increment_scenmodmethod!(simscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
 
         if (prognumscen < simnumscen) && (skipmed.value == 0)
+            println("Choose new price prognosis scenarios")
             @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta)
         elseif prognumscen < simnumscen
             increment_scenmodmethod!(progscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
@@ -432,6 +448,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         if (stochnumscen < prognumscen) && (skipmed.value == 0)
             # Choose new scenarios
+            println("Choose new stochastic scenarios")
             @time scenariomodelling!(stochscenmodmethod, values(dummyobjects), stochnumscen, progscenmodmethod, stochscendelta)
         elseif stochnumscen < prognumscen
             increment_scenmodmethod!(stochscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
@@ -446,6 +463,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         # Deterministic long/mid/short - calculate scenarioprices for all 30 
         if haskey(settings["problems"], "prognosis")
             progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
+            println("Call pl_prognosis!")
             @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr)
             shortpriceslocal = convert(Vector{Dict}, shortprices)
             if (stochnumscen < prognumscen) && (skipmed.value == 0)
@@ -456,6 +474,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
 
         # Stochastic sub systems - calculate storage value
         if haskey(settings["problems"], "stochastic")
+            println("Call pl_stochastic!")
             @time pl_stochastic!(numcores, masters, subs, states, cuts, storagevalues, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr, settings)
             masterslocal = convert(Vector{Prob}, masters)
         end
@@ -466,6 +485,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
             cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
             nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
         
+            println("Call clearing!")
             @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr, settings)
 
             if haskey(settings["results"], "mainresults")
@@ -496,6 +516,7 @@ function run_serial(config, datayear, scenarioyear, dataset)
         end
         
         # Increment step
+        println("Total step $stepnr")
         stepnr += 1
     end
     
