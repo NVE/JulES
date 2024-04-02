@@ -322,8 +322,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
                 @assert length(masterslocal) == 1
                 getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
             end
+            println("Total init stochastic")
         end
-        println("Total init stochastic")
     end
 
     if haskey(settings["problems"], "clearing")
@@ -367,8 +367,8 @@ function run_serial(config, datayear, scenarioyear, dataset)
                     end
                 end
             end
+            println("Total init clearing")
         end
-        println("Total init clearing")
     end
 
     println("Init results")
