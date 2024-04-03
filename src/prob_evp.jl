@@ -6,7 +6,7 @@ function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     endduration = get_duration_evp(subsystem)
     modelobjects = make_modelobjects_evp(db, scenix, subix, startduration, endduration)
 
-    probmethod = parse_methods(settings["problems"]["evp"]["solver"])
+    probmethod = parse_methods(settings["problems"]["endvalue"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
     db.evp[(scenix, subix)] = EndValueProblem(prob)
@@ -29,7 +29,7 @@ function solve_local_evp(t)
     for (scenix, subix, core) in db.dist_evp
         if core == db.core
             evp = db.evp[(scenix, subix)]
-            scentime = get_scenariotime(t, get_scenarios(db.scenmod_evp)[scenix], db.input, "phaseintime")
+            scentime = get_scentphasein(t, get_scenarios(db.scenmod_evp)[scenix], db.input)
             update!(evp.prob, scentime)
             solve!(evp.prob)
         end
@@ -111,7 +111,7 @@ function update_startstates_evp(stepnr, t)
 
     # TODO: Check if any of the scenarios are on this core first
     if stepnr == 1 # TODO: Might already be done by evp
-        get_startstates_stoch_from_input(db, t)
+        get_startstates_evp_from_input(db, t)
     else # TODO: Copies all startstates
         if stepnr != db.stepnr_startstates
             get_startstates_from_cp(db)
@@ -128,17 +128,25 @@ function update_startstates_evp(stepnr, t)
     end
 end
 
+function get_startstates_evp_from_input(db, t)
+    settings = get_settings(db)
+    dummystorages = getstorages(first(db.dummyobjects))
+    get_startstates!(db.startstates, settings["problems"]["endvalue"], get_dataset(db), first(db.dummyobjects), dummystorages, t)
+    startstates_max!(dummystorages, t, db.startstates)
+    return
+end
+
 # Util functions for create_evp() (see also utils for create_mp/create_sp) ----------------------------------------------------------
 function make_modelobjects_evp(db, scenix, subix, startduration, endduration)
     subsystem = get_subsystems(db)[subix]
     subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subix, startduration, endduration)
 
-    add_prices!(subelements, subsystem, numperiods_powerhorizon)
+    aggzonecopl = get_aggzonecopl(get_settings(db.input))
+    change_elements!(subelements, aggzonecopl)
 
-    aggzone = get_aggzone(get_settings(db.input))
-    change_elements!(subelements, aggzone)
+    add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
 
-    modelobjects = getmodelobjects(elements, validate=false)
+    modelobjects = getmodelobjects(subelements, validate=false)
 
     return modelobjects
 end

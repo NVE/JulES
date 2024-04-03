@@ -14,7 +14,7 @@ function get_dist_ppp(input::AbstractJulESInput)
     
     for s in 1:S
         j = (s - 1) % N + 1
-        dist[i] = (s, cores[j])
+        dist[s] = (s, cores[j])
     end
     
     return dist
@@ -86,8 +86,8 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
 
     dist_mp = _distribute_subsystems_by_size!(subsystems_desc, cores)
     
-    N = get_numscen_sp(input)
-    dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(mp_dist))
+    N = get_numscen_stoch(input)
+    dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(dist_mp))
     i = 0
     for scen in 1:N
         for (sub, core) in dist_mp
@@ -141,7 +141,7 @@ end
 """
 Find which subsystems should have evp and stoch problems
 """
-function get_subsystems_evp(allsubsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+function get_subsystems_evp(allsubsystems::Vector{AbstractSubsystem})
     subsystems = Tuple{SubsystemIx, AbstractSubsystem}[]
     for (i, subsystem) in enumerate(allsubsystems)
         if is_subsystem_evp(subsystem)
@@ -150,7 +150,7 @@ function get_subsystems_evp(allsubsystems::Vector{Tuple{SubsystemIx, AbstractSub
     end
     return subsystems
 end
-function get_subsystems_stoch(allsubsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+function get_subsystems_stoch(allsubsystems::Vector{AbstractSubsystem})
     subsystems = Tuple{SubsystemIx, AbstractSubsystem}[]
     for (i, subsystem) in enumerate(allsubsystems)
         if is_subsystem_stoch(subsystem)

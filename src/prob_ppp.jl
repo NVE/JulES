@@ -22,18 +22,18 @@ function create_ppp(db::LocalDB, scenix::Int)
 
     # Create long problems
     longobjects = make_obj(elements_ppp, lhh, lph)
-    simplify!(longobjects; aggzone=aggzone, aggsupplyn=aggsuplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
+    simplify!(longobjects; aggzone=aggzone, aggsupplyn=aggsupplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
     add_PowerUpperSlack!(longobjects)
 
-    longprobmethod = parse_methods(settings["problems"]["prognosis"]["long"]["prob"])
+    longprobmethod = parse_methods(settings["problems"]["prognosis"]["long"]["solver"])
     longprob = buildprob(longprobmethod, longobjects)
 
     # Create med problems
     medobjects = make_obj(elements_ppp, mhh, mph)
-    simplify!(medobjects; aggzone=aggzone, aggsupplyn=aggsuplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
+    simplify!(medobjects; aggzone=aggzone, aggsupplyn=aggsupplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
     add_PowerUpperSlack!(medobjects)
 
-    medprobmethod = parse_methods(settings["problems"]["prognosis"]["med"]["prob"])
+    medprobmethod = parse_methods(settings["problems"]["prognosis"]["med"]["solver"])
     medprob = buildprob(medprobmethod, medobjects)
 
     # TODO: Possible to improve? Not needed to make endvaluesobj and store it in probobjects
@@ -47,10 +47,12 @@ function create_ppp(db::LocalDB, scenix::Int)
     simplify!(shortobjects; aggzone=aggzone, removestartup=false)
     add_PowerUpperSlack!(shortobjects)
 
-    shortprobmethod = parse_methods(settings["problems"]["prognosis"]["short"]["prob"])
+    shortprobmethod = parse_methods(settings["problems"]["prognosis"]["short"]["solver"])
     shortprob = buildprob(shortprobmethod, shortobjects)
 
     shortstorages = getstorages(getobjects(shortprob))
+    shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(removestoragehours))
+    longtermstorages = setdiff(shortstorages, shorttermstorages)
     shortendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
     shortendvaluesobj = EndValues(shortendvaluesid, longtermstorages)
     push!(getobjects(shortprob), shortendvaluesobj)
@@ -58,7 +60,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     nonstoragestates = get_nonstoragestatevariables(getobjects(shortprob)) 
 
     # TODO: use set_ppp!
-    db.ppp[scenarioix] = PricePrognosisProblem(longprob, medprob, shortprob, nonstoragestates)
+    db.ppp[scenix] = PricePrognosisProblem(longprob, medprob, shortprob, nonstoragestates)
     return
 end
 
@@ -102,12 +104,12 @@ end
 function solve_ppp(t, delta, stepnr, skipmed)
     update_startstates_ppp(stepnr, t) # TODO: A bit uncessesary to to update startstates for long and med if skipmed != 0
     skipmed.value == 0 && update_endstates_longppp()
-    solve_local_ppp(t, skipmed)
+    solve_local_ppp(t, stepnr, skipmed)
     skipmed.value == 0 && syncronize_horizons(get_local_db().core)
     return
 end
 
-function solve_local_ppp(t, skipmed)
+function solve_local_ppp(t, stepnr, skipmed)
     db = get_local_db()
     horizons = get_horizons(db)
     startstates = get_startstates(db)
@@ -115,11 +117,11 @@ function solve_local_ppp(t, skipmed)
 
     for (scenix, core) in db.dist_ppp
         if core == db.core
-            if skipmed.value == 0
-                p = db.ppp[scenix]
-                scentime = get_scenariotime(t, get_scenarios(db.scenmod_ppp)[scenix], db.input, "phaseintime")
-                # TODO: Should scentime depend on Dynamic og Static RHSAHData
+            p = db.ppp[scenix]
+            scentime = get_scentphasein(t, get_scenarios(db.scenmod_ppp)[scenix], db.input)
+            # TODO: Should scentime depend on Dynamic og Static RHSAHData
 
+            if skipmed.value == 0
                 update!(p.longprob, scentime)
                 solve!(p.longprob)
 
@@ -133,9 +135,11 @@ function solve_local_ppp(t, skipmed)
             shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
             allstorages = getstorages(getobjects(p.shortprob))
             longtermstorages = setdiff(allstorages, shorttermstorages)
-            nonstorageobjects = get_nonstorageobjects(getobjects(p.shortprob))
             set_endstates!(p.shortprob, shorttermstorages, startstates)
-            set_startstates!(p.shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
+            if stepnr != 1
+                nonstorageobjects = get_nonstorageobjects(getobjects(p.shortprob))
+                set_startstates!(p.shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
+            end
             if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
                 shh = horizons[(scenix, "short", "Hydro")]
                 transfer_duals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
@@ -144,7 +148,7 @@ function solve_local_ppp(t, skipmed)
             solve!(p.shortprob)
 
             sph = horizons[(scenix, "short", "Power")]
-            update_nonstoragestates!(p, db, sph)
+            update_nonstoragestates!(p, db, sph, stepnr)
         end
     end
 end
@@ -172,8 +176,8 @@ end
 
 function get_startstates_ppp_from_input(db, t)
     settings = get_settings(db)
-    dummystorages_ppp = getstorages(db.dummyobjects_ppp)
-    get_startstates!(db.startstates, settings["problems"]["prognosis"], get_dataset(db), db.dummyobjects_ppp, dummystorages_ppp, t)
+    dummystorages_ppp = getstorages(first(db.dummyobjects_ppp))
+    get_startstates!(db.startstates, settings["problems"]["prognosis"], get_dataset(db), first(db.dummyobjects_ppp), dummystorages_ppp, t)
     startstates_max!(dummystorages_ppp, t, db.startstates)
     return
 end
@@ -215,7 +219,7 @@ function get_startstates!(startstates::Dict, problemconfig::Dict, dataset::Dict,
     elseif startstorages["function"] == "percentage"
         merge!(startstates, getstartstoragepercentage(storages, tnormal, startstorages["percentage"]))
     elseif haskey(dataset, startstorages["function"])
-        merge!(startstates, [startstorages["function"]])
+        merge!(startstates, dataset[startstorages["function"]])
     end
 end
 
@@ -231,29 +235,29 @@ end
 
 # Market clearing problem uses end state values from short problem for non-storage state variables,
 # TODO: Only getoutgoingstates!, init should handle changeendtoinsidestates!
-function update_nonstoragesstates!(shortprob, db, sph, stepnr)
+function update_nonstoragestates!(ppp, db, sph, stepnr)
     if stepnr == 1
         clearingperiod = getendperiodfromduration(sph, get_steplength(db)) # which period in short problem correspond to end period in market clearing problem
-        changeendtoinsidestates!(shortprob, shortprob.nonstoragestates_short, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
+        changeendtoinsidestates!(ppp.shortprob, ppp.nonstoragestates_short, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
     else
-        getoutgoingstates!(shortprob, shortprob.nonstoragestates_short)
+        getoutgoingstates!(ppp.shortprob, ppp.nonstoragestates_short)
     end
 end
 
 function syncronize_horizons(thiscore)
     db = get_local_db()
 
-    owner_scenarios = [s for (s, c) in db.ppp_dist if c == thiscore]
+    owner_scenarios = [s for (s, c) in db.dist_ppp if c == thiscore]
 
     for ((this_scen, term, commodity), horizon) in db.horizons
         if !(this_scen in owner_scenarios)
             continue
         end
 
-        changes = get_changes(horizon)
+        changes = getchanges(horizon)
 
         if length(changes) > 0
-            @sync for (other_scen, other_core) in db.ppp_dist
+            @sync for (other_scen, other_core) in db.dist_ppp
                 if !(other_scen in owner_scenarios)
                     @spawnat other_core transfer_horizon_changes(other_scen, term, commodity, changes)
                 end

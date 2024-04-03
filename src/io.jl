@@ -42,9 +42,9 @@ struct DefaultJulESInput <: AbstractJulESInput
             elements = dataset["elements"]
             add_scenariotimeperiod_int!(elements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
     
-            if haskey(dataset, "progelements")
-                progelements = dataset["progelements"]
-                add_scenariotimeperiod_int!(progelements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
+            if haskey(dataset, "elements_ppp")
+                elements_ppp = dataset["elements_ppp"]
+                add_scenariotimeperiod_int!(elements_ppp, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
             end
 
             enekvglobaldict = Dict{String,Float64}()
@@ -98,7 +98,7 @@ function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64
     simtime = get_tnormal(simtimetype, datasimtime, weathersimtime)
 
     # Make scenariooffset for all uncertainty scenarios
-    datascenarios = Vector{AbstractScenario}(undef, datanumscen)
+    datascenarios = Vector{WeatherScenario}(undef, datanumscen)
     for scen in 1:datanumscen
         weatherscenariotime = getisoyearstart(weatheryear + scen - 1) + Week(weekstart-1)
         weatheroffset = weatherscenariotime - weathersimtime
@@ -143,20 +143,13 @@ function get_tnormal(type::String, datatime::DateTime, scenariotime::DateTime)
     end
 end
 
-function get_scenariotime(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput, normal_phasein::String)
+function get_scentime(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput, timetype::String)
     phaseinoffset = get_phaseinoffset(input)
     phaseindelta = get_phaseindelta(input)
     phaseinsteps = get_phaseinsteps(input)
-    datasimtime = getdattime(simtime)
+    datasimtime = getdatatime(simtime)
     weathersimtime = getscenariotime(simtime)
     weatherscenariotime = getscenariotime(simtime) + scenario.weatheroffset
-
-    if normal_phasein == "normaltime"
-        timetype = get_settings(input)["time"]["probtime"]["normaltime"]
-    else
-        @assert normal_phasein == "phaseintime"
-        timetype = get_settings(input)["time"]["probtime"]["phaseintime"]
-    end
 
     if timetype == "PrognosisTime"
         return PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
@@ -182,28 +175,30 @@ end
 
 function get_scentnormal(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
     timetype = get_tnormaltype(input)
-    return _get_scentime(simtime, scenario, input, timetype)
+    return get_scentime(simtime, scenario, input, timetype)
 end
 function get_scentphasein(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
     timetype = get_tphaseintype(input)
-    return _get_scentime(simtime, scenario, input, timetype)
+    return get_scentime(simtime, scenario, input, timetype)
 end
 
 
-function get_scenmod(problem::Dict, numscen::Int64, objects::Vector)
+function get_scenmod(allscenarios::Vector, problem::Dict, numscen::Int64, objects::Vector)
     method = problem["function"]
     if method == "InflowClusteringMethod"
+        scenarios = Vector{eltype(allscenarios)}(undef, numscen)
         parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
-        scendelta = MsTimeDelta(Day(problem["scendelta"]))
-        return InflowClusteringMethod(numscen, objects, parts, scendelta)
+        scendelta = MsTimeDelta(parse_duration(problem, "scendelta"))
+        return InflowClusteringMethod(scenarios, objects, parts, scendelta)
     elseif method == "SumInflowQuantileMethod"
+        scenarios = Vector{eltype(allscenarios)}(undef, numscen)
         a = problem["a"]
         b = problem["b"]
         c = problem["c"]
         maxquantile = problem["maxquantile"]
-        scendelta = problem["scendelta"]
-        usedensity = MsTimeDelta(Day(problem["usedensity"]))
-        return SumInflowQuantileMethod(numscen, objects, maxquantile, a, b, c, scendelta, usedensity=usedensity)
+        scendelta = MsTimeDelta(parse_duration(problem, "scendelta"))
+        usedensity = problem["usedensity"]
+        return SumInflowQuantileMethod(scenarios, objects, maxquantile, a, b, c, scendelta, usedensity=usedensity)
     else
         error("$method not supported")
     end
@@ -273,6 +268,17 @@ function get_aggzone(settings::Dict)
     else
         return Dict()
     end
+end
+
+function get_aggzonecopl(aggzone::Dict)
+    aggzonecopl = Dict()
+    for (k,v) in aggzone
+        for vv in v
+            aggzonecopl["PowerBalance_" * vv] = "PowerBalance_" * k
+        end
+    end
+
+    return aggzonecopl
 end
 
 function get_statedependentprod(settings::Dict)

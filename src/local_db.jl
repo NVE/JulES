@@ -87,6 +87,8 @@ mutable struct LocalDB
             1,                          # stepnr_startstates
 
             AbstractSubsystem[],       # subsystems
+            AbstractSubsystem[],       # subsystems_evp
+            AbstractSubsystem[],       # subsystems_stoch
 
             NothingScenarioModellingMethod(), # scenmod_sim
             NothingScenarioModellingMethod(), # scenmod_ppp

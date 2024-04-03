@@ -14,7 +14,7 @@ const CommodityName = String
 const CoreId = Int
 
 mutable struct WeatherScenario <: AbstractScenario
-    weather::Millisecond # as an offset from the simulationtime
+    weatheroffset::Millisecond # as an offset from the simulationtime
     p_weather::Float64
     parentscenario::Int # index of parent scenario
 end

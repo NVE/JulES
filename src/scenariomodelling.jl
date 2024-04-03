@@ -9,7 +9,7 @@ mutable struct InflowClusteringMethod{T <: AbstractScenario} <: AbstractScenario
     inflowfactors::Vector{Float64}
     objects::Vector
     parts::Int
-    scendelta::Millisecond
+    scendelta::MsTimeDelta
 
     function InflowClusteringMethod(scenarios, objects, parts, scendelta)
         inflowfactors = Vector{Float64}(undef, length(scenarios))
@@ -27,7 +27,7 @@ mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenari
     b::Float64 # parameter
     c::Float64 # parameter
     usedensity::Bool # parameter
-    scendelta::Millisecond # parameter
+    scendelta::MsTimeDelta # parameter
     function SumInflowQuantileMethod(scenarios, objects, maxquantile, a, b, c, scendelta; usedensity=false)
         inflowfactors = Vector{Float64}(undef, length(scenarios))
         return new{eltype(scenarios)}(scenarios, inflowfactors, objects, maxquantile, a, b, c, scendelta, usedensity)
@@ -45,11 +45,11 @@ get_scenarios(scenmod::AbstractScenarioModellingMethod) = scenmod.scenarios
 get_objects(method::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = method.objects
 get_scendelta(method::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = method.scendelta
 
-get_changes(scenmod::NoScenarioModellingMethod) = (scenmod.scenarios)
+get_changes(scenmod::NoScenarioModellingMethod) = scenmod.scenarios
 get_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = (scenmod.scenarios, scenmod.inflowfactors)
 
-function set_changes(scenmod::NoScenarioModellingMethod, changes::Tuple{Vector{WeatherScenario}})
-    scenmod.scenarios = first(changes)
+function set_changes(scenmod::NoScenarioModellingMethod, changes::Vector{WeatherScenario})
+    scenmod.scenarios = changes
 end
 function set_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario}, Vector{Float64}})
     scenarios, inflowfactors = changes
@@ -78,7 +78,7 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
                 end
                 for rhsterm in getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
-                        time = getscenariotnormal(simtime, scenario, input)
+                        time = get_scentnormal(simtime, scenario, input)
                         totalsumenergyinflow[i] += getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*factoroptions[i]
                     end
                 end
@@ -120,8 +120,8 @@ end
 function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
     numscen = length(scenmod.scenarios)
     scenariooptions = get_scenarios(scenmodmethodoptions)
-    weightsoptions = [getprobability(scenario) for scenario in scenariooptions]
-    inflowfactoroptions = getinflowfactors(scenmodmethodoptions)
+    weightsoptions = [get_probability(scenario) for scenario in scenariooptions]
+    inflowfactoroptions = get_inflowfactors(scenmodmethodoptions)
 
     # Calculate total energy inflow in the system for each part of the scenariodelta
     sumenergyinflow = zeros(length(scenariooptions))
@@ -139,10 +139,10 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
                 end
                 for rhsterm in getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
-                        time = getscenariotnormal(simtime, scenario, input)
+                        time = get_scentnormal(simtime, scenario, input)
                         sumenergyinflow[i] += getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*inflowfactoroptions[i]
                         for j in 1:parts
-                            partsumenergyinflow[j,i] += getparamvalue(rhsterm, time + scendeltapart*(j-1), scendeltapart)*enekvglobal*factoroptions[i]
+                            partsumenergyinflow[j,i] += getparamvalue(rhsterm, time + scendeltapart*(j-1), scendeltapart)*enekvglobal*inflowfactoroptions[i]
                         end
                     end
                 end
@@ -170,7 +170,7 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
         meanclustersumenergyinflow = mean(clustersumenergyinflows)
         clusteridx = findmin(x->abs(x-meanclustersumenergyinflow), clustersumenergyinflows)[2]
         totalidx = findfirst(x -> x == clustersumenergyinflows[clusteridx], sumenergyinflow)
-        scenmod.scenarios[i] = scenariooptions[totalidx]
+        scenmod.scenarios[i] = deepcopy(scenariooptions[totalidx])
 
         # Adjust scenario to represent actual middle of cluster
         scenmod.inflowfactors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
@@ -178,7 +178,11 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
         # Weight based on amount of scenarios in cluster and weight of options
         scenmod.scenarios[i].p_weather = sum(weightsoptions[idxs])
     end
-    @assert sum([scenario.p_weather for scenario in scenmod.scenarios]) == 1
+    if !isapprox(sum([scenario.p_weather for scenario in scenmod.scenarios]), 1, atol=0.0001)
+        println(sum([scenario.p_weather for scenario in scenmod.scenarios]))
+        error("Sum of scenarios not 1")
+    end
+
 
     return
 end
@@ -188,7 +192,7 @@ end
 # In practice this means Prognosis ignores part of scenario generation (SumInflow of cluster), especially if SumInflowQuantileMethod
 perform_scenmod!(scenmod::AbstractScenarioModellingMethod, scenix, objects) = nothing # generic fallback
 function perform_scenmod!(scenmod::Union{InflowClusteringMethod{WeatherScenario},SumInflowQuantileMethod{WeatherScenario}}, scenix, objects) # inflow methods has field factor
-    inflowfactors = getinflowfactors
+    inflowfactors = get_inflowfactors(scenmod)
     inflowfactors[scenix] == 1.0 && return
     for obj in objects
         if obj isa BaseBalance

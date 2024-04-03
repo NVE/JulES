@@ -1,8 +1,8 @@
 struct ClearingProblem
     prob::Prob
-    states::Dict{StateVariableInfo, Float64}
     endstates::Dict{String, Float64} # startstates in next iteration
 end
+# TODO: also preallocate clearingstates?
 
 struct EndValueProblem
     prob::Prob

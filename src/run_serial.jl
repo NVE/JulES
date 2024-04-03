@@ -33,9 +33,9 @@ function init_jules(output::AbstractJulESOutput, input::AbstractJulESInput)
 
     init_databases(input)
 
-    preallocate_output(output, input)
+    # preallocate_output(output, input) TODO
     
-    return (t, N, delta)
+    return (t, N, delta, skipmed, skipmax)
 end
 
 """
@@ -65,41 +65,68 @@ as this makes it easy to kill a problem on one core, and re-build it on another 
 function init_databases(input::AbstractJulESInput)
     cores = get_cores(input)
 
-    @sync for core in cores
-        @spawnat core create_local_db()
+    println("Add local dbs")
+    @time begin
+        @sync for core in cores
+            @spawnat core create_local_db()
+        end
     end
 
-    @sync for core in cores
-        @spawnat core add_local_core(core)
+    println("Add local cores")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_core(core)
+        end
     end
 
-    @sync for core in cores
-        @spawnat core add_local_input(input)
+    println("Add local input")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_input(input)
+        end
     end
 
-    @sync for core in cores
-        @spawnat core add_local_dummyobjects(core)
+    println("Add local dummyobjects")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_dummyobjects(core)
+        end
     end
 
-    c = first(cores)
-    future = @spawnat c add_local_subsystem(c)
-    wait(future)
+    println("Add local subsystems")
+    @time begin
+        c = first(cores)
+        future = @spawnat c add_local_subsystems(c)
+        wait(future)
+    end
 
-    @sync for core in cores
-        @spawnat core add_local_scenariomodelling()
+    println("Add local scenmod")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_scenariomodelling()
+        end
     end
     
     # will calculate distribution on core c and then 
     # transfer this data to all other cores
-    future = @spawnat c add_local_problem_distribution(c)
-    wait(future)
-
-    @sync for core in cores
-        @spawnat core add_local_horizons(core)
+    println("Add local problem distribution")
+    @time begin
+        future = @spawnat c add_local_problem_distribution(c)
+        wait(future)
     end
 
-    @sync for core in cores
-        @spawnat core add_local_problems(core)
+    println("Add local horizons")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_horizons(core)
+        end
+    end
+
+    println("Add local problems")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_problems(core)
+        end
     end
     return
 end
@@ -136,23 +163,38 @@ function add_local_dummyobjects(thiscore)
     # Horizons are needed to build modelobjects, but not used in scenario modelling
     dummyperiods = 10
     dummyperiodduration = Millisecond(Hour(24))
-    power_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-    hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
+    dummyhorizon = SequentialHorizon(dummyperiods, dummyperiodduration)
 
     # Make dummy elements
-    db.dummyobjects = make_obj(db.input.dataset["elements"], hydro_horizon, power_horizon, validate=true)
+    elements = copy(get_elements(db.input))
+    commodities = get_settings(db)["horizons"]["commodities"]
+    for commodity in commodities
+        set_horizon!(elements, commodity, dummyhorizon)
+        if commodity == "Power"
+            set_horizon!(elements, "Battery", dummyhorizon)
+        end
+    end
+    (dummyobjects, dummydeps) = getmodelobjects(elements, validate=true, deps=true)
     aggzonedict = Dict()
-    for (k,v) in getaggzone(db.settings)
+    for (k,v) in get_aggzone(get_settings(db))
         aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [modelobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
     end
-    aggzone!(db.dummyobjects, aggzonedict)
+    aggzone!(dummyobjects, aggzonedict)
+    db.dummyobjects = (dummyobjects, dummydeps)
 
     # Make dummy prog elements
-    if haskey(db.input.dataset, "progelements")
-        db.dummyprogobjects = make_obj(db.input.dataset["progelements"], hydro_horizon, power_horizon, validate=true)
-        aggzone!(db.dummyprogobjects, aggzonedict)
+    if haskey(db.input.dataset, "elements_ppp")
+        elements_ppp = copy(get_elements_ppp(db.input))
+        for commodity in commodities
+            set_horizon!(elements_ppp, commodity, dummyhorizon)
+            if commodity == "Power"
+                set_horizon!(elements_ppp, "Battery", dummyhorizon)
+            end
+        end
+        (dummyobjects_ppp, dummydeps_ppp) = getmodelobjects(elements_ppp, validate=true, deps=true)
+        db.dummyobjects_ppp = (dummyobjects_ppp, dummydeps_ppp)
     else
-        db.dummyprogobjects = db.dummyobjects
+        db.dummyobjects_ppp = db.dummyobjects
     end
     return
 end
@@ -216,7 +258,7 @@ function get_subsystems(db)
                     end
                 end
                 commodities = get_commodities_from_storagesystem(storagesystem)
-                priceareas = getpriceareas(storagesystem)
+                priceareas = get_priceareas(storagesystem)
                 subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp")
                 push!(subsystems, subsystem)
             end
@@ -286,42 +328,43 @@ function add_local_scenariomodelling()
     db = get_local_db()
     scenmod_data = get_scenmod_data(db)
     numscen_data = get_numscen_data(db)
+    scenarios_data = get_scenarios(scenmod_data)
     settings = get_settings(db)
 
     # Simulation scenario modelling - choose scenarios for the whole simulation
     numscen_sim = get_numscen_sim(db.input)
     @assert numscen_sim <= numscen_data
-    if simnumscen == numscen_data
+    if numscen_sim == numscen_data
         db.scenmod_sim = scenmod_data
     else
-        db.scenmod_sim = get_scenmod(settings["scenariogeneration"]["simulation"], numscen_sim, values(first(get_dummyobjects_ppp(db))))
+        db.scenmod_sim = get_scenmod(scenarios_data, settings["scenariogeneration"]["simulation"], numscen_sim, collect(values(first(get_dummyobjects_ppp(db)))))
     end
 
     # Prognosis scenario modelling - choose scenarios for the price prognosis models
-    numscen_ppp = getnumscen_ppp(db.input)
-    @assert prognumscen <= numscen_sim
+    numscen_ppp = get_numscen_ppp(db.input)
+    @assert numscen_ppp <= numscen_sim
     if numscen_ppp == numscen_sim
         db.scenmod_ppp = db.scenmod_sim
     else
-        db.scenmod_ppp = get_scenmod(settings["scenariogeneration"]["prognosis"], numscen_ppp, values(first(get_dummyobjects_ppp(db))))
+        db.scenmod_ppp = get_scenmod(scenarios_data, settings["scenariogeneration"]["prognosis"], numscen_ppp, collect(values(first(get_dummyobjects_ppp(db)))))
     end
 
     # EVP scenario modelling - choose scenarios for the end values models
-    evpnumscen = getnumscen_evp(db.input)
+    numscen_evp = get_numscen_evp(db.input)
     @assert numscen_evp <= numscen_ppp
     if numscen_evp == numscen_ppp
         db.scenmod_evp = db.scenmod_ppp
     else
-        db.scenmod_evp = get_scenmod(settings["scenariogeneration"]["endvalue"], numscen_evp, values(first(get_dummyobjects(db))))
+        db.scenmod_evp = get_scenmod(scenarios_data, settings["scenariogeneration"]["endvalue"], numscen_evp, collect(values(first(get_dummyobjects(db)))))
     end
 
     # Stochastic scenario modelling - choose scenarios for the price stochastic models
-    numscen_stoch = getnumscen_sp(db.input)
+    numscen_stoch = get_numscen_stoch(db.input)
     @assert numscen_stoch <= numscen_evp
     if numscen_stoch == numscen_evp
         db.scenmod_stoch = db.scenmod_evp
     else
-        db.scenmod_stoch = get_scenmod(settings["scenariogeneration"]["stochastic"], numscen_stoch, values(first(get_dummyobjects(db))))
+        db.scenmod_stoch = get_scenmod(scenarios_data, settings["scenariogeneration"]["stochastic"], numscen_stoch, collect(values(first(get_dummyobjects(db)))))
     end
 
     return
@@ -394,9 +437,9 @@ function add_local_horizons(thiscore)
     d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
     for (scenarioix, ownercore) in db.dist_ppp
         for ((term, commodity), horizon) in horizons
-            horizon = getlightweightself(horizon)
-            horizon = deepcopy(horizon)
             if ownercore != thiscore
+                horizon = getlightweightself(horizon)
+                horizon = deepcopy(horizon)
                 externalhorizon = ExternalHorizon(horizon)
                 d[(scenarioix, term, commodity)] = externalhorizon
             else
@@ -444,45 +487,55 @@ end
 # TODO: Use or remove delta
 function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
     cores = get_cores(output)
-
-    # do input models here
-
-    # Do global scenario modelling
-    c = first(cores)
-    if stepnr == 1 
-        f = @spawnat c update_scenmod_sim(c, skipmed)
-        wait(f)
-    end
-    f = @spawnat c update_scenmod_ppp(c, t, skipmed)
-    wait(f)
-
     T = typeof(output) # So we can dispatch on output-type (to add extensibility)
 
-    @sync for core in cores
-        @spawnat core solve_ppp(t, delta, stepnr, skipmed)
+    println(t)
+
+    println("Price prognosis problems")
+    @time begin
+        c = first(cores)
+        if stepnr == 1 
+            f = @spawnat c update_scenmod_sim()
+            wait(f)
+        end
+        f = @spawnat c update_scenmod_ppp(t, skipmed)
+        wait(f)
+
+        @sync for core in cores
+            @spawnat core solve_ppp(t, delta, stepnr, skipmed)
+        end
     end
 
-    # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_scenmod_evp(c, t, skipmed)
-    wait(f)
+    println("End value problems")
+    @time begin
+        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+        f = @spawnat c update_scenmod_evp(t, skipmed)
+        wait(f)
 
-    @sync for core in cores
-        @spawnat core solve_evp(t, delta, stepnr)
+        @sync for core in cores
+            @spawnat core solve_evp(t, delta, stepnr)
+        end
     end
 
-    # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-    f = @spawnat c update_scenmod_stoch(c, t, skipmed)
-    wait(f)
+    println("Subsystem problems")
+    @time begin
+        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+        f = @spawnat c update_scenmod_stoch(t, skipmed)
+        wait(f)
 
-    @sync for core in cores
-        @spawnat core solve_mp(t, delta, stepnr)
+        @sync for core in cores
+            @spawnat core solve_mp(t, delta, stepnr)
+        end
     end
 
-    @sync for core in cores
-        @spawnat core solve_cp(t, delta, stepnr)
+    println("Clearing problem")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_cp(t, delta, stepnr)
+        end
     end
 
-    update_output(output, t, delta, stepnr)
+    # update_output(output, t, delta, stepnr) # TODO
 
     # do dynamic load balancing here
     return
@@ -519,63 +572,63 @@ function set_scenmodchanges_stoch(changes)
     set_changes(db.scenmod_stoch, changes)
 end
 
-function update_scenmod(thiscore, scenmodmethod, scenmodmethodoptions, renumber, simtime, skipmed)
+function update_scenmod(scenmodmethod, scenmodmethodoptions, renumber, simtime, skipmed)
     db = get_local_db()
 
-    if (length(scenmodmethod) != length(scenmodmethodoptions)) && (skipmed.value == 0)
+    if (length(get_scenarios(scenmodmethod)) != length(get_scenarios(scenmodmethodoptions))) && (skipmed.value == 0)
         choose_scenarios!(scenmodmethod, scenmodmethodoptions, simtime, db.input) # see JulES/scenariomodelling.jl
         renumber && renumber_scenmodmethod!(scenmodmethod)
     end
 end
 
-function update_scenmod_sim(thiscore)
+function update_scenmod_sim()
     db = get_local_db()
 
-    update_scenmod(thiscore, db.scenmod_sim, get_scenmod_data(db), true, get_simstarttime(db.input), Millisecond(0))
+    update_scenmod(db.scenmod_sim, get_scenmod_data(db), true, get_simstarttime(db.input), Millisecond(0))
     changes = get_changes(db.scenmod_sim)
 
     cores = get_cores(db.input)
     @sync for core in cores
-        if core != thiscore
+        if core != db.core
             @spawnat core set_scenmodchanges_sim(changes)
         end
     end
 end
-function update_scenmod_ppp(thiscore, simtime, skipmed)
+function update_scenmod_ppp(simtime, skipmed)
     db = get_local_db()
 
-    update_scenmod(thiscore, db.scenmod_ppp, db.scenmod_sim, true, simtime, skipmed)
+    update_scenmod(db.scenmod_ppp, db.scenmod_sim, true, simtime, skipmed)
     changes = get_changes(db.scenmod_ppp)
 
     cores = get_cores(db.input)
     @sync for core in cores
-        if core != thiscore
+        if core != db.core
             @spawnat core set_scenmodchanges_ppp(changes)
         end
     end
 end
-function update_scenmod_evp(thiscore, simtime, skipmed)
+function update_scenmod_evp(simtime, skipmed)
     db = get_local_db()
 
-    update_scenmod(thiscore, db.scenmod_evp, db.scenmod_ppp, false, simtime, skipmed)
+    update_scenmod(db.scenmod_evp, db.scenmod_ppp, false, simtime, skipmed)
     changes = get_changes(db.scenmod_evp)
 
     cores = get_cores(db.input)
     @sync for core in cores
-        if core != thiscore
+        if core != db.core
             @spawnat core set_scenmodchanges_evp(changes)
         end
     end
 end
-function update_scenmod_stoch(thiscore, simtime, skipmed)
+function update_scenmod_stoch(simtime, skipmed)
     db = get_local_db()
 
-    update_scenmod(thiscore, db.scenmod_stoch, db.scenmod_evp, false, simtime, skipmed)
+    update_scenmod(db.scenmod_stoch, db.scenmod_evp, false, simtime, skipmed)
     changes = get_changes(db.scenmod_stoch)
 
     cores = get_cores(db.input)
     @sync for core in cores
-        if core != thiscore
+        if core != db.core
             @spawnat core set_scenmodchanges_stoch(changes)
         end
     end

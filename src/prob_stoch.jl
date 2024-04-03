@@ -43,7 +43,7 @@ function solve_mp(t, delta, stepnr)
 
     update_startstates_mp(stepnr, t)
     update_endstates_sp(stepnr, t)
-    perform_scenmod_sp(stepnr)
+    perform_scenmod_sp()
     update_prices_mp(stepnr)
     update_prices_sp(stepnr)
     update_statedependent_mp(stepnr)
@@ -203,7 +203,7 @@ function update_sp(t)
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
             sp = db_sp[(scenix, subix)]
-            scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "phaseintime")
+            scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
             update!(sp.prob, scentime)
         end
     end
@@ -361,7 +361,7 @@ function update_endstates_sp(stepnr, t)
             storages = getstorages(getobjects(sp.prob))
             if endvaluemethod_sp == "monthly_price"
                 exogenprice = findfirstprice(getobjects(sp.prob))
-                scentime = get_scenariotime(t, get_scenarios(db.scenmod_stoch)[scenix], db.input, "normaltime")
+                scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
                 scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
 
                 for obj in storages
@@ -433,8 +433,8 @@ end
 
 function get_startstates_stoch_from_input(db, t)
     settings = get_settings(db)
-    dummystorages = getstorages(db.dummyobjects)
-    get_startstates!(db.startstates, settings["problems"]["stochastic"], get_dataset(db), db.dummyobjects, dummystorages, t)
+    dummystorages = getstorages(first(db.dummyobjects))
+    get_startstates!(db.startstates, settings["problems"]["stochastic"], get_dataset(db), first(db.dummyobjects), dummystorages, t)
     startstates_max!(dummystorages, t, db.startstates)
     return
 end
@@ -444,12 +444,12 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
     subsystem = get_subsystems(db)[subix]
     subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subix, startduration, endduration)
 
-    add_prices!(subelements, subsystem, numperiods_powerhorizon)
+    aggzonecopl = get_aggzonecopl(get_settings(db.input))
+    change_elements!(subelements, aggzonecopl)
 
-    aggzone = get_aggzone(get_settings(db.input))
-    change_elements!(subelements, aggzone)
+    add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
 
-    modelobjects = getmodelobjects(elements, validate=false)
+    modelobjects = getmodelobjects(subelements, validate=false)
 
     if master == true
         # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
@@ -465,14 +465,7 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
-function change_elements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) # TODO: Replace with more user settings
-    aggzonecopl = Dict()
-    for (k,v) in aggzone
-        for vv in v
-            aggzonecopl["PowerBalance_" * vv] = "PowerBalance_" * k
-        end
-    end
-    
+function change_elements!(elements::Vector{DataElement}; aggzonecopl::Dict=Dict()) # TODO: Replace with more user settings    
     delix = []
     powerbasebalances = []
     for (i,element) in enumerate(elements)
@@ -496,16 +489,30 @@ function change_elements!(elements::Vector{DataElement}; aggzone::Dict=Dict()) #
     return elements
 end
 
-add_prices!(elements, subsystem::ExogenSubsystem, numperiods_powerhorizon) = nothing
-function add_prices!(elements, subsystem, numperiods_powerhorizon)
-    priceareas = get_priceareas(subsystem)
-    for area in priceareas
-        push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", "PowerBalance_" * area, 
-        (COMMODITY_CONCEPT, "Power"),
-        (PRICE_CONCEPT, "Price_" * area)))
-        push!(elements, getelement(PRICE_CONCEPT, "VectorPrice", "Price_" * area,
-        ("Vector", zeros(Float64, numperiods_powerhorizon))))
+add_prices!(elements, subsystem::ExogenSubsystem, numperiods_powerhorizon, aggzonecopl) = nothing
+function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
+    priceareas_added = []
+
+    for element in elements
+        if element.conceptname == "Arrow"
+            if element.value["Balance"] in keys(aggzonecopl)
+                pricearea = element.value["Balance"]
+            else
+                pricearea = aggzonecopl[element.value["Balance"]]
+            end
+            if !(pricearea in priceareas_added)
+                push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", pricearea, 
+                (COMMODITY_CONCEPT, "Power"),
+                (PRICE_CONCEPT, "Price_" * pricearea)))
+                push!(elements, getelement(PRICE_CONCEPT, "VectorPrice", "Price_" * pricearea,
+                ("Vector", zeros(Float64, numperiods_powerhorizon))))
+
+                push!(priceareas_added, pricearea)
+            end
+            
+        end
     end
+
     return 
 end
 

@@ -1,5 +1,4 @@
 get_prob(cp::ClearingProblem) = cp.prob
-get_states(cp::ClearingProblem) = cp.states
 get_endstates(cp::ClearingProblem) = cp.endstates
 
 get_startstates_from_cp() = get_endstates(get_local_db().cp)
@@ -38,12 +37,14 @@ function create_cp(db::LocalDB)
     end
 
     probmethod = parse_methods(settings["problems"]["clearing"]["solver"])
-    prob = buildprob(longprobmethod, longobjects)
+    prob = buildprob(probmethod, modelobjects)
+
+    db.cp = ClearingProblem(prob, Dict{String, Float64}())
 
     return
 end
 
-function solve_cp(T, t, delta, stepnr)
+function solve_cp(t, delta, stepnr)
     db = get_local_db()
 
     if db.core_cp == db.core
@@ -54,6 +55,7 @@ function solve_cp(T, t, delta, stepnr)
         update!(db.cp.prob, t)
         set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
         solve!(db.cp.prob)
+        get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
     end
 end
 
@@ -98,7 +100,7 @@ function update_statedependent_cp(db, stepnr, t)
 
     # Headlosscosts
     if get_headlosscost(settings["problems"]["clearing"])
-        for (_subix, _core) in db.dist_stoch
+        for (_subix, _core) in db.dist_mp
             future = @spawnat _core get_headlosscost_data(subix, t)
             headlosscost_data = fetch(future)
 
@@ -139,7 +141,7 @@ function get_nonstoragestates_short(scenix)
 end
 
 function update_cuts(db)
-    for (_subix, _core) in db.dist_stoch
+    for (_subix, _core) in db.dist_mp
         future = @spawnat _core get_cutsdata(subix)
         cutid, constants, slopes = fetch(future)
 
@@ -168,7 +170,11 @@ function update_startstates_cp(db, stepnr, t)
         end
     end
 
-    set_startstates!(db.cp.prob, get_storages(db.cp.prob), db.startstates)
+    if stepnr == 1
+        set_startstates!(db.cp.prob, getstorages(getobjects(db.cp.prob)), db.startstates)
+    else
+        set_startstates!(db.cp.prob, getobjects(db.cp.prob), db.startstates)
+    end
 end
 
 # Util functions create_cp ------------------------------------------------------------------------------------
