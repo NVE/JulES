@@ -499,55 +499,57 @@ function update_output(t::ProbTime, stepnr::Int)
     settings = get_settings(db)
     steps = get_steps(db)
 
-    termduration = parse_duration(settings["horizons"]["clearing"], "termduration")
-    periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
-    periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
-    numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
-    numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
+    if haskey(settings["results"], "mainresults")
+        termduration = parse_duration(settings["horizons"]["clearing"], "termduration")
+        periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
+        periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+        numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
+        numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
-    if db.core_cp == db.core
-        if stepnr != db.stepnr_startstates
-            get_startstates_from_cp(db)
-            db.stepnr_startstates = stepnr
-        end
-
-        if stepnr == 1
-            db.output.statenames = collect(keys(db.startstates))
-            db.output.statematrix = zeros(length(values(db.startstates)), Int(steps))
-
-            db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
-            if settings["results"]["mainresults"] == "all"
-                resultobjects = getobjects(db.cp.prob) # collect results for all areas
-            else
-                resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
+        if db.core_cp == db.core
+            if stepnr != db.stepnr_startstates
+                get_startstates_from_cp(db)
+                db.stepnr_startstates = stepnr
             end
 
-            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
-            db.output.powerbalances = powerbalances
-            db.output.rhsterms = rhsterms
-            db.output.rhstermbalances = rhstermbalances
-            db.output.plants = plants
-            db.output.plantbalances = plantbalances
-            db.output.plantarrows = plantarrows
-            db.output.demands = demands
-            db.output.demandbalances = demandbalances
-            db.output.demandarrows = demandarrows
-            db.output.hydrostorages = hydrostorages
-            db.output.batterystorages = batterystorages
+            if stepnr == 1
+                db.output.statenames = collect(keys(db.startstates))
+                db.output.statematrix = zeros(length(values(db.startstates)), Int(steps))
 
-            db.output.prices = zeros(Int(numperiods_powerhorizon*steps), length(db.output.powerbalances))
-            db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.rhsterms))
-            db.output.production = zeros(Int(numperiods_powerhorizon*steps), length(db.output.plants))
-            db.output.consumption = zeros(Int(numperiods_powerhorizon*steps), length(db.output.demands))
-            db.output.hydrolevels = zeros(Int(numperiods_hydrohorizon*steps), length(db.output.hydrostorages))
-            db.output.batterylevels = zeros(Int(numperiods_powerhorizon*steps), length(db.output.batterystorages))
+                db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
+                if settings["results"]["mainresults"] == "all"
+                    resultobjects = getobjects(db.cp.prob) # collect results for all areas
+                else
+                    resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
+                end
+
+                powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
+                db.output.powerbalances = powerbalances
+                db.output.rhsterms = rhsterms
+                db.output.rhstermbalances = rhstermbalances
+                db.output.plants = plants
+                db.output.plantbalances = plantbalances
+                db.output.plantarrows = plantarrows
+                db.output.demands = demands
+                db.output.demandbalances = demandbalances
+                db.output.demandarrows = demandarrows
+                db.output.hydrostorages = hydrostorages
+                db.output.batterystorages = batterystorages
+
+                db.output.prices = zeros(Int(numperiods_powerhorizon*steps), length(db.output.powerbalances))
+                db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.rhsterms))
+                db.output.production = zeros(Int(numperiods_powerhorizon*steps), length(db.output.plants))
+                db.output.consumption = zeros(Int(numperiods_powerhorizon*steps), length(db.output.demands))
+                db.output.hydrolevels = zeros(Int(numperiods_hydrohorizon*steps), length(db.output.hydrostorages))
+                db.output.batterylevels = zeros(Int(numperiods_powerhorizon*steps), length(db.output.batterystorages))
+            end
+
+            db.output.statematrix[:,stepnr] .= collect(values(db.startstates))
+
+            powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
+            hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
+            get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
         end
-
-        db.output.statematrix[:,stepnr] .= collect(values(db.startstates))
-
-        powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
-        hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
-        get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 end
 
