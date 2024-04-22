@@ -1,6 +1,6 @@
 module JulES
 
-using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames
+using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames, JulES
 include("abstract_types.jl") 
 include("dimension_types.jl")
 include("generic_io.jl") 
