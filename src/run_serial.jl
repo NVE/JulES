@@ -14,26 +14,27 @@ Design goals
 
 # TODO: setup docstrings for automatic documentation
 
-function run_serial(output::AbstractJulESOutput, input::AbstractJulESInput)
-    (t, N, delta, skipmed, skipmax) = init_jules(output, input)
+function run_serial(input::AbstractJulESInput)
+    (t, N, delta, skipmed, skipmax) = init_jules(input)
     for stepnr in 1:N
-        step_jules(output, t, delta, stepnr, skipmed)
+        step_jules(t, delta, stepnr, skipmed)
         t += delta
         skipmed += Millisecond(delta)
         if skipmed > skipmax
             skipmed = Millisecond(0)
         end
     end
-    cleanup_jules(output)
-    return
+    output = get_output_final()
+    cleanup_jules(input)
+    return output
 end
 
-function init_jules(output::AbstractJulESOutput, input::AbstractJulESInput)
+function init_jules(input::AbstractJulESInput)
     (t, N, delta, skipmed, skipmax) = get_simperiod(input)
 
     init_databases(input)
 
-    # preallocate_output(output, input) TODO
+    # TODO: Possibly preallocate output here
     
     return (t, N, delta, skipmed, skipmax)
 end
@@ -41,11 +42,10 @@ end
 """
 Free local databases and clean-up temporary stuff in output-object
 """
-function cleanup_jules(output::AbstractJulESOutput)
-    @sync for core in get_cores(output)
+function cleanup_jules(input::DefaultJulESInput)
+    @sync for core in get_cores(input)
         @spawnat core free_local_db()
     end
-    cleanup_output(output)
     return
 end
 
@@ -128,6 +128,13 @@ function init_databases(input::AbstractJulESInput)
             @spawnat core add_local_problems(core)
         end
     end
+
+    println("Add local output")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_output(core)
+        end
+    end
     return
 end
 
@@ -140,6 +147,19 @@ except the core that owns the input-object.
 function add_local_input(input::AbstractJulESInput)
     db = get_local_db()
     db.input = input
+    return
+end
+
+"""
+Output in same local db as clearing problem
+"""
+
+function add_local_output(thiscore)
+    db = get_local_db()
+
+    if thiscore == db.core_cp
+        db.output = get_output_from_input(db.input)
+    end
     return
 end
 
@@ -485,9 +505,9 @@ function add_local_problems(thiscore)
 end
 
 # TODO: Use or remove delta
-function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
-    cores = get_cores(output)
-    T = typeof(output) # So we can dispatch on output-type (to add extensibility)
+function step_jules(t, delta, stepnr, skipmed)
+    db = get_local_db()
+    cores = get_cores(db)
 
     println(t)
 
@@ -535,7 +555,12 @@ function step_jules(output::AbstractJulESOutput, t, delta, stepnr, skipmed)
         end
     end
 
-    # update_output(output, t, delta, stepnr) # TODO
+    println("Update output")
+    @time begin
+        @sync for core in cores
+            @spawnat core update_output(t, stepnr)
+        end
+    end
 
     # do dynamic load balancing here
     return

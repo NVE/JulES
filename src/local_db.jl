@@ -39,6 +39,7 @@ mutable struct LocalDB
     core::CoreId
     
     input::Union{Nothing, AbstractJulESInput}
+    output::Union{Nothing, AbstractJulESOutput}
     horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
 
     dummyobjects::Tuple
@@ -78,13 +79,14 @@ mutable struct LocalDB
             -1,
         
             nothing,   # input
+            nothing,   # output
             Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
 
             (),   # dummyobjects
             (),   # dummyobjects_ppp
 
             Dict{String, Float64}(),    # startstates
-            1,                          # stepnr_startstates
+            -1,                          # stepnr_startstates
 
             AbstractSubsystem[],       # subsystems
             AbstractSubsystem[],       # subsystems_evp
@@ -115,6 +117,7 @@ end
 
 get_core(db::LocalDB) = db.core
 get_input(db::LocalDB) = db.input
+get_output(db::LocalDB) = db.output
 get_horizons(db::LocalDB) = db.horizons
 get_dummyobjects(db::LocalDB) = db.dummyobjects
 get_dummyobjects_ppp(db::LocalDB) = db.dummyobjects_ppp
@@ -143,6 +146,8 @@ get_cores(db::LocalDB) = get_cores(get_input(db))
 get_dataset(db::LocalDB) = get_dataset(get_input(db))
 get_mainconfig(db::LocalDB) = get_mainconfig(get_input(db))
 get_settings(db::LocalDB) = get_settings(get_input(db))
+get_datayear(db::LocalDB) = get_datayear(get_input(db))
+get_weatheryear(db::LocalDB) = get_weatheryear(get_input(db))
 get_onlysubsystemmodel(db::LocalDB) = get_onlysubsystemmodel(get_input(db))
 get_steps(db::LocalDB) = get_steps(get_input(db))
 get_steplength(db::LocalDB) = get_steplength(get_input(db))

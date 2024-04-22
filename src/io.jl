@@ -7,6 +7,8 @@ struct DefaultJulESInput <: AbstractJulESInput
     dataset::Dict
     mainconfig::Dict
     settings::Dict
+    datayear::Int
+    weatheryear::Int
     onlysubsystemmodel::Bool # TODO: can probably remove this
 
     steps::Int
@@ -60,7 +62,7 @@ struct DefaultJulESInput <: AbstractJulESInput
 
         horizons = get_horizons(settings, datayear)
 
-        return new(cores, dataset, mainconfig, settings, onlysubsystemmodel,
+        return new(cores, dataset, mainconfig, settings, datayear, weatheryear, onlysubsystemmodel,
             steps, steplength, simstarttime, scenmod_data,
             tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps,
             horizons)
@@ -74,6 +76,8 @@ get_elements_ppp(input::DefaultJulESInput) = get_dataset(input)["elements_ppp"]
 
 get_mainconfig(input::DefaultJulESInput) = input.mainconfig
 get_settings(input::DefaultJulESInput) = input.settings
+get_datayear(input::DefaultJulESInput) = input.datayear
+get_weatheryear(input::DefaultJulESInput) = input.weatheryear
 get_onlysubsystemmodel(input::DefaultJulESInput) = input.onlysubsystemmodel
 
 get_steps(input::DefaultJulESInput) = input.steps
@@ -459,12 +463,199 @@ end
 
 
 # -----------------------------------------------------------
-struct DefaultJulESOutput <: AbstractJulESOutput
-    cores::Vector{CoreId}
+mutable struct DefaultJulESOutput <: AbstractJulESOutput
+    prices::Array{Float64}
+    rhstermvalues::Array{Float64}
+    production::Array{Float64}
+    consumption::Array{Float64}
+    hydrolevels::Array{Float64}
+    batterylevels::Array{Float64}
+    
+    modelobjects::Dict
+    powerbalances::Vector
+    rhsterms::Vector
+    rhstermbalances::Vector
+    plants::Vector
+    plantbalances::Vector
+    plantarrows::Dict
+    demands::Vector
+    demandbalances::Vector
+    demandarrows::Dict
+    hydrostorages::Vector
+    batterystorages::Vector
+
+    statenames::Vector{String}
+    statematrix::Array{Float64} # end states after each step
+
     function DefaultJulESOutput(input)
-        cores = get_cores(input)
-        return new(cores)
+        return new([],[],[],[],[],[],Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
     end
 end
+
 get_cores(output::DefaultJulESOutput) = output.cores
-cleanup_output(output) = nothing
+
+function update_output(t::ProbTime, stepnr::Int)
+    db = get_local_db()
+    settings = get_settings(db)
+    steps = get_steps(db)
+
+    termduration = parse_duration(settings["horizons"]["clearing"], "termduration")
+    periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
+    periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+    numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
+    numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
+
+    if db.core_cp == db.core
+        if stepnr != db.stepnr_startstates
+            get_startstates_from_cp(db)
+            db.stepnr_startstates = stepnr
+        end
+
+        if stepnr == 1
+            db.output.statenames = collect(keys(db.startstates))
+            db.output.statematrix = zeros(length(values(db.startstates)), Int(steps))
+
+            db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
+            if settings["results"]["mainresults"] == "all"
+                resultobjects = getobjects(db.cp.prob) # collect results for all areas
+            else
+                resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
+            end
+
+            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
+            db.output.powerbalances = powerbalances
+            db.output.rhsterms = rhsterms
+            db.output.rhstermbalances = rhstermbalances
+            db.output.plants = plants
+            db.output.plantbalances = plantbalances
+            db.output.plantarrows = plantarrows
+            db.output.demands = demands
+            db.output.demandbalances = demandbalances
+            db.output.demandarrows = demandarrows
+            db.output.hydrostorages = hydrostorages
+            db.output.batterystorages = batterystorages
+
+            db.output.prices = zeros(Int(numperiods_powerhorizon*steps), length(db.output.powerbalances))
+            db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.rhsterms))
+            db.output.production = zeros(Int(numperiods_powerhorizon*steps), length(db.output.plants))
+            db.output.consumption = zeros(Int(numperiods_powerhorizon*steps), length(db.output.demands))
+            db.output.hydrolevels = zeros(Int(numperiods_hydrohorizon*steps), length(db.output.hydrostorages))
+            db.output.batterylevels = zeros(Int(numperiods_powerhorizon*steps), length(db.output.batterystorages))
+        end
+
+        db.output.statematrix[:,stepnr] .= collect(values(db.startstates))
+
+        powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
+        hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
+        get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+    end
+end
+
+get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
+
+function get_output_final()
+    db = get_local_db()
+
+    f = @spawnat db.core_cp get_output_final_local()
+    output = fetch(f)
+
+    return output
+end
+function get_output_final_local()
+    db = get_local_db()
+    settings = get_settings(db)
+    mainconfig = get_mainconfig(db)
+
+    data = Dict()
+
+    if haskey(settings["results"], "mainresults")
+        steps = get_steps(db)
+        steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
+        periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
+        periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+
+        # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)
+        rhstermtotals = dropdims(sum(db.output.rhstermvalues,dims=1),dims=1)
+        rhstermsupplyidx = []
+        rhstermdemandidx = []
+
+        for k in 1:length(db.output.rhsterms)
+            if rhstermtotals[k] > 0
+                push!(rhstermsupplyidx, k)
+            elseif rhstermtotals[k] < 0
+                push!(rhstermdemandidx, k)
+            end
+        end
+
+        # Put rhsterms together with supplies and demands
+        rhstermsupplyvalues = db.output.rhstermvalues[:,rhstermsupplyidx]
+        rhstermdemandvalues = db.output.rhstermvalues[:,rhstermdemandidx]*-1
+
+        rhstermsupplynames = [getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermsupplyidx]]
+        rhstermsupplybalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermsupplyidx]]
+        rhstermdemandnames = [getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermdemandidx]]
+        rhstermdemandbalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermdemandidx]]
+
+        supplynames = [[getinstancename(plant) for plant in db.output.plants];rhstermsupplynames]
+        supplybalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in db.output.plantbalances];rhstermsupplybalancenames]
+        supplyvalues = hcat(db.output.production,rhstermsupplyvalues)
+
+        demandnames = [[getinstancename(demand) for demand in db.output.demands];rhstermdemandnames]
+        demandbalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in db.output.demandbalances];rhstermdemandbalancenames]
+        demandvalues = hcat(db.output.consumption, rhstermdemandvalues)
+
+        # Prepare for plotting results
+        hydronames = [getinstancename(hydro) for hydro in db.output.hydrostorages]
+        batterynames = [getinstancename(battery) for battery in db.output.batterystorages]
+        powerbalancenames = [split(getinstancename(getid(powerbalance)), "PowerBalance_")[2] for powerbalance in db.output.powerbalances]
+
+        # Convert reservoir filling to TWh
+        hydrolevels1 = copy(db.output.hydrolevels)
+        for (i,hydroname) in enumerate(hydronames)
+            if haskey(getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata, GLOBALENEQKEY)
+                hydrolevels1[:,i] .= hydrolevels1[:,i]*getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata[GLOBALENEQKEY]
+            end
+        end
+
+        # Indexes
+        dim = getoutputindex(mainconfig, get_datayear(db), get_weatheryear(db))
+        x1 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
+        x2 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
+        x3 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + steplength*(t-1) for t in 1:steps]; # state resolution
+
+        outputformat = mainconfig["outputformat"]
+        if outputformat != "juliadict"
+            datetimeformat = mainconfig["datetimeformat"]
+            x1 = Dates.format.(x1, datetimeformat)
+            x2 = Dates.format.(x2, datetimeformat)
+            x3 = Dates.format.(x3, datetimeformat)
+        end
+
+        data["areanames"] = powerbalancenames |> Vector{String}
+        data["pricematrix"] = db.output.prices
+        data["priceindex"] = x1
+
+        data["resnames"] = hydronames
+        data["resmatrix"] = hydrolevels1
+        data["resindex"] =  x2
+
+        data["batnames"] = batterynames
+        data["batmatrix"] = db.output.batterylevels
+        data["batindex"] =  x2
+
+        data["statenames"] = db.output.statenames
+        data["statematrix"] = permutedims(db.output.statematrix)
+        data["stateindex"] =  x3
+
+        data["supplyvalues"] = supplyvalues
+        data["supplynames"] = supplynames
+        data["supplybalancenames"] = supplybalancenames
+
+        data["demandvalues"] = demandvalues
+        data["demandnames"] = demandnames
+        data["demandbalancenames"] = demandbalancenames
+    end
+
+    return data
+end
+

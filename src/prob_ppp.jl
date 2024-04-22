@@ -5,7 +5,12 @@ get_nonstoragestates_short(ppp::PricePrognosisProblem) = ppp.nonstoragestates_sh
 
 function create_ppp(db::LocalDB, scenix::Int)
     settings = get_settings(db.input)
-    elements_ppp = get_elements_ppp(db.input)
+
+    if haskey(get_dataset(db), "elements_ppp")
+        elements = get_elements_ppp(db.input)
+    else
+        elements = get_elements(db.input)
+    end
 
     horizons = get_horizons(db)
     lhh = horizons[(scenix, "long", "Hydro")]
@@ -21,7 +26,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     residualarealist = settings["problems"]["prognosis"]["residualarealist"]
 
     # Create long problems
-    longobjects = make_obj(elements_ppp, lhh, lph)
+    longobjects = make_obj(elements, lhh, lph)
     simplify!(longobjects; aggzone=aggzone, aggsupplyn=aggsupplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
     add_PowerUpperSlack!(longobjects)
 
@@ -29,7 +34,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     longprob = buildprob(longprobmethod, longobjects)
 
     # Create med problems
-    medobjects = make_obj(elements_ppp, mhh, mph)
+    medobjects = make_obj(elements, mhh, mph)
     simplify!(medobjects; aggzone=aggzone, aggsupplyn=aggsupplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
     add_PowerUpperSlack!(medobjects)
 
@@ -43,7 +48,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     push!(medprob.objects, medendvaluesobj) # push end values object to med problem objects
 
     # Create short problems
-    shortobjects = make_obj(elements_ppp, shh, sph)
+    shortobjects = make_obj(elements, shh, sph)
     simplify!(shortobjects; aggzone=aggzone, removestartup=false)
     add_PowerUpperSlack!(shortobjects)
 
