@@ -264,7 +264,8 @@ function get_subsystems(db)
                 end
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 priceareas = get_priceareas(storagesystem)
-                subsystem = StochSubsystem(commodities, priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]), "start_equal_stop")
+                skipmed_impact = false
+                subsystem = StochSubsystem(commodities, priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]), "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
 
@@ -279,7 +280,8 @@ function get_subsystems(db)
                 end
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 priceareas = get_priceareas(storagesystem)
-                subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp")
+                skipmed_impact = true
+                subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp", skipmed_impact)
                 push!(subsystems, subsystem)
             end
         else
@@ -533,7 +535,7 @@ function step_jules(t, delta, stepnr, skipmed)
         wait(f)
 
         @sync for core in cores
-            @spawnat core solve_evp(t, delta, stepnr)
+            @spawnat core solve_evp(t, delta, stepnr, skipmed)
         end
     end
 
@@ -544,14 +546,14 @@ function step_jules(t, delta, stepnr, skipmed)
         wait(f)
 
         @sync for core in cores
-            @spawnat core solve_mp(t, delta, stepnr)
+            @spawnat core solve_mp(t, delta, stepnr, skipmed)
         end
     end
 
     println("Clearing problem")
     @time begin
         @sync for core in cores
-            @spawnat core solve_cp(t, delta, stepnr)
+            @spawnat core solve_cp(t, delta, stepnr, skipmed)
         end
     end
 

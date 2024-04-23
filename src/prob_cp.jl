@@ -44,12 +44,12 @@ function create_cp(db::LocalDB)
     return
 end
 
-function solve_cp(t, delta, stepnr)
+function solve_cp(t, delta, stepnr, skipmed)
     db = get_local_db()
 
     if db.core_cp == db.core
         update_startstates_cp(db, stepnr, t)
-        update_cuts(db)
+        update_cuts(db, skipmed)
         update_nonstoragestates_cp(db)
         update_statedependent_cp(db, stepnr, t)
         update!(db.cp.prob, t)
@@ -140,16 +140,18 @@ function get_nonstoragestates_short(scenix)
     return db.ppp[scenix].nonstoragestates_short
 end
 
-function update_cuts(db)
+function update_cuts(db, skipmed)
     for (_subix, _core) in db.dist_mp
-        future = @spawnat _core get_cutsdata(subix)
-        cutid, constants, slopes = fetch(future)
+        if skipmed_check(_subix, skipmed)
+            future = @spawnat _core get_cutsdata(subix)
+            cutid, constants, slopes = fetch(future)
 
-        cuts_cp = find_obj_by_id(getobjects(db.cp.prob), cutid)
-        cuts_cp.constants = constants
-        cuts_cp.slopes = slopes
+            cuts_cp = find_obj_by_id(getobjects(db.cp.prob), cutid)
+            cuts_cp.constants = constants
+            cuts_cp.slopes = slopes
 
-        updatecuts!(db.cp.prob, cuts_cp)
+            updatecuts!(db.cp.prob, cuts_cp)
+        end
     end
 end
 

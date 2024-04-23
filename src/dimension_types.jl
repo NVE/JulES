@@ -29,6 +29,7 @@ struct EVPSubsystem <: AbstractSubsystem
     duration_evp::Millisecond
     duration_stoch::Millisecond
     endvaluemethod_evp::String
+    skipmed_impact::Bool
 end
 get_commodities(subsystem::EVPSubsystem) = subsystem.commodities
 get_priceareas(subsystem::EVPSubsystem) = subsystem.priceareas
@@ -39,6 +40,7 @@ is_subsystem_evp(subsystem::EVPSubsystem) = true
 is_subsystem_stoch(subsystem::EVPSubsystem) = true
 get_endvaluemethod_evp(subsystem::EVPSubsystem) = subsystem.endvaluemethod_evp
 get_endvaluemethod_sp(subsystem::EVPSubsystem) = "evp"
+get_skipmed_impact(subsystem::EVPSubsystem) = subsystem.skipmed_impact
 
 # Collects end value from price prognosis models
 struct StochSubsystem <: AbstractSubsystem
@@ -47,6 +49,7 @@ struct StochSubsystem <: AbstractSubsystem
     dataelements::Vector{Int}
     duration_stoch::Millisecond
     endvaluemethod_sp::String
+    skipmed_impact::Bool
 end
 get_commodities(subsystem::StochSubsystem) = subsystem.commodities
 get_priceareas(subsystem::StochSubsystem) = subsystem.priceareas
@@ -55,6 +58,7 @@ get_duration_stoch(subsystem::StochSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::StochSubsystem) = false
 is_subsystem_stoch(subsystem::StochSubsystem) = true
 get_endvaluemethod_sp(subsystem::StochSubsystem) = subsystem.endvaluemethod_sp
+get_skipmed_impact(subsystem::StochSubsystem) = subsystem.skipmed_impact
 
 # Only subsystem model (no ppp, evp or cp)
 struct ExogenSubsystem <: AbstractSubsystem 
@@ -65,3 +69,4 @@ get_commodities(subsystem::ExogenSubsystem) = subsystem.commodities
 is_subsystem_evp(subsystem::ExogenSubsystem) = false
 is_subsystem_stoch(subsystem::ExogenSubsystem) = true
 get_endvaluemethod_sp(subsystem::ExogenSubsystem) = subsystem.endvaluemethod_sp
+get_skipmed_impact(subsystem::ExogenSubsystem) = false

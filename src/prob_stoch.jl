@@ -38,112 +38,116 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
-function solve_mp(t, delta, stepnr)
+function solve_mp(t, delta, stepnr, skipmed)
     db = get_local_db()
 
-    update_startstates_mp(stepnr, t)
-    update_endstates_sp(stepnr, t)
-    perform_scenmod_sp()
-    update_prices_mp(stepnr)
-    update_prices_sp(stepnr)
-    update_statedependent_mp(stepnr)
-    update_mp(t)
-    update_sp(t)
-    solve_benders(stepnr)
-    final_solve_mp(t)
+    update_startstates_mp(stepnr, t, skipmed)
+    update_endstates_sp(stepnr, t, skipmed)
+    perform_scenmod_sp(skipmed)
+    update_prices_mp(stepnr, skipmed)
+    update_prices_sp(stepnr, skipmed)
+    update_statedependent_mp(stepnr, skipmed)
+    update_mp(t, skipmed)
+    update_sp(t, skipmed)
+    solve_benders(stepnr, skipmed)
+    final_solve_mp(t, skipmed)
 end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
 
-function final_solve_mp(t::ProbTime)
+function final_solve_mp(t::ProbTime, skipmed)
     db = get_local_db()
     settings = get_settings(db)
 
     if get_headlosscost(settings["problems"]["stochastic"]["master"])
         for (subix, core) in db.dist_mp
             if core == db.core
-                mp = db.mp[subix]
+                if skipmed_check(subix, skipmed)
+                    mp = db.mp[subix]
 
-                updateheadlosscosts!(ReservoirCurveSlopeMethod(), mp.prob, [mp.prob], t)
-                solve!(mp.prob)
-                resetheadlosscosts!(mp.prob)
+                    updateheadlosscosts!(ReservoirCurveSlopeMethod(), mp.prob, [mp.prob], t)
+                    solve!(mp.prob)
+                    resetheadlosscosts!(mp.prob)
+                end
             end
         end
     end
 end
 
-function solve_benders(stepnr)
+function solve_benders(stepnr, skipmed)
     db = get_local_db()
     settings = get_settings(db)
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            mp = db.mp[subix]
+            if skipmed_check(subix, skipmed)
+                mp = db.mp[subix]
 
-            count = 0
-            cutreuse = false
-            ub = 0
-            lb = mp.cuts.lower_bound
-            reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-
-            while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-
-                count == 0 && setwarmstart!(mp.prob, false)
-        
-                if cutreuse # try to reuse cuts from last time step
-                    try
-                        solve!(mp.prob)
-                    catch
-                        count == 0 && println("Retrying first iteration without cuts from last time step")
-                        count > 0 && println("Restarting iterations without cuts from last time step")
-                        clearcuts!(mp.prob, mp.cuts)
-                        solve!(mp.prob)
-                        cutreuse = false
-                    end
-                else
-                    solve!(mp.prob)
-                end
-        
-                lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
+                count = 0
+                cutreuse = false
                 ub = 0
-        
-                count == 0 && setwarmstart!(mp.prob, true)
-                (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
-                
-                getoutgoingstates!(mp.prob, mp.states)
-                cutix = oldcutix + 1
-                if cutix > maxcuts
-                    cutix = 1
-                end
+                lb = mp.cuts.lower_bound
+                reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
-                @sync for (_scenix, _subix, _core) in db.dist_sp
-                    if _subix == subix
-                        @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
+
+                    count == 0 && setwarmstart!(mp.prob, false)
+            
+                    if cutreuse # try to reuse cuts from last time step
+                        try
+                            solve!(mp.prob)
+                        catch
+                            count == 0 && println("Retrying first iteration without cuts from last time step")
+                            count > 0 && println("Restarting iterations without cuts from last time step")
+                            clearcuts!(mp.prob, mp.cuts)
+                            solve!(mp.prob)
+                            cutreuse = false
+                        end
+                    else
+                        solve!(mp.prob)
                     end
-                end
-
-                for (_scenix, _subix, _core) in db.dist_sp
-                    if _subix == subix
-                        future = @spawnat _core get_data_sp(_scenix, _subix)
-                        objectivevalue, scenslopes, scenconstants = fetch(future)
-
-                        ub += objectivevalue*mp.cuts.probabilities[_scenix]
-                        mp.cuts.scenslopes[_scenix, cutix, :] .= scenscenslopes
-                        mp.cuts.scenconstants[_scenix, cutix] = scenconstant
+            
+                    lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
+                    ub = 0
+            
+                    count == 0 && setwarmstart!(mp.prob, true)
+                    (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
+                    
+                    getoutgoingstates!(mp.prob, mp.states)
+                    cutix = oldcutix + 1
+                    if cutix > maxcuts
+                        cutix = 1
                     end
+
+                    @sync for (_scenix, _subix, _core) in db.dist_sp
+                        if _subix == subix
+                            @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                        end
+                    end
+
+                    for (_scenix, _subix, _core) in db.dist_sp
+                        if _subix == subix
+                            future = @spawnat _core get_data_sp(_scenix, _subix)
+                            objectivevalue, scenslopes, scenconstants = fetch(future)
+
+                            ub += objectivevalue*mp.cuts.probabilities[_scenix]
+                            mp.cuts.scenslopes[_scenix, cutix, :] .= scenscenslopes
+                            mp.cuts.scenconstants[_scenix, cutix] = scenconstant
+                        end
+                    end
+            
+                    updatecutparameters!(mp.prob, mp.cuts)
+                    if (count == 0 && cutreuse) 
+                        updatecuts!(mp.prob, mp.cuts)
+                    else
+                        updatelastcut!(mp.prob, mp.cuts)
+                    end
+                    count += 1
+                    # display(ub)
+                    # display(abs((lb-ub)/lb))
+                    # display(abs(ub-lb))
+                    # display(cuts.slopes)
                 end
-        
-                updatecutparameters!(mp.prob, mp.cuts)
-                if (count == 0 && cutreuse) 
-                    updatecuts!(mp.prob, mp.cuts)
-                else
-                    updatelastcut!(mp.prob, mp.cuts)
-                end
-                count += 1
-                # display(ub)
-                # display(abs((lb-ub)/lb))
-                # display(abs(ub-lb))
-                # display(cuts.slopes)
             end
         end
     end
@@ -185,32 +189,36 @@ function get_scencutparameters!(sp::ScenarioProblem, states::Dict{StateVariableI
     return
 end
 
-function update_mp(t)
+function update_mp(t, skipmed)
     db = get_local_db()
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            mp = db.mp[subix]
-            update!(mp.prob, t)
+            if skipmed_check(subix, skipmed)
+                mp = db.mp[subix]
+                update!(mp.prob, t)
+            end
         end
     end
     return
 end
 
-function update_sp(t)
+function update_sp(t, skipmed)
     db = get_local_db()
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            sp = db_sp[(scenix, subix)]
-            scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
-            update!(sp.prob, scentime)
+            if skipmed_check(subix, skipmed)
+                sp = db_sp[(scenix, subix)]
+                scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
+                update!(sp.prob, scentime)
+            end
         end
     end
     return
 end
 
-function update_statedependent_mp(stepnr)
+function update_statedependent_mp(stepnr, skipmed)
     db = get_local_db()
     settings = get_settings(db)
 
@@ -221,25 +229,29 @@ function update_statedependent_mp(stepnr)
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            mp = db.mp[subix]
-            get_statedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp.prob, db.startstates, init=init)
-            get_statedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp.prob, db.startstates)
+            if skipmed_check(subix, skipmed)
+                mp = db.mp[subix]
+                get_statedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp.prob, db.startstates, init=init)
+                get_statedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp.prob, db.startstates)
+            end
         end
     end
     return
 end
 
-function update_prices_mp(stepnr)
+function update_prices_mp(stepnr, skipmed)
     db = get_local_db()
     scenix = 1 # Which price to use for master problem?
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            mp = db.mp[subix]
-            subsystem = db.subsystems[subix]
-            duration_stoch = get_duration_stoch(subsystem)
-            for obj in getobjects(mp.prob)
-                update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
+            if skipmed_check(subix, skipmed)
+                mp = db.mp[subix]
+                subsystem = db.subsystems[subix]
+                duration_stoch = get_duration_stoch(subsystem)
+                for obj in getobjects(mp.prob)
+                    update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
+                end
             end
         end
     end
@@ -247,16 +259,18 @@ function update_prices_mp(stepnr)
     return
 end
 
-function update_prices_sp(stepnr)
+function update_prices_sp(stepnr, skipmed)
     db = get_local_db()
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            sp = db_sp[(scenix, subix)]
-            subsystem = db.subsystems[subix]
-            duration_stoch = get_duration_stoch(subsystem)
-            for obj in getobjects(sp.prob)
-                update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
+            if skipmed_check(subix, skipmed)
+                sp = db_sp[(scenix, subix)]
+                subsystem = db.subsystems[subix]
+                duration_stoch = get_duration_stoch(subsystem)
+                for obj in getobjects(sp.prob)
+                    update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
+                end
             end
         end
     end
@@ -335,58 +349,62 @@ function get_ppp_term(ppp, term::TermName)
     end
 end
 
-function perform_scenmod_sp()
+function perform_scenmod_sp(skipmed)
     db = get_local_db()
 
     scenmod_stoch = get_scenmod_stoch(db)
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            sp = db_sp[(scenix, subix)]
-            perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
+            if skipmed_check(subix, skipmed)
+                sp = db_sp[(scenix, subix)]
+                perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
+            end
         end
     end
 
     return
 end
 
-function update_endstates_sp(stepnr, t)
+function update_endstates_sp(stepnr, t, skipmed)
     db = get_local_db()
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            sp = db_sp[(scenix, subix)]
-            subsystem = get_subsystems(db)[subix]
-            endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
+            if skipmed_check(subix, skipmed)
+                sp = db_sp[(scenix, subix)]
+                subsystem = get_subsystems(db)[subix]
+                endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
 
-            storages = getstorages(getobjects(sp.prob))
-            if endvaluemethod_sp == "monthly_price"
-                exogenprice = findfirstprice(getobjects(sp.prob))
-                scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
-                scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
+                storages = getstorages(getobjects(sp.prob))
+                if endvaluemethod_sp == "monthly_price"
+                    exogenprice = findfirstprice(getobjects(sp.prob))
+                    scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
+                    scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
 
-                for obj in storages
-                    enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
-                    T = getnumperiods(gethorizon(getbalance(obj)))
-                    setobjcoeff!(sp.prob, getid(obj), T, -enddual)
-                end
-            elseif endvaluemethod_sp == "startequalstop"
-                setendstates!(sp.prob, storages, startstates)
-            elseif endvaluemethod_sp == "evp"
-                for obj in storages
-                    commodity = getcommodity(getbalance(obj))
-                    duration_stoch = get_duration_stoch(subsystem)
-                    term_ppp = get_term_ppp(db, subix, scenix, duration_stoch)
-                    horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
-                    period = getendperiodfromduration(horizon_evp, duration_stoch)
+                    for obj in storages
+                        enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
+                        T = getnumperiods(gethorizon(getbalance(obj)))
+                        setobjcoeff!(sp.prob, getid(obj), T, -enddual)
+                    end
+                elseif endvaluemethod_sp == "startequalstop"
+                    setendstates!(sp.prob, storages, startstates)
+                elseif endvaluemethod_sp == "evp"
+                    for obj in storages
+                        commodity = getcommodity(getbalance(obj))
+                        duration_stoch = get_duration_stoch(subsystem)
+                        term_ppp = get_term_ppp(db, subix, scenix, duration_stoch)
+                        horizon_evp = db.horizons[(scenix, term_ppp, commodity)]
+                        period = getendperiodfromduration(horizon_evp, duration_stoch)
 
-                    core_evp = get_core_evp(db, scenix, subix)
-                    bid = getid(getbalance(storage))
-                    future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period)
-                    dual_evp = fetch(future)
+                        core_evp = get_core_evp(db, scenix, subix)
+                        bid = getid(getbalance(storage))
+                        future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period)
+                        dual_evp = fetch(future)
 
-                    setobjcoeff!(p, getid(obj), period, dual_evp)
-                end
-            end # TODO: Endvalue from ppp
+                        setobjcoeff!(p, getid(obj), period, dual_evp)
+                    end
+                end # TODO: Endvalue from ppp
+            end
         end
     end
 
@@ -409,7 +427,7 @@ function get_balancedual_evp(scenix, subix, bid, period)
     return dual_evp
 end
 
-function update_startstates_mp(stepnr, t)
+function update_startstates_mp(stepnr, t, skipmed)
     db = get_local_db()
 
     # TODO: Check if any of the scenarios are on this core first
@@ -425,8 +443,10 @@ function update_startstates_mp(stepnr, t)
     # TODO: set nonstorage startstates
     for (subix, core) in db.dist_mp
         if core == db.core
-            mp = db.mp[subix]
-            set_startstates!(mp.prob, get_storages(mp.prob), db.startstates)
+            if skipmed_check(subix, skipmed)
+                mp = db.mp[subix]
+                set_startstates!(mp.prob, get_storages(mp.prob), db.startstates)
+            end
         end
     end
 end
