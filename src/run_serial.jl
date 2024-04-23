@@ -269,7 +269,7 @@ function get_subsystems(db)
             end
 
             longtermstoragesystems = getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            for storagesystem in storagesystems
+            for storagesystem in longtermstoragesystems
                 subsystemdeps = Int[]
                 for obj in storagesystem
                     objdeps = dependencies[getid(obj)]
