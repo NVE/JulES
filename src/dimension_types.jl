@@ -12,6 +12,7 @@ const LongTermName = "long"
 const ClearingTermName = "clearing"
 const CommodityName = String
 const CoreId = Int
+const MainTiming = "maintiming"
 
 mutable struct WeatherScenario <: AbstractScenario
     weatheroffset::Millisecond # as an offset from the simulationtime

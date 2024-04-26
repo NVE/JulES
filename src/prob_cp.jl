@@ -39,7 +39,7 @@ function create_cp(db::LocalDB)
     probmethod = parse_methods(settings["problems"]["clearing"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
-    db.cp = ClearingProblem(prob, Dict{String, Float64}())
+    db.cp = ClearingProblem(prob, Dict{String, Float64}(), Dict())
 
     return
 end
@@ -48,14 +48,17 @@ function solve_cp(t, delta, stepnr, skipmed)
     db = get_local_db()
 
     if db.core_cp == db.core
-        update_startstates_cp(db, stepnr, t)
-        update_cuts(db, skipmed)
-        update_nonstoragestates_cp(db)
-        update_statedependent_cp(db, stepnr, t)
-        update!(db.cp.prob, t)
-        set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
-        solve!(db.cp.prob)
-        get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
+        timing = db.output.timing_cp
+        timing[stepnr, 3] = @elapsed begin
+            update_startstates_cp(db, stepnr, t)
+            update_cuts(db, skipmed)
+            update_nonstoragestates_cp(db)
+            update_statedependent_cp(db, stepnr, t)
+            timing[stepnr, 1] = @elapsed update!(db.cp.prob, t)
+            set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
+            timing[stepnr, 2] = @elapsed solve!(db.cp.prob)
+            get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
+        end
     end
 end
 
@@ -163,15 +166,6 @@ function get_cutsdata(subix)
 end
 
 function update_startstates_cp(db, stepnr, t)
-    if stepnr == 1 # TODO: Might already be done by stoch or evp
-        get_startstates_stoch_from_input(db, t)
-    else # TODO: Copies all startstates
-        if stepnr != db.stepnr_startstates
-            get_startstates_from_cp(db)
-            db.stepnr_startstates = stepnr
-        end
-    end
-
     if stepnr == 1
         set_startstates!(db.cp.prob, getstorages(getobjects(db.cp.prob)), db.startstates)
     else

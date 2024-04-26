@@ -17,7 +17,7 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     probmethod = parse_methods(settings["problems"]["stochastic"]["master"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
-    db.mp[subix] = MasterProblem(prob, cuts, states)
+    db.mp[subix] = MasterProblem(prob, cuts, states, Dict())
 
     return
 end
@@ -33,15 +33,25 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     probmethod = parse_methods(settings["problems"]["stochastic"]["sub"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
-    db.sp[(scenix, subix)] = ScenarioProblem(prob)
+    db.sp[(scenix, subix)] = ScenarioProblem(prob, Dict())
 
     return
 end
 
-function solve_mp(t, delta, stepnr, skipmed)
-    db = get_local_db()
+# TODO: Work in progress
+# function update_mp(t, delta, stepnr, skipmed)
 
-    update_startstates_mp(stepnr, t, skipmed)
+#     for (subix, core) in db.dist_mp
+#         if core == db.core
+#             update_mp_local(subix)
+
+# function solve_mp(t, delta, stepnr, skipmed)
+#     for (subix, core) in db.dist_mp
+#         if core == db.core
+#             solve_mp_local(subix)
+
+function solve_mp(t, delta, stepnr, skipmed)
+    update_startstates_mp(stepnr, t, skipmed) # gjør dette en gang i starten av step
     update_endstates_sp(stepnr, t, skipmed)
     perform_scenmod_sp(skipmed)
     update_prices_mp(stepnr, skipmed)
@@ -429,16 +439,6 @@ end
 
 function update_startstates_mp(stepnr, t, skipmed)
     db = get_local_db()
-
-    # TODO: Check if any of the scenarios are on this core first
-    if stepnr == 1 # TODO: Might already be done by evp
-        get_startstates_stoch_from_input(db, t)
-    else # TODO: Copies all startstates
-        if stepnr != db.stepnr_startstates
-            get_startstates_from_cp(db)
-            db.stepnr_startstates = stepnr
-        end
-    end 
         
     # TODO: set nonstorage startstates
     for (subix, core) in db.dist_mp
@@ -449,14 +449,6 @@ function update_startstates_mp(stepnr, t, skipmed)
             end
         end
     end
-end
-
-function get_startstates_stoch_from_input(db, t)
-    settings = get_settings(db)
-    dummystorages = getstorages(first(db.dummyobjects))
-    get_startstates!(db.startstates, settings["problems"]["stochastic"], get_dataset(db), first(db.dummyobjects), dummystorages, t)
-    startstates_max!(dummystorages, t, db.startstates)
-    return
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------

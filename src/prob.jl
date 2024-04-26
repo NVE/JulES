@@ -1,11 +1,13 @@
 struct ClearingProblem
     prob::Prob
     endstates::Dict{String, Float64} # startstates in next iteration
+    div::Dict
 end
 # TODO: also preallocate clearingstates?
 
 struct EndValueProblem
     prob::Prob
+    div::Dict
 end
 
 struct PricePrognosisProblem
@@ -13,16 +15,19 @@ struct PricePrognosisProblem
     medprob::Prob
     shortprob::Prob
     nonstoragestates_short::Dict{StateVariableInfo, Float64}
+    div::Dict
 end
 
 struct MasterProblem
     prob::Prob
     cuts::SimpleSingleCuts
     states::Dict{StateVariableInfo, Float64}
+    div::Dict
 end
 
 struct ScenarioProblem
     prob::Prob
     scenslopes::Vector{Float64}
     scenconstant::Float64
+    div::Dict
 end

@@ -137,6 +137,71 @@ function get_states(modelobjects::Vector)
     return states
 end
 
+# Startstates-------------------------------------------------------------------------------------
+function update_startstates(stepnr, t)
+    db = get_local_db()
+    settings = get_settings(db)
+
+    if stepnr == 1
+        if haskey(settings["problems"], "prognosis")
+            dummyobjects_ppp = first(db.dummyobjects_ppp)
+            dummystorages_ppp = getstorages(dummyobjects_ppp)
+            get_startstates!(db.startstates, settings["problems"]["prognosis"], get_dataset(db), dummyobjects_ppp, dummystorages_ppp, t)
+            startstates_max!(dummystorages_ppp, t, db.startstates)
+        end
+        if haskey(settings["problems"], "endvalue")
+            dummyobjects = first(db.dummyobjects)
+            dummystorages = getstorages(dummyobjects)
+            get_startstates!(db.startstates, settings["problems"]["endvalue"], get_dataset(db), dummyobjects, dummystorages, t)
+            startstates_max!(dummystorages, t, db.startstates)
+        end
+        bothequal = false
+        if haskey(settings["problems"], "endvalue") && haskey(settings["problems"], "stochastic")
+            if settings["problems"]["endvalue"] == settings["problems"]["stochastic"]
+                bothequal = true
+            end
+        end
+        if haskey(settings["problems"], "stochastic") && !bothequal
+            dummyobjects = first(db.dummyobjects)
+            dummystorages = getstorages(dummyobjects)
+            get_startstates!(db.startstates, settings["problems"]["stochastic"], get_dataset(db), dummyobjects, dummystorages, t)
+            startstates_max!(dummystorages, t, db.startstates)
+        end
+    else
+        get_startstates_from_cp(db.startstates, db.core_cp)
+    end
+end
+
+function get_startstates_from_cp(startstates, core)
+    f = @spawnat core get_startstates_from_cp()
+    startstates_cp = fetch(f)
+
+    for (k, v) in startstates_cp
+        startstates[k] = v
+    end
+    return 
+end
+
+function setstartstates!(p::Prob, startstates::Dict{String, Float64})
+    storages = getstorages(getobjects(p))
+    set_startstates!(p, storages, startstates)
+    return
+end
+
+function get_startstates!(startstates::Dict, problemconfig::Dict, dataset::Dict, objects::Dict, storages::Vector, tnormal::ProbTime)
+    startstorages = problemconfig["startstorages"]
+    if startstorages["function"] == "percentages"
+        shorttermstorages = getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
+        longtermstorages = setdiff(storages, shorttermstorages)
+        merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
+        merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
+    elseif startstorages["function"] == "percentage"
+        merge!(startstates, getstartstoragepercentage(storages, tnormal, startstorages["percentage"]))
+    elseif haskey(dataset, startstorages["function"])
+        merge!(startstates, dataset[startstorages["function"]])
+    end
+end
+
 # Initialize max startstates and cap at maximum
 function startstates_max!(objects::Vector, t::ProbTime, startstates::Dict)
     for obj in objects

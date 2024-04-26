@@ -46,7 +46,6 @@ mutable struct LocalDB
     dummyobjects_ppp::Tuple # TODO: Move dummyobjects, scenariogeneration and subsystems to io?
 
     startstates::Dict{String, Float64}
-    stepnr_startstates::Int
 
     subsystems::Vector{AbstractSubsystem}
     subsystems_evp::Vector{Tuple{SubsystemIx, AbstractSubsystem}}
@@ -86,7 +85,6 @@ mutable struct LocalDB
             (),   # dummyobjects_ppp
 
             Dict{String, Float64}(),    # startstates
-            -1,                          # stepnr_startstates
 
             AbstractSubsystem[],       # subsystems
             AbstractSubsystem[],       # subsystems_evp
@@ -122,7 +120,6 @@ get_horizons(db::LocalDB) = db.horizons
 get_dummyobjects(db::LocalDB) = db.dummyobjects
 get_dummyobjects_ppp(db::LocalDB) = db.dummyobjects_ppp
 get_startstates(db::LocalDB) = db.startstates
-get_stepnr_startstates(db::LocalDB) = db.stepnr_startstates
 get_subsystems(db::LocalDB) = db.subsystems
 get_subsystems_evp(db::LocalDB) = db.subsystems_evp
 get_subsystems_stoch(db::LocalDB) = db.subsystems_stoch

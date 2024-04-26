@@ -464,6 +464,14 @@ end
 
 # -----------------------------------------------------------
 mutable struct DefaultJulESOutput <: AbstractJulESOutput
+    timing_ppp::Dict
+    timing_evp::Dict
+    timing_mp::Dict
+    timing_sp::Dict
+    timing_cp::Array
+
+    # TODO: info on scenix -> scenario for each step
+
     prices::Array{Float64}
     rhstermvalues::Array{Float64}
     production::Array{Float64}
@@ -488,16 +496,47 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     statematrix::Array{Float64} # end states after each step
 
     function DefaultJulESOutput(input)
-        return new([],[],[],[],[],[],Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
+        return new(Dict(),Dict(),Dict(),Dict(),[],[],[],[],[],[],[],Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
     end
 end
 
 get_cores(output::DefaultJulESOutput) = output.cores
 
+function init_local_output()
+    db = get_local_db()
+    db.output = get_output_from_input(db.input)
+
+    steps = get_steps(db)
+
+    for (scenix, core) in db.dist_ppp
+        db.output.timing_ppp[scenix] = zeros(steps, 3, 3) # TODO: Matrix more flexible long term, and array instead of dict?
+    end
+
+    # TODO
+    # for (subix, core) in db.dist_evp
+    #     db.output.timing_evp[subix] = zeros(steps, 5)
+    # end
+
+    # for (subix, core) in db.dist_mp
+    #     db.output.timing_mp[subix] = zeros(steps, 5)
+    # end
+
+    # for (scenix, subix, core) in db.dist_sp
+    #     db.output.timing_sp[(scenix, subix)] = zeros(steps, 5)
+    # end
+
+    db.output.timing_cp = zeros(steps, 3)
+end
+
 function update_output(t::ProbTime, stepnr::Int)
     db = get_local_db()
     settings = get_settings(db)
     steps = get_steps(db)
+
+    for (scenix, core) in db.dist_ppp
+        f = @spawnat core get_maintiming_ppp(scenix)
+        db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
+    end
 
     if haskey(settings["results"], "mainresults")
         termduration = parse_duration(settings["horizons"]["clearing"], "termduration")
@@ -506,69 +545,129 @@ function update_output(t::ProbTime, stepnr::Int)
         numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
         numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
-        if db.core_cp == db.core
-            if stepnr != db.stepnr_startstates
-                get_startstates_from_cp(db)
-                db.stepnr_startstates = stepnr
+        if stepnr == 1
+            db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
+            if settings["results"]["mainresults"] == "all"
+                resultobjects = getobjects(db.cp.prob) # collect results for all areas
+            else
+                resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
             end
 
-            if stepnr == 1
-                db.output.statenames = collect(keys(db.startstates))
-                db.output.statematrix = zeros(length(values(db.startstates)), Int(steps))
+            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
+            db.output.powerbalances = powerbalances
+            db.output.rhsterms = rhsterms
+            db.output.rhstermbalances = rhstermbalances
+            db.output.plants = plants
+            db.output.plantbalances = plantbalances
+            db.output.plantarrows = plantarrows
+            db.output.demands = demands
+            db.output.demandbalances = demandbalances
+            db.output.demandarrows = demandarrows
+            db.output.hydrostorages = hydrostorages
+            db.output.batterystorages = batterystorages
 
-                db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
-                if settings["results"]["mainresults"] == "all"
-                    resultobjects = getobjects(db.cp.prob) # collect results for all areas
-                else
-                    resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
-                end
-
-                powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
-                db.output.powerbalances = powerbalances
-                db.output.rhsterms = rhsterms
-                db.output.rhstermbalances = rhstermbalances
-                db.output.plants = plants
-                db.output.plantbalances = plantbalances
-                db.output.plantarrows = plantarrows
-                db.output.demands = demands
-                db.output.demandbalances = demandbalances
-                db.output.demandarrows = demandarrows
-                db.output.hydrostorages = hydrostorages
-                db.output.batterystorages = batterystorages
-
-                db.output.prices = zeros(Int(numperiods_powerhorizon*steps), length(db.output.powerbalances))
-                db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.rhsterms))
-                db.output.production = zeros(Int(numperiods_powerhorizon*steps), length(db.output.plants))
-                db.output.consumption = zeros(Int(numperiods_powerhorizon*steps), length(db.output.demands))
-                db.output.hydrolevels = zeros(Int(numperiods_hydrohorizon*steps), length(db.output.hydrostorages))
-                db.output.batterylevels = zeros(Int(numperiods_powerhorizon*steps), length(db.output.batterystorages))
-            end
-
-            db.output.statematrix[:,stepnr] .= collect(values(db.startstates))
-
-            powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
-            hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
-            get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+            db.output.prices = zeros(Int(numperiods_powerhorizon*steps), length(db.output.powerbalances))
+            db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.rhsterms))
+            db.output.production = zeros(Int(numperiods_powerhorizon*steps), length(db.output.plants))
+            db.output.consumption = zeros(Int(numperiods_powerhorizon*steps), length(db.output.demands))
+            db.output.hydrolevels = zeros(Int(numperiods_hydrohorizon*steps), length(db.output.hydrostorages))
+            db.output.batterylevels = zeros(Int(numperiods_powerhorizon*steps), length(db.output.batterystorages))
         end
+
+        if stepnr == 2 
+            db.output.statenames = collect(keys(db.startstates))
+            db.output.statematrix = zeros(length(values(db.startstates)), Int(steps))
+        end
+        if stepnr != 1
+            db.output.statematrix[:,stepnr-1] .= collect(values(db.startstates))
+        end
+
+        powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
+        hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
+        get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 end
 
 get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
 
-function get_output_final()
-    db = get_local_db()
+get_maintiming_ppp(scenix) = get_local_db().ppp[scenix].div[MainTiming]
 
-    f = @spawnat db.core_cp get_output_final_local()
-    output = fetch(f)
+function get_output_final(steplength, skipmax)
+    output = get_output_main()
+
+    get_output_timing(output, steplength, skipmax)
 
     return output
 end
-function get_output_final_local()
+
+function get_output_timing(output, steplength, skipmax)
+    db = get_local_db()
+
+    f = @spawnat db.core_cp get_output_timing_local(output, steplength, skipmax)
+    wait(f)
+end
+
+function get_output_timing_local(data, steplength, skipmax)
+    db = get_local_db()
+    settings = get_settings(db)
+    
+    timing_cp = get_timing_cp_local()
+
+    timings_ppp = []
+    for (scenix, values) in db.output.timing_ppp
+        push!(timings_ppp, values)
+    end
+
+    skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
+    if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing") # TODO: Split up
+        factors = [skipfactor,skipfactor,1]
+        dims = size(timings_ppp[1])
+        dims = (dims..., length(timings_ppp))
+        timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
+        timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
+        progclear = vcat(timings_ppp2, mean(timing_cp, dims=1))
+        df = DataFrame(model=["long","med","short","clearing"], update=progclear[:,1], solve=progclear[:,2], total=progclear[:,3])
+        df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
+        display(df[!, [1, 2, 3, 5, 4]])
+    end
+
+    if settings["results"]["times"]
+        if haskey(settings["problems"], "prognosis") 
+            data["prognosistimes"] = timings_ppp1
+        end
+        # if haskey(settings["problems"], "stochastic") 
+        #     data["stochastictimes"] = st1
+        # end
+        if haskey(settings["problems"], "clearing")
+            data["clearingtimes"] = timing_cp
+        end
+    end
+end
+
+function get_output_main()
+    db = get_local_db()
+    f = @spawnat db.core_cp get_output_cp_local()
+    return fetch(f)
+end
+
+function get_timing_cp_local()
+    db = get_local_db()
+    return db.output.timing_cp
+end
+
+function get_output_cp_local()
     db = get_local_db()
     settings = get_settings(db)
     mainconfig = get_mainconfig(db)
 
     data = Dict()
+
+    # Final update of statevariables
+    startstates_cp = get_startstates_from_cp()
+    for (k, v) in startstates_cp
+        db.startstates[k] = v
+    end
+    db.output.statematrix[:,get_steps(db)] .= collect(values(db.startstates))
 
     if haskey(settings["results"], "mainresults")
         steps = get_steps(db)

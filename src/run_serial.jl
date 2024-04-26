@@ -24,7 +24,7 @@ function run_serial(input::AbstractJulESInput)
             skipmed = Millisecond(0)
         end
     end
-    output = get_output_final()
+    output = get_output_final(delta, skipmax)
     cleanup_jules(input)
     return output
 end
@@ -33,8 +33,6 @@ function init_jules(input::AbstractJulESInput)
     (t, N, delta, skipmed, skipmax) = get_simperiod(input)
 
     init_databases(input)
-
-    # TODO: Possibly preallocate output here
     
     return (t, N, delta, skipmed, skipmax)
 end
@@ -131,9 +129,7 @@ function init_databases(input::AbstractJulESInput)
 
     println("Add local output")
     @time begin
-        @sync for core in cores
-            @spawnat core add_local_output(core)
-        end
+        add_local_output()
     end
     return
 end
@@ -151,16 +147,14 @@ function add_local_input(input::AbstractJulESInput)
 end
 
 """
-Output in same local db as clearing problem
+Store output on same core as cp
+Needs to have all info and kept updated for load balancing
+Updated after each simulation step
 """
-
-function add_local_output(thiscore)
+function add_local_output()
     db = get_local_db()
-
-    if thiscore == db.core_cp
-        db.output = get_output_from_input(db.input)
-    end
-    return
+    f = @spawnat db.core_cp init_local_output()
+    wait(f)
 end
 
 """
@@ -513,6 +507,13 @@ function step_jules(t, delta, stepnr, skipmed)
 
     println(t)
 
+    println("Startstates")
+    @time begin
+        @sync for core in cores
+            @spawnat core update_startstates(stepnr, t)
+        end
+    end
+
     println("Price prognosis problems")
     @time begin
         c = first(cores)
@@ -525,6 +526,10 @@ function step_jules(t, delta, stepnr, skipmed)
 
         @sync for core in cores
             @spawnat core solve_ppp(t, delta, stepnr, skipmed)
+        end
+
+        @sync for core in cores
+            @spawnat core synchronize_horizons(skipmed)
         end
     end
 
@@ -559,9 +564,7 @@ function step_jules(t, delta, stepnr, skipmed)
 
     println("Update output")
     @time begin
-        @sync for core in cores
-            @spawnat core update_output(t, stepnr)
-        end
+        @spawnat db.core_cp update_output(t, stepnr)
     end
 
     # do dynamic load balancing here
