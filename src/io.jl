@@ -512,10 +512,9 @@ function init_local_output()
         db.output.timing_ppp[scenix] = zeros(steps, 3, 3) # TODO: Matrix more flexible long term, and array instead of dict?
     end
 
-    # TODO
-    # for (subix, core) in db.dist_evp
-    #     db.output.timing_evp[subix] = zeros(steps, 5)
-    # end
+    for (scenix, subix, core) in db.dist_evp
+        db.output.timing_evp[(scenix, subix)] = zeros(steps, 3)
+    end
 
     # for (subix, core) in db.dist_mp
     #     db.output.timing_mp[subix] = zeros(steps, 5)
@@ -536,6 +535,11 @@ function update_output(t::ProbTime, stepnr::Int)
     for (scenix, core) in db.dist_ppp
         f = @spawnat core get_maintiming_ppp(scenix)
         db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
+    end
+
+    for (scenix, subix, core) in db.dist_evp
+        f = @spawnat core get_maintiming_evp(scenix, subix)
+        db.output.timing_evp[(scenix, subix)][stepnr, :] .= fetch(f)
     end
 
     if haskey(settings["results"], "mainresults")
@@ -591,6 +595,7 @@ end
 get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
 
 get_maintiming_ppp(scenix) = get_local_db().ppp[scenix].div[MainTiming]
+get_maintiming_evp(scenix, subix) = get_local_db().evp[(scenix, subix)].div[MainTiming]
 
 function get_output_final(steplength, skipmax)
     output = get_output_main()
@@ -610,6 +615,8 @@ end
 function get_output_timing_local(data, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
+
+    skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
     
     timing_cp = get_timing_cp_local()
 
@@ -618,22 +625,41 @@ function get_output_timing_local(data, steplength, skipmax)
         push!(timings_ppp, values)
     end
 
-    skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
-    if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing") # TODO: Split up
+    # TODO: Add subix name
+    df_evp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "total", "core", "skipmed"]])
+    for (scenix, subix, core) in db.dist_evp
+        values = dropdims(mean(db.output.timing_evp[(scenix, subix)], dims=1), dims=1)
+        f = @spawnat core get_skipmed_impact(subix)
+        push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+    end
+    df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .* skipfactor
+    df_evp1 = combine(groupby(df_evp, [:subix]), 
+    :update => sum, 
+    :solve => sum, 
+    :total => sum)
+    df_evp2 = sort(df_evp1, :total_sum, rev=true)
+    timings_evp = mean.(eachcol(select(df_evp1, Not([:subix]))))
+
+    if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing")
         factors = [skipfactor,skipfactor,1]
         dims = size(timings_ppp[1])
         dims = (dims..., length(timings_ppp))
         timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
         timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
-        progclear = vcat(timings_ppp2, mean(timing_cp, dims=1))
-        df = DataFrame(model=["long","med","short","clearing"], update=progclear[:,1], solve=progclear[:,2], total=progclear[:,3])
+        all = vcat(timings_ppp2, reshape(timings_evp,1,3), mean(timing_cp, dims=1))
+        df = DataFrame(model=["long","med","short","evp","clearing"], update=all[:,1], solve=all[:,2], total=all[:,3])
         df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
         display(df[!, [1, 2, 3, 5, 4]])
     end
 
+    display(df_evp2)
+
     if settings["results"]["times"]
         if haskey(settings["problems"], "prognosis") 
             data["prognosistimes"] = timings_ppp1
+        end
+        if haskey(settings["problems"], "endvalue") 
+            data["endvaluetimes"] = db.output.timing_evp
         end
         # if haskey(settings["problems"], "stochastic") 
         #     data["stochastictimes"] = st1
@@ -643,6 +669,8 @@ function get_output_timing_local(data, steplength, skipmax)
         end
     end
 end
+
+get_skipmed_impact(subix) = get_skipmed_impact(get_local_db().subsystems[subix])
 
 function get_output_main()
     db = get_local_db()

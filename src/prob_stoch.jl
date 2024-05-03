@@ -72,7 +72,8 @@ function final_solve_mp(t::ProbTime, skipmed)
     if get_headlosscost(settings["problems"]["stochastic"]["master"])
         for (subix, core) in db.dist_mp
             if core == db.core
-                if skipmed_check(subix, skipmed)
+                subsystem = db.subsystems[subix]
+                if skipmed_check(subsystem, skipmed)
                     mp = db.mp[subix]
 
                     updateheadlosscosts!(ReservoirCurveSlopeMethod(), mp.prob, [mp.prob], t)
@@ -90,7 +91,8 @@ function solve_benders(stepnr, skipmed)
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
 
                 count = 0
@@ -204,7 +206,8 @@ function update_mp(t, skipmed)
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
                 update!(mp.prob, t)
             end
@@ -218,7 +221,8 @@ function update_sp(t, skipmed)
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 sp = db_sp[(scenix, subix)]
                 scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
                 update!(sp.prob, scentime)
@@ -239,7 +243,8 @@ function update_statedependent_mp(stepnr, skipmed)
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
                 get_statedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(mp.prob, db.startstates, init=init)
                 get_statedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(mp.prob, db.startstates)
@@ -255,9 +260,9 @@ function update_prices_mp(stepnr, skipmed)
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
-                subsystem = db.subsystems[subix]
                 duration_stoch = get_duration_stoch(subsystem)
                 for obj in getobjects(mp.prob)
                     update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
@@ -274,9 +279,9 @@ function update_prices_sp(stepnr, skipmed)
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 sp = db_sp[(scenix, subix)]
-                subsystem = db.subsystems[subix]
                 duration_stoch = get_duration_stoch(subsystem)
                 for obj in getobjects(sp.prob)
                     update_prices_obj(db, scenix, subix, stepnr, obj, duration_stoch)
@@ -291,7 +296,7 @@ end
 function update_prices_obj(db, scenix, subix, stepnr, obj, duration)
     if obj isa ExogenBalance
         term_ppp = get_term_ppp(db, subix, scenix, duration)
-        periods = get_periods(gethorizon(obj)) # TODO: Implement get_periods
+        periods = getperiods(gethorizon(obj))
         bid = getid(obj)
 
         isupdated = isupdated_prices(db, scenix, term_ppp, bid, stepnr)
@@ -305,7 +310,7 @@ end
 function update_local_price(db, scenix, term_ppp, bid)
     core_ppp = get_core_ppp(db, scenix)
     future = @spawnat core_ppp get_prices_from_core(scenix, term_ppp, bid)
-    db.prices_ppp[(scenix, term_ppp, bid)] = fetch(future) # TODO: Should we collect all prices or just relevant periods?
+    db.prices_ppp[(scenix, term_ppp, bid)] = (true, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
 end
 
 function get_core_ppp(db::LocalDB, scenix)
@@ -343,7 +348,7 @@ function get_prices_from_core(scenix, term_ppp, bid)
 
     ppp = get_ppp_term(db.ppp[scenix], term_ppp)
 
-    obj = find_obj_by_id(ppp, bid)
+    obj = find_obj_by_id(ppp.objects, bid)
     horizon = gethorizon(obj)
 
     return [getcondual(ppp, bid, t) for t in 1:getnumperiods(horizon)]
@@ -365,7 +370,8 @@ function perform_scenmod_sp(skipmed)
     scenmod_stoch = get_scenmod_stoch(db)
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 sp = db_sp[(scenix, subix)]
                 perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
             end
@@ -380,7 +386,8 @@ function update_endstates_sp(stepnr, t, skipmed)
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 sp = db_sp[(scenix, subix)]
                 subsystem = get_subsystems(db)[subix]
                 endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
@@ -443,7 +450,8 @@ function update_startstates_mp(stepnr, t, skipmed)
     # TODO: set nonstorage startstates
     for (subix, core) in db.dist_mp
         if core == db.core
-            if skipmed_check(subix, skipmed)
+            subsystem = db.subsystems[subix]
+            if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
                 set_startstates!(mp.prob, get_storages(mp.prob), db.startstates)
             end
@@ -454,7 +462,9 @@ end
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
 function make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, master)
     subsystem = get_subsystems(db)[subix]
-    subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subix, startduration, endduration)
+    duration_stoch = get_duration_stoch(subsystem)
+    term_ppp = get_term_ppp(db, subix, scenix, duration_stoch)
+    subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
 
     aggzonecopl = get_aggzonecopl(get_settings(db.input))
     change_elements!(subelements, aggzonecopl)
@@ -503,37 +513,25 @@ end
 
 add_prices!(elements, subsystem::ExogenSubsystem, numperiods_powerhorizon, aggzonecopl) = nothing
 function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
-    priceareas_added = []
-
-    for element in elements
-        if element.conceptname == "Arrow"
-            if element.value["Balance"] in keys(aggzonecopl)
-                pricearea = element.value["Balance"]
-            else
-                pricearea = aggzonecopl[element.value["Balance"]]
-            end
-            if !(pricearea in priceareas_added)
-                push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", pricearea, 
-                (COMMODITY_CONCEPT, "Power"),
-                (PRICE_CONCEPT, "Price_" * pricearea)))
-                push!(elements, getelement(PRICE_CONCEPT, "VectorPrice", "Price_" * pricearea,
-                ("Vector", zeros(Float64, numperiods_powerhorizon))))
-
-                push!(priceareas_added, pricearea)
-            end
-            
+    for pricearea in subsystem.priceareas
+        if pricearea in keys(aggzonecopl)
+            pricearea = aggzonecopl[element.value["Balance"]]
         end
-    end
 
+        push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", pricearea, 
+        (COMMODITY_CONCEPT, "Power"),
+        (PRICE_CONCEPT, "Price_" * pricearea)))
+        push!(elements, getelement(PRICE_CONCEPT, "VectorPrice", "Price_" * pricearea,
+        ("Vector", zeros(Float64, numperiods_powerhorizon))))
+    end
     return 
 end
 
-function get_elements_with_horizons(db, scenix, subix, startduration, endduration)
-    subsystem = get_subsystems(db)[subix]
+function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
     horizons = get_horizons(db)
     subelements = get_subelements(db, subsystem)
-    duration_stoch = get_duration_stoch(subsystem)
-    term_ppp = get_term_ppp(db, subix, scenix, duration_stoch)
+    local numperiods_powerhorizon::Int
+
     for commodity in get_commodities(subsystem)
         horizon = get_shortenedhorizon(horizons, scenix, term_ppp, commodity, startduration, endduration)
         set_horizon!(subelements, commodity, horizon)
@@ -544,9 +542,9 @@ function get_elements_with_horizons(db, scenix, subix, startduration, endduratio
     return subelements, numperiods_powerhorizon
 end
 
-get_subelements(db, subsystem::ExogenSubsystem) = copy(get_elements(db))
+get_subelements(db, subsystem::ExogenSubsystem) = copy(get_elements(db.input))
 function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
-    elements = get_elements(db)
+    elements = get_elements(db.input)
     return copy(elements[subsystem.dataelements])
 end
 
@@ -567,7 +565,7 @@ function get_term_ppp(db::LocalDB, subix::SubsystemIx, scenix::ScenarioIx, durat
         return MedTermName
     end
     horizon_long = horizons[(scenix, LongTermName, dummycommodity)]
-    @assert duration < getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
+    @assert duration <= getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
     return LongTermName   
 end
 
@@ -579,7 +577,6 @@ function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, Commodi
         startperiod = getendperiodfromduration(subhorizon, startduration) + 1
     end
     endperiod = getendperiodfromduration(subhorizon, endduration)
-
     return ShortenedHorizon(subhorizon, startperiod, endperiod)
 end
 

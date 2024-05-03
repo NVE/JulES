@@ -140,6 +140,8 @@ function solve_ppp(t, steplength, stepnr, skipmed)
                     maintiming[1, 2] = @elapsed update!(p.medprob, scentime)
                     maintiming[2, 2] = @elapsed solve!(p.medprob)
                 end
+            else
+                fill!(maintiming[:,1:2], 0.0)
             end
 
             maintiming[3, 3] = @elapsed begin

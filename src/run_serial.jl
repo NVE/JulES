@@ -94,7 +94,7 @@ function init_databases(input::AbstractJulESInput)
     println("Add local subsystems")
     @time begin
         c = first(cores)
-        future = @spawnat c add_local_subsystems(c)
+        future = @spawnat c add_local_subsystems()
         wait(future)
     end
 
@@ -217,65 +217,158 @@ end
 Make vector of subsystems
 """
 
-function add_local_subsystems(thiscore)
+function add_local_subsystems()
     db = get_local_db()
 
-    subsystems = get_subsystems(db)
+    subsystems = create_subsystems(db)
     subsystems_evp = get_subsystems_evp(subsystems)
     subsystems_stoch = get_subsystems_stoch(subsystems)
 
     cores = get_cores(db.input)
     @sync for core in cores
-        if core != thiscore
-            @spawnat core set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
-        end
+        @spawnat core set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
     end
 
     return
 end
 
 # TODO: Implement this function for different methods
-function get_subsystems(db)
-    subsystems = []
+function create_subsystems(db)
+    elements = get_elements(db.input)
+    subsystems = AbstractSubsystem[]
+    modelobjects, dependencies = db.dummyobjects
+    deep_dependencies = get_deep_dependencies(elements, dependencies)
     if get_onlysubsystemmodel(db.input)
-        commodities = get_commoditites_from_dataelements(get_elements(db.input))
+        commodities = get_commodities_from_dataelements(get_elements(db.input))
         endvaluemethod_sp = get_settings(db.input)["subsystems"]["endvaluemethod_sp"] # TODO: Parse to struct
         return push!(subsystems, ExogenSubsystem(commodities, endvaluemethod_sp))
     else
         settings = get_settings(db.input)
         method = settings["subsystems"]["function"]
         if method == "twostorageduration"
-            modelobjects, dependencies = db.dummyobjects
             storagesystems = getstoragesystems(modelobjects)
             shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            println("Number of shortterm storagesystems $(length(shorttermstoragesystems))")
             for storagesystem in shorttermstoragesystems
-                subsystemdeps = Int[]
+                main = Set()
+                all = Set()
                 for obj in storagesystem
-                    objdeps = dependencies[getid(obj)]
-                    for dep in objdeps
-                        push!(subsystemdeps, dep)
+                    i, element = get_element_from_obj(elements, obj)
+                    for dep in deep_dependencies[element]
+                        # println(getelkey(elements[i]))
+                        push!(main, i)
+                        push!(all, i)
                     end
                 end
-                commodities = get_commodities_from_storagesystem(storagesystem)
+
+                for (_i, _element) in enumerate(elements)
+                    _deps = deep_dependencies[_element]
+                    _add = false
+                    for _dep in _deps
+                        if _dep in main
+                            _add = true
+                        end
+                    end
+                    if _add
+                        for _dep in _deps
+                            if !(_dep in all)
+                                elkey = getelkey(elements[_dep])
+                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                    # println(elkey)
+                                    push!(all, _dep)
+                                end
+                            end
+                        end
+                    end
+                end
+                # println(length(all))
+
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = false
-                subsystem = StochSubsystem(commodities, priceareas, unique(deps), Hour(settings["subsystems"]["shortstochduration_hours"]), "start_equal_stop", skipmed_impact)
+                subsystem = StochSubsystem(commodities, priceareas, unique(subsystemdeps), Hour(settings["subsystems"]["shortstochduration_hours"]), "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
 
             longtermstoragesystems = getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            println("Number of longterm storagesystems $(length(longtermstoragesystems))")
             for storagesystem in longtermstoragesystems
-                subsystemdeps = Int[]
+                commodities = get_commodities_from_storagesystem(storagesystem)
+                if length(commodities) == 1
+                    continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
+                end  
+
+                main = Set()
+                all = Set()
                 for obj in storagesystem
-                    objdeps = dependencies[getid(obj)]
-                    for dep in objdeps
-                        push!(subsystemdeps, dep)
+                    i, element = get_element_from_obj(elements, obj)
+                    for dep in deep_dependencies[element]
+                        # println(getelkey(elements[i]))
+                        push!(main, i)
+                        push!(all, i)
                     end
                 end
-                commodities = get_commodities_from_storagesystem(storagesystem)
+
+                for (_i, _element) in enumerate(elements)
+                    _deps = deep_dependencies[_element]
+                    _add = false
+                    for _dep in _deps
+                        if _dep in main
+                            _add = true
+                        end
+                    end
+                    if _add
+                        for _dep in _deps
+                            if !(_dep in all)
+                                elkey = getelkey(elements[_dep])
+                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                    # println(elkey)
+                                    push!(all, _dep)
+                                end
+                            end
+                        end
+                    end
+                end
+                # println(length(all))
+
+                # completed = Set()
+                # remaining = Set()
+                # for obj in storagesystem
+                #     i, element = get_element_from_obj(elements, obj)
+                #     push!(remaining, i)
+                # end
+                # while length(remaining) > 0
+                #     i = pop!(remaining)
+                #     push!(completed, i)
+                #     # # Deps over
+                #     elkey = getelkey(elements[i])
+                #     println(elkey)
+                #     for dep in dependencies[elkey]
+                #         if !(dep in completed) && (dep <= length(elements))
+                #             if !(elkey.conceptname in ["Commodity", "Arrow"])
+                #                 push!(remaining, dep)
+                #             end
+                #         end
+                #     end
+                #     # Deps under
+                #     for (_i, _element) in enumerate(elements)
+                #         _elkey = getelkey(_element)
+                #         if (_elkey != elkey)
+                #             _deps = dependencies[_elkey]
+                #             for _dep in _deps
+                #                 if _dep == i
+                #                     if (_dep in completed) && !(_elkey.conceptname in ["TimeVector", "TimeValues"])
+                #                         push!(remaining, _i)
+                #                     end
+                #                 end
+                #             end
+                #         end
+                #     end
+                # end
+                # println(length(completed))
+                    
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = true
-                subsystem = EVPSubsystem(commodities, priceareas, unique(deps), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp", skipmed_impact)
+                subsystem = EVPSubsystem(commodities, priceareas, collect(all), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp", skipmed_impact)
                 push!(subsystems, subsystem)
             end
         else
@@ -284,8 +377,37 @@ function get_subsystems(db)
     end
     return subsystems
 end
+
+function get_filtered_dependencies(elements, dependencies)
+    filtered_dependencies = Dict{ElementKey,Vector{Int}}()
+    for element in elements # remove dependencies of elemements not in elements list
+        filtered = [x for x in dependencies[getelkey(element)] if x < length(elements)]
+        filtered_dependencies[getelkey(element)] = filtered
+    end
+    return filtered_dependencies
+end
+
+function get_elkey_from_element(dataelements::Vector{DataElement}, element::DataElement)
+    for _element in dataelements
+        if _element == element
+            return getelkey(element)
+        end
+    end
+    error("element not in dataelements")
+end
+
+function get_element_from_obj(dataelements::Vector{DataElement}, obj::Any)
+    objid = getid(obj)
+    elkey = ElementKey(objid.conceptname, string(typeof(obj)), objid.instancename)
+    for (i, dataelement) in enumerate(dataelements)
+        if getelkey(dataelement) == elkey
+            return (i, dataelement)
+        end
+    end
+    error("element not in dataelements")
+end
     
-function get_commoditites_from_dataelements(elements::Vector{DataElement})
+function get_commodities_from_dataelements(elements::Vector{DataElement})
     commodities = CommodityName[]
     for element in elements
         if element.conceptname == BALANCE_CONCEPT
@@ -305,12 +427,12 @@ function get_commodities_from_storagesystem(storagesystem::Vector)
             for arrow in getarrows(obj)
                 commodity = getcommodity(getbalance(arrow))
                 if !(commodity in commodities)
-                    push!(commodities, commodity)
+                    push!(commodities, getinstancename(getid(commodity)))
                 end
             end
         end
     end
-    return commodities
+    return collect(commodities)
 end
 
 function set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
@@ -327,12 +449,15 @@ function get_priceareas(objects)
     for obj in objects
         if obj isa Flow
             for arrow in getarrows(obj)
-                pricearea = getinstancename(getid(getbalance(arrow)))
-                push!(priceareas, area)
+                balance = getbalance(arrow)
+                if (getinstancename(getid(getcommodity(balance))) == "Power") && !isexogen(balance)
+                    pricearea = getinstancename(getid(balance))
+                    push!(priceareas, pricearea)
+                end
             end
         end
     end
-    return unique(areas)
+    return unique(priceareas)
 end
 
 
@@ -401,7 +526,10 @@ function add_local_problem_distribution(thiscore)
 
     dist_ppp = get_dist_ppp(db.input)
     dist_evp = get_dist_evp(db.input, db.subsystems_evp)
+    println(dist_evp)
     (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
+    println(dist_mp)
+    println(dist_sp)
     core_cp = get_core_cp(db.input)
 
     db.dist_ppp = dist_ppp
