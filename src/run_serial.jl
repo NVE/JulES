@@ -237,7 +237,9 @@ function create_subsystems(db)
     elements = get_elements(db.input)
     subsystems = AbstractSubsystem[]
     modelobjects, dependencies = db.dummyobjects
-    deep_dependencies = get_deep_dependencies(elements, dependencies)
+    # deep_dependencies = get_deep_dependencies(elements, dependencies)
+    filtered_dependencies = get_filtered_dependencies(elements, dependencies)
+    deep_dependencies = get_deep_dependencies(elements, filtered_dependencies; concepts=[PARAM_CONCEPT, METADATA_CONCEPT])
     if get_onlysubsystemmodel(db.input)
         commodities = get_commodities_from_dataelements(get_elements(db.input))
         endvaluemethod_sp = get_settings(db.input)["subsystems"]["endvaluemethod_sp"] # TODO: Parse to struct
@@ -297,37 +299,48 @@ function create_subsystems(db)
                     continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
                 end  
 
-                main = Set()
                 all = Set()
                 for obj in storagesystem
                     i, element = get_element_from_obj(elements, obj)
                     for dep in deep_dependencies[element]
-                        # println(getelkey(elements[i]))
-                        push!(main, i)
-                        push!(all, i)
+                        if !(dep in all)
+                            println(getelkey(elements[dep]))
+                            push!(all, dep)
+                        end
                     end
-                end
+                end 
 
-                for (_i, _element) in enumerate(elements)
-                    _deps = deep_dependencies[_element]
-                    _add = false
-                    for _dep in _deps
-                        if _dep in main
-                            _add = true
-                        end
-                    end
-                    if _add
-                        for _dep in _deps
-                            if !(_dep in all)
-                                elkey = getelkey(elements[_dep])
-                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
-                                    # println(elkey)
-                                    push!(all, _dep)
-                                end
-                            end
-                        end
-                    end
-                end
+                # main = Set()
+                # all = Set()
+                # for obj in storagesystem
+                #     i, element = get_element_from_obj(elements, obj)
+                #     for dep in deep_dependencies[element]
+                #         # println(getelkey(elements[i]))
+                #         push!(main, i)
+                #         push!(all, i)
+                #     end
+                # end
+
+                # for (_i, _element) in enumerate(elements)
+                #     _deps = deep_dependencies[_element]
+                #     _add = false
+                #     for _dep in _deps
+                #         if _dep in main
+                #             _add = true
+                #         end
+                #     end
+                #     if _add
+                #         for _dep in _deps
+                #             if !(_dep in all)
+                #                 elkey = getelkey(elements[_dep])
+                #                 if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                #                     # println(elkey)
+                #                     push!(all, _dep)
+                #                 end
+                #             end
+                #         end
+                #     end
+                # end
                 # println(length(all))
 
                 # completed = Set()
