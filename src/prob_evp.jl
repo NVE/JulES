@@ -23,9 +23,9 @@ function solve_evp(t, delta, stepnr, skipmed)
     for (scenix, subix, core) in db.dist_evp
         if core == db.core
             subsystem = db.subsystems[subix]
-            evp = db.evp[(scenix, subix)]
-            maintiming = evp.div[MainTiming]
             if skipmed_check(subsystem, skipmed)
+                evp = db.evp[(scenix, subix)]
+                maintiming = evp.div[MainTiming]
                 maintiming[3] = @elapsed begin
                     # TODO: set nonstorage startstates
                     set_startstates!(evp.prob, getstorages(getobjects(evp.prob)), db.startstates)
@@ -46,8 +46,8 @@ function solve_evp(t, delta, stepnr, skipmed)
 end
 
 function skipmed_check(subsystem, skipmed)
-    if skipmed.value == 0
-        if get_skipmed_impact(subsystem)        
+    if get_skipmed_impact(subsystem)
+        if skipmed.value == 0
             return true
         end
     end
@@ -55,9 +55,9 @@ function skipmed_check(subsystem, skipmed)
 end
 
 function update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem)
-    duration_evp = get_duration_evp(subsystem)
+    term_ppp = get_horizonterm_evp(subsystem)
     for obj in getobjects(evp.prob)
-        update_prices_obj(db, scenix, subix, stepnr, obj, duration_evp)
+        update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
     end
 
     return
@@ -81,20 +81,18 @@ function update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem)
                 balancename = detailedrescopl[instancename[2]]
                 bid = Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
             end
-            duration_evp = get_duration_evp(subsystem)
-            term_ppp = get_term_ppp(db, subix, scenix, duration_evp)
-            horizon_ppp = db.horizons[(scenix, term_ppp, commodityname)]
-            period = getendperiodfromduration(horizon_ppp, duration_evp)
+            endperiod = gethorizon(getbalance(obj)).ix_stop
+            term_ppp = get_horizonterm_evp(subsystem)
             core_ppp = get_core_ppp(db, scenix)
-            future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, period, term_ppp)
+            future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, endperiod, term_ppp)
             dual_ppp = fetch(future)
             if haskey(enekvglobaldict, instancename[2])
                 dual_ppp *= enekvglobaldict[instancename[2]]
             end
 
-            setobjcoeff!(evp.prob, getid(obj), period, dual_ppp)
+            setobjcoeff!(evp.prob, getid(obj), endperiod, dual_ppp)
         end
-    end 
+    end
 
     return
 end
@@ -115,8 +113,7 @@ end
 # Util functions for create_evp() (see also utils for create_mp/create_sp) ----------------------------------------------------------
 function make_modelobjects_evp(db, scenix, subix, startduration, endduration)
     subsystem = get_subsystems(db)[subix]
-    duration_evp = get_duration_evp(subsystem)
-    term_ppp = get_term_ppp(db, subix, scenix, duration_evp)
+    term_ppp = get_horizonterm_evp(subsystem)
     subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
 
     aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))

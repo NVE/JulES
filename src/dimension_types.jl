@@ -27,7 +27,9 @@ struct EVPSubsystem <: AbstractSubsystem
     commodities::Vector{CommodityName}
     priceareas::Vector{String}
     dataelements::Vector{Int}
+    horizonterm_evp::TermName
     duration_evp::Millisecond
+    horizonterm_stoch::TermName
     duration_stoch::Millisecond
     endvaluemethod_evp::String
     skipmed_impact::Bool
@@ -35,7 +37,9 @@ end
 get_commodities(subsystem::EVPSubsystem) = subsystem.commodities
 get_priceareas(subsystem::EVPSubsystem) = subsystem.priceareas
 get_dataelements(subsystem::EVPSubsystem) = subsystem.dataelements
+get_horizonterm_evp(subsystem::EVPSubsystem) = subsystem.horizonterm_evp
 get_duration_evp(subsystem::EVPSubsystem) = subsystem.duration_evp
+get_horizonterm_stoch(subsystem::EVPSubsystem) = subsystem.horizonterm_stoch
 get_duration_stoch(subsystem::EVPSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::EVPSubsystem) = true
 is_subsystem_stoch(subsystem::EVPSubsystem) = true
@@ -48,6 +52,7 @@ struct StochSubsystem <: AbstractSubsystem
     commodities::Vector{CommodityName}
     priceareas::Vector{String}
     dataelements::Vector{Int}
+    horizonterm_stoch::TermName
     duration_stoch::Millisecond
     endvaluemethod_sp::String
     skipmed_impact::Bool
@@ -55,6 +60,7 @@ end
 get_commodities(subsystem::StochSubsystem) = subsystem.commodities
 get_priceareas(subsystem::StochSubsystem) = subsystem.priceareas
 get_dataelements(subsystem::StochSubsystem) = subsystem.dataelements
+get_horizonterm_stoch(subsystem::StochSubsystem) = subsystem.horizonterm_stoch
 get_duration_stoch(subsystem::StochSubsystem) = subsystem.duration_stoch
 is_subsystem_evp(subsystem::StochSubsystem) = false
 is_subsystem_stoch(subsystem::StochSubsystem) = true

@@ -21,16 +21,16 @@ function create_cp(db::LocalDB)
     add_PowerUpperSlack!(modelobjects)
 
     for (subix, core) in db.dist_mp # or get list of cuts from each core?
-        future = @spawnat core get_cuts_from_sp(subix)
+        future = @spawnat core get_lightcuts(subix)
         cuts = fetch(future)
 
         # Change statevars so that they represents clearing version of objects
         for i in 1:length(cuts.statevars)
-            statevar = getvarout(cuts.statevars[i])
-            (varid, varix) = getvarout(statevar)
+            varin = getvarin(cuts.statevars[i])
+            (varid, varix) = getvarout(cuts.statevars[i])
 
             newt = getnumperiods(gethorizon(modelobjects[varid]))
-            cuts.statevars[i].varout = (id, newt)
+            cuts.statevars[i] = StateVariableInfo(varin, (varid, newt))
         end
         cutid = getid(cuts)
         modelobjects[cutid] = cuts
@@ -156,6 +156,13 @@ function update_cuts(db, skipmed)
             updatecuts!(db.cp.prob, cuts_cp)
         end
     end
+end
+
+function get_lightcuts(subix)
+    db = get_local_db()
+
+    cuts = db.mp[subix].cuts
+    return getlightweightself(cuts)
 end
 
 function get_cutsdata(subix)

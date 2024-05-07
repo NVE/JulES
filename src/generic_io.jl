@@ -111,20 +111,16 @@ function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores:
 
         if loop_forward
             for i in 1:M
-                push!(dist, (subsystems[i], core[i]))
+                push!(dist, (subsystems[i], cores[i]))
             end
-            if K > M
-                subsystems = subsystems[(M+1):end]
-            end
+            subsystems = subsystems[(M+1):end]
             loop_forward = false                        
         else
             for i in 1:M
                 j = K - (i-1)
-                push!(dist, (subsystems[j], core[i]))
+                push!(dist, (subsystems[j], cores[i]))
             end
-            if K > M
-                subsystems = subsystems[1:(K-M)]
-            end
+            subsystems = subsystems[1:(K-M)]
             loop_forward = true
         end
     end

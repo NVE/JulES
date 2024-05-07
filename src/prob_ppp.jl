@@ -198,7 +198,9 @@ function synchronize_horizons(skipmed)
         if !(this_scen in owner_scenarios)
             continue
         end
-        if (skipmed.value == 0) || (term != ShortTermName)
+
+        # TODO: Check all subsystems - also in skipmed for ppp
+        if (skipmed.value != 0) && (term != ShortTermName)
             continue
         end 
 

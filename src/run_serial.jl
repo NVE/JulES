@@ -237,9 +237,9 @@ function create_subsystems(db)
     elements = get_elements(db.input)
     subsystems = AbstractSubsystem[]
     modelobjects, dependencies = db.dummyobjects
-    # deep_dependencies = get_deep_dependencies(elements, dependencies)
-    filtered_dependencies = get_filtered_dependencies(elements, dependencies)
-    deep_dependencies = get_deep_dependencies(elements, filtered_dependencies; concepts=[PARAM_CONCEPT, METADATA_CONCEPT])
+    deep_dependencies = get_deep_dependencies(elements, dependencies)
+    # filtered_dependencies = get_filtered_dependencies(elements, dependencies)
+    # deep_dependencies = get_deep_dependencies(elements, filtered_dependencies; concepts=[PARAM_CONCEPT, METADATA_CONCEPT])
     if get_onlysubsystemmodel(db.input)
         commodities = get_commodities_from_dataelements(get_elements(db.input))
         endvaluemethod_sp = get_settings(db.input)["subsystems"]["endvaluemethod_sp"] # TODO: Parse to struct
@@ -285,9 +285,12 @@ function create_subsystems(db)
                 end
                 # println(length(all))
 
+                shortstochduration = parse_duration(settings["subsystems"], "shortstochduration")
+                horizonterm_stoch = get_term_ppp(get_horizons(db), commodities, shortstochduration)
+
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = false
-                subsystem = StochSubsystem(commodities, priceareas, unique(subsystemdeps), Hour(settings["subsystems"]["shortstochduration_hours"]), "start_equal_stop", skipmed_impact)
+                subsystem = StochSubsystem(commodities, priceareas, unique(subsystemdeps), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
 
@@ -299,48 +302,48 @@ function create_subsystems(db)
                     continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
                 end  
 
-                all = Set()
-                for obj in storagesystem
-                    i, element = get_element_from_obj(elements, obj)
-                    for dep in deep_dependencies[element]
-                        if !(dep in all)
-                            println(getelkey(elements[dep]))
-                            push!(all, dep)
-                        end
-                    end
-                end 
-
-                # main = Set()
                 # all = Set()
                 # for obj in storagesystem
                 #     i, element = get_element_from_obj(elements, obj)
                 #     for dep in deep_dependencies[element]
-                #         # println(getelkey(elements[i]))
-                #         push!(main, i)
-                #         push!(all, i)
+                #         if !(dep in all)
+                #             println(getelkey(elements[dep]))
+                #             push!(all, dep)
+                #         end
                 #     end
-                # end
+                # end 
 
-                # for (_i, _element) in enumerate(elements)
-                #     _deps = deep_dependencies[_element]
-                #     _add = false
-                #     for _dep in _deps
-                #         if _dep in main
-                #             _add = true
-                #         end
-                #     end
-                #     if _add
-                #         for _dep in _deps
-                #             if !(_dep in all)
-                #                 elkey = getelkey(elements[_dep])
-                #                 if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
-                #                     # println(elkey)
-                #                     push!(all, _dep)
-                #                 end
-                #             end
-                #         end
-                #     end
-                # end
+                main = Set()
+                all = Set()
+                for obj in storagesystem
+                    i, element = get_element_from_obj(elements, obj)
+                    for dep in deep_dependencies[element]
+                        # println(getelkey(elements[i]))
+                        push!(main, i)
+                        push!(all, i)
+                    end
+                end
+
+                for (_i, _element) in enumerate(elements)
+                    _deps = deep_dependencies[_element]
+                    _add = false
+                    for _dep in _deps
+                        if _dep in main
+                            _add = true
+                        end
+                    end
+                    if _add
+                        for _dep in _deps
+                            if !(_dep in all)
+                                elkey = getelkey(elements[_dep])
+                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                    # println(elkey)
+                                    push!(all, _dep)
+                                end
+                            end
+                        end
+                    end
+                end
                 # println(length(all))
 
                 # completed = Set()
@@ -379,9 +382,15 @@ function create_subsystems(db)
                 # end
                 # println(length(completed))
                     
+                longevduration = parse_duration(settings["subsystems"], "longevduration")
+                horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
+
+                longstochduration = parse_duration(settings["subsystems"], "longstochduration")
+                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
+
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = true
-                subsystem = EVPSubsystem(commodities, priceareas, collect(all), Day(settings["subsystems"]["longevduration_days"]), Day(settings["subsystems"]["longstochduration_days"]), "ppp", skipmed_impact)
+                subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
                 push!(subsystems, subsystem)
             end
         else
@@ -389,6 +398,23 @@ function create_subsystems(db)
         end
     end
     return subsystems
+end
+
+# Which time resolution (short, med, long) should we use horizons and prices from
+# TODO: Should we use different terms for master and subproblems?
+function get_term_ppp(horizons, commodities, duration)
+    dummycommodity = commodities[1]
+    horizon_short = horizons[(ShortTermName, dummycommodity)]
+    if duration < getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
+        return ShortTermName
+    end
+    horizon_med = horizons[(MedTermName, dummycommodity)]
+    if duration < getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
+        return MedTermName
+    end
+    horizon_long = horizons[(LongTermName, dummycommodity)]
+    @assert duration <= getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
+    return LongTermName   
 end
 
 function get_filtered_dependencies(elements, dependencies)
@@ -453,7 +479,7 @@ function set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
     
     db.subsystems = subsystems
     db.subsystems_evp = subsystems_evp
-    db.subsystems_stoch = db.subsystems_stoch
+    db.subsystems_stoch = subsystems_stoch
     return
 end
 
@@ -538,6 +564,7 @@ function add_local_problem_distribution(thiscore)
     db = get_local_db()
 
     dist_ppp = get_dist_ppp(db.input)
+    println(dist_ppp)
     dist_evp = get_dist_evp(db.input, db.subsystems_evp)
     println(dist_evp)
     (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
@@ -625,7 +652,7 @@ function add_local_problems(thiscore)
 
     for (subix, core) in db.dist_mp
         if core == thiscore
-            create_mp(db, subsystem)
+            create_mp(db, subix)
         end
     end
 
@@ -692,7 +719,7 @@ function step_jules(t, delta, stepnr, skipmed)
         wait(f)
 
         @sync for core in cores
-            @spawnat core solve_mp(t, delta, stepnr, skipmed)
+            @spawnat core solve_stoch(t, delta, stepnr, skipmed)
         end
     end
 
