@@ -23,9 +23,9 @@ function solve_evp(t, delta, stepnr, skipmed)
     for (scenix, subix, core) in db.dist_evp
         if core == db.core
             subsystem = db.subsystems[subix]
+            evp = db.evp[(scenix, subix)]
+            maintiming = evp.div[MainTiming]
             if skipmed_check(subsystem, skipmed)
-                evp = db.evp[(scenix, subix)]
-                maintiming = evp.div[MainTiming]
                 maintiming[3] = @elapsed begin
                     # TODO: set nonstorage startstates
                     set_startstates!(evp.prob, getstorages(getobjects(evp.prob)), db.startstates)
@@ -102,11 +102,11 @@ function get_balancedual_ppp(scenix, bid, period, term_ppp)
 
     ppp = db.ppp[scenix]
     if term_ppp == LongTermName
-        return -getcondual(ppp.longprob, bid, period)
+        return getcondual(ppp.longprob, bid, period)
     elseif term_ppp == MedTermName
-        return -getcondual(ppp.medprob, bid, period)
+        return getcondual(ppp.medprob, bid, period)
     elseif term_ppp == ShortTermName
-        return -getcondual(ppp.shortprob, bid, period)
+        return getcondual(ppp.shortprob, bid, period)
     end
 end
 

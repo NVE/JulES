@@ -104,7 +104,7 @@ function update_statedependent_cp(db, stepnr, t)
     # Headlosscosts
     if get_headlosscost(settings["problems"]["clearing"])
         for (_subix, _core) in db.dist_mp
-            future = @spawnat _core get_headlosscost_data(subix, t)
+            future = @spawnat _core get_headlosscost_data_from_mp(_subix, t)
             headlosscost_data = fetch(future)
 
             for (resid, headlosscost, T) in headlosscost_data
@@ -117,12 +117,12 @@ function update_statedependent_cp(db, stepnr, t)
     end
 end
 
-function get_headlosscost_data(subix, t)
+function get_headlosscost_data_from_mp(subix, t)
     db = get_local_db()
 
     mp = db.mp[subix]
 
-    return getheadlosscost_data(ReservoirCurveSlopeMethod(), mp.prob, t)
+    return get_headlosscost_data(ReservoirCurveSlopeMethod(), mp.prob, t)
 end
 
 function update_nonstoragestates_cp(db)
@@ -146,8 +146,8 @@ end
 function update_cuts(db, skipmed)
     for (_subix, _core) in db.dist_mp
         if skipmed_check(_subix, skipmed)
-            future = @spawnat _core get_cutsdata(subix)
-            cutid, constants, slopes = fetch(future)
+            future = @spawnat _core get_cutsdata(_subix)
+            (cutid, constants, slopes) = fetch(future)
 
             cuts_cp = find_obj_by_id(getobjects(db.cp.prob), cutid)
             cuts_cp.constants = constants
@@ -160,7 +160,6 @@ end
 
 function get_lightcuts(subix)
     db = get_local_db()
-
     cuts = db.mp[subix].cuts
     return getlightweightself(cuts)
 end

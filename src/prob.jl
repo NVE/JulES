@@ -18,14 +18,14 @@ struct PricePrognosisProblem
     div::Dict
 end
 
-struct MasterProblem
+mutable struct MasterProblem
     prob::Prob
     cuts::SimpleSingleCuts
     states::Dict{StateVariableInfo, Float64}
     div::Dict
 end
 
-struct ScenarioProblem
+mutable struct ScenarioProblem # TODO: Should the others be mutable as well?
     prob::Prob
     scenslopes::Vector{Float64}
     scenconstant::Float64

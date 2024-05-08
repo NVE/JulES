@@ -29,11 +29,13 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     startduration = parse_duration(settings["horizons"]["clearing"], "termduration")
     endduration = get_duration_stoch(subsystem)
     modelobjects = make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, false)
+    cutobjects = getcutobjects(modelobjects)
+    states = get_states(cutobjects)
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
-    db.sp[(scenix, subix)] = ScenarioProblem(prob, [], -1.0, Dict())
+    db.sp[(scenix, subix)] = ScenarioProblem(prob, zeros(length(states)), -1.0, Dict())
 
     return
 end
@@ -47,27 +49,36 @@ function solve_stoch(t, delta, stepnr, skipmed)
             if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
 
+                update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
                 set_startstates!(mp.prob, getstorages(getobjects(mp.prob)), db.startstates)
                 update_prices_mp(stepnr, subix)
                 update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, get_settings(db))
                 update!(mp.prob, t)
 
-                @sync for (_scenix, _subix, _core) in db.dist_sp
-                    @spawnat _core update_sps(t, stepnr, _scenix, _subix)
+                @sync for _core in get_cores(db)
+                    @spawnat _core update_sps(t, stepnr, subix)
                 end
-
+                    
+                println("solve_benders")
                 solve_benders(stepnr, subix)
+                println("final_solve_mp")
                 final_solve_mp(t, mp.prob)
             end
         end
     end
 end
 
-function update_sps(t, stepnr, scenix, subix)
-    update_endstates_sp(scenix, subix)
-    perform_scenmod_sp(scenix, subix)
-    update_prices_sp(stepnr, scenix, subix)
-    update_sp(t, scenix, subix)
+function update_sps(t, stepnr, subix)
+    db = get_local_db()
+
+    for (_scenix, _subix, _core) in db.dist_sp
+        if (_core == db.core) && (subix == _subix)
+            update_endstates_sp(_scenix, subix)
+            perform_scenmod_sp(_scenix, subix)
+            update_prices_sp(stepnr, _scenix, subix)
+            update_sp(t, _scenix, subix)
+        end
+    end
 end
 
 # Util functions for solve_mp ----------------------------------------------------------------------------------------------
@@ -81,7 +92,7 @@ function final_solve_mp(t::ProbTime, prob)
         solve!(prob)
         resetheadlosscosts!(prob)
     end
-end
+end    
 
 function solve_benders(stepnr, subix)
     db = get_local_db()
@@ -90,13 +101,17 @@ function solve_benders(stepnr, subix)
     mp = db.mp[subix]
 
     count = 0
-    cutreuse = false
-    ub = 0
+    cutreuse = true
+    if stepnr == 1
+        cutreuse = false
+    end
+    ub = 0.0
     lb = mp.cuts.lower_bound
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
+    println(getid(getobjects(mp.prob)[1]))
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-
+        println(count)
         count == 0 && setwarmstart!(mp.prob, false)
 
         if cutreuse # try to reuse cuts from last time step
@@ -114,16 +129,17 @@ function solve_benders(stepnr, subix)
         end
 
         lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
-        ub = 0
+        ub = 0.0
 
         count == 0 && setwarmstart!(mp.prob, true)
         (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
         
         getoutgoingstates!(mp.prob, mp.states)
-        cutix = oldcutix + 1
-        if cutix > maxcuts
+        cutix = getcutix(mp.cuts) + 1
+        if cutix > getmaxcuts(mp.cuts)
             cutix = 1
         end
+        println(collect(values(mp.states)))
 
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
@@ -134,13 +150,19 @@ function solve_benders(stepnr, subix)
         for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
                 future = @spawnat _core get_data_sp(_scenix, _subix)
-                objectivevalue, scenslopes, scenconstants = fetch(future)
+                objectivevalue, scenslopes, scenconstant = fetch(future)
 
                 ub += objectivevalue*mp.cuts.probabilities[_scenix]
-                mp.cuts.scenslopes[_scenix, cutix, :] .= scenscenslopes
+                mp.cuts.scenslopes[_scenix, cutix, :] .= scenslopes
                 mp.cuts.scenconstants[_scenix, cutix] = scenconstant
+
+                # println(objectivevalue)
+                # println(scenslopes)
+                # println(scenconstant)
             end
         end
+        println(ub)
+        println(lb)
 
         updatecutparameters!(mp.prob, mp.cuts)
         if (count == 0 && cutreuse) 
@@ -149,6 +171,13 @@ function solve_benders(stepnr, subix)
             updatelastcut!(mp.prob, mp.cuts)
         end
         count += 1
+
+        if count == 20
+            for obj in getobjects(mp.prob)
+                println(getid(obj))
+            end
+            error("Not converging")
+        end
         # display(ub)
         # display(abs((lb-ub)/lb))
         # display(abs(ub-lb))
@@ -172,8 +201,8 @@ end
 function solve_sp(scenix, subix, states)
     db = get_local_db()
 
-    sp = db_sp[(scenix, subix)]
-    setingoingstates!(sp.prob, states)  
+    sp = db.sp[(scenix, subix)]
+    setingoingstates!(sp.prob, states)
     solve!(sp.prob)
     get_scencutparameters!(sp, states)
 end
@@ -181,7 +210,7 @@ end
 # TODO: Simplify TuLiPa version of getscencutparameters?
 function get_scencutparameters!(sp::ScenarioProblem, states::Dict{StateVariableInfo, Float64})
     sp.scenconstant = getobjectivevalue(sp.prob)
-    
+
     for (i, (statevar, value)) in enumerate(states)
         (id, ix) = getvarin(statevar)
         slope = getfixvardual(sp.prob, id, ix)
@@ -195,7 +224,7 @@ end
 function update_sp(t, scenix, subix)
     db = get_local_db()
 
-    sp = db_sp[(scenix, subix)]
+    sp = db.sp[(scenix, subix)]
     scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
     update!(sp.prob, scentime)
     return
@@ -228,7 +257,7 @@ end
 function update_prices_sp(stepnr, scenix, subix)
     db = get_local_db()
     subsystem = db.subsystems[subix]
-    sp = db_sp[(scenix, subix)]
+    sp = db.sp[(scenix, subix)]
               
     term_ppp = get_horizonterm_stoch(subsystem)
     for obj in getobjects(sp.prob)
@@ -294,7 +323,7 @@ function get_prices_from_core(scenix, term_ppp, bid)
     obj = find_obj_by_id(ppp.objects, bid)
     horizon = gethorizon(obj)
 
-    return [getcondual(ppp, bid, t) for t in 1:getnumperiods(horizon)]
+    return [-getcondual(ppp, bid, t) for t in 1:getnumperiods(horizon)]
 end
 
 function get_ppp_term(ppp, term::TermName)
@@ -310,10 +339,10 @@ end
 function perform_scenmod_sp(scenix, subix)
     db = get_local_db()
     subsystem = db.subsystems[subix]
-    sp = db_sp[(scenix, subix)]
+    sp = db.sp[(scenix, subix)]
 
     scenmod_stoch = get_scenmod_stoch(db)
-    perform_scenmod!(scenmod_stoch, scenix, getobjects(sp))
+    perform_scenmod!(scenmod_stoch, scenix, getobjects(sp.prob))
     return
 end
 
@@ -341,14 +370,19 @@ function update_endstates_sp(scenix, subix)
     elseif endvaluemethod_sp == "evp"
         for obj in storages
             commodityname = getinstancename(getid(getcommodity(getbalance(obj))))
-            endperiod = gethorizon(getbalance(obj)).ix_stop
+            horizon_sp = gethorizon(getbalance(obj))
+            duration_stoch = getdurationtoend(horizon_sp)
+            term_evp = get_horizonterm_evp(subsystem)
+            horizon_evp = db.horizons[(scenix, term_evp, commodityname)]
+            period_evp = getendperiodfromduration(horizon_evp, duration_stoch)
             core_evp = get_core_evp(db, scenix, subix)
             bid = getid(getbalance(obj))
-            future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, endperiod)
+            future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period_evp)
             dual_evp = fetch(future)
-            println(dual_evp)
+            # println("dual evp $(dual_evp)")
 
-            setobjcoeff!(sp.prob, getid(obj), endperiod, dual_evp)
+            period_sp = getnumperiods(horizon_sp)
+            setobjcoeff!(sp.prob, getid(obj), period_sp, dual_evp)
         end
     end # TODO: Endvalue from ppp
 
@@ -367,8 +401,15 @@ function get_balancedual_evp(scenix, subix, bid, period)
     db = get_local_db()
 
     evp = db.evp[(scenix, subix)]
-    dual_evp = -getcondual(evp.prob, bid, period)
+    # for p in 1:period
+    #     println("$(getinstancename(bid)) $(p) $(getcondual(evp.prob, bid, period))")
+    # end
+    dual_evp = getcondual(evp.prob, bid, period)
     return dual_evp
+end
+
+function update_probabilities(cuts, scenmod)
+    cuts.probabilities -= [get_probability(scenario) for scenario in scenmod.scenarios]
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
@@ -384,7 +425,7 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
 
     modelobjects = getmodelobjects(subelements, validate=false)
 
-    if master == true
+    if master
         # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
         for id in keys(modelobjects)
             instance = getinstancename(id)

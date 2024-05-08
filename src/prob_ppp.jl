@@ -194,8 +194,8 @@ function synchronize_horizons(skipmed)
 
     owner_scenarios = [s for (s, c) in db.dist_ppp if c == db.core]
 
-    for ((this_scen, term, commodity), horizon) in db.horizons
-        if !(this_scen in owner_scenarios)
+    for ((scenix, term, commodity), horizon) in db.horizons
+        if !(scenix in owner_scenarios)
             continue
         end
 
@@ -207,9 +207,9 @@ function synchronize_horizons(skipmed)
         changes = getchanges(horizon)
 
         if length(changes) > 0
-            @sync for (other_scen, other_core) in db.dist_ppp
-                if !(other_scen in owner_scenarios)
-                    @spawnat other_core transfer_horizon_changes(other_scen, term, commodity, changes)
+            @sync for core in get_cores(db)
+                if core != db.core
+                    @spawnat core transfer_horizon_changes(scenix, term, commodity, changes)
                 end
             end        
         end
