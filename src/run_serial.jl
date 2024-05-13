@@ -672,6 +672,7 @@ end
 function step_jules(t, delta, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
+    firstcore = first(cores)
 
     println(t)
 
@@ -682,16 +683,23 @@ function step_jules(t, delta, stepnr, skipmed)
         end
     end
 
-    println("Price prognosis problems")
+    println("Choose scenarios for price prognosis problems")
     @time begin
-        c = first(cores)
         if stepnr == 1 
-            f = @spawnat c update_scenmod_sim()
-            wait(f)
+            wait(@spawnat firstcore update_scenmod_sim())
         end
-        f = @spawnat c update_scenmod_ppp(t, skipmed)
-        wait(f)
+        wait(@spawnat firstcore update_scenmod_ppp(t, skipmed))
+    end
 
+    print("Solve inflow models")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_inflow_models(t, stepnr)
+        end
+    end
+
+    println("Solve price prognosis problems")
+    @time begin
         @sync for core in cores
             @spawnat core solve_ppp(t, delta, stepnr, skipmed)
         end
@@ -704,8 +712,7 @@ function step_jules(t, delta, stepnr, skipmed)
     println("End value problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        f = @spawnat c update_scenmod_evp(t, skipmed)
-        wait(f)
+        wait(@spawnat firstcore update_scenmod_evp(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_evp(t, delta, stepnr, skipmed)
@@ -715,8 +722,7 @@ function step_jules(t, delta, stepnr, skipmed)
     println("Subsystem problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        f = @spawnat c update_scenmod_stoch(t, skipmed)
-        wait(f)
+        wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_stoch(t, delta, stepnr, skipmed)
@@ -732,7 +738,7 @@ function step_jules(t, delta, stepnr, skipmed)
 
     println("Update output")
     @time begin
-        @spawnat db.core_cp update_output(t, stepnr)
+        wait(@spawnat db.core_cp update_output(t, stepnr))
     end
 
     # do dynamic load balancing here
