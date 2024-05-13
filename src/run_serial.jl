@@ -123,7 +123,10 @@ function init_databases(input::AbstractJulESInput)
     println("Add local problems")
     @time begin
         @sync for core in cores
-            @spawnat core add_local_problems(core)
+            @spawnat core add_local_problems()
+        end
+        @sync for core in cores
+            @spawnat core add_local_cp()
         end
     end
 
@@ -635,35 +638,38 @@ function add_local_horizons(thiscore)
     return
 end
 
-function add_local_problems(thiscore)
+function add_local_cp()
+    db = get_local_db()
+    if db.core == db.core_cp
+        @spawnat db.core_cp create_cp()
+    end
+end
+
+function add_local_problems()
     db = get_local_db()
 
     for (scenix, core) in db.dist_ppp
-        if core == thiscore
+        if core == db.core
             create_ppp(db, scenix)
         end
     end
 
     for (scenix, subix, core) in db.dist_evp
-        if core == thiscore
+        if core == db.core
             create_evp(db, scenix, subix)
         end
     end
 
     for (subix, core) in db.dist_mp
-        if core == thiscore
+        if core == db.core
             create_mp(db, subix)
         end
     end
 
     for (scenix, subix, core) in db.dist_sp
-        if core == thiscore
+        if core == db.core
             create_sp(db, scenix, subix)
         end
-    end
-
-    if thiscore == db.core_cp
-        create_cp(db)
     end
     return
 end
