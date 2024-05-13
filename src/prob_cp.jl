@@ -3,7 +3,8 @@ get_endstates(cp::ClearingProblem) = cp.endstates
 
 get_startstates_from_cp() = get_endstates(get_local_db().cp)
 
-function create_cp(db::LocalDB)
+function create_cp()
+    db = get_local_db()
     settings = get_settings(db)
 
     elements = copy(get_elements(db.input))
@@ -22,7 +23,7 @@ function create_cp(db::LocalDB)
 
     for (subix, core) in db.dist_mp # or get list of cuts from each core?
         future = @spawnat core get_lightcuts(subix)
-        cuts = fetch(future)
+        cuts = deepcopy(fetch(future))
 
         # Change statevars so that they represents clearing version of objects
         for i in 1:length(cuts.statevars)
@@ -64,12 +65,12 @@ end
 
 # Util functions for solve_cp ----------------------------------------------------------------------------------
 function minstoragevaluerule(storage::Storage)
-    minstoragevalues = Dict{String, Float64}()
-    minstoragevalues["Battery"] = 0.0
-    minstoragevalues["Hydro"] = 0.001
     commodity = getinstancename(getid(getcommodity(getbalance(storage))))
-    return get(minstoragevalues, commodity, 0.0)
-end
+    if commodity == "Hydro"
+        return 0.001
+    end
+    return 0.0
+ end
 
 function set_minstoragevalue!(problem::Prob, costrule::Function)
     for modelobject in getobjects(problem)
@@ -117,7 +118,7 @@ function update_statedependent_cp(db, stepnr, t)
     end
 end
 
-function get_headlosscost_data_from_mp(subix, t)
+function get_headlosscost_data_from_mp(subix, t) # TODO: get method from config
     db = get_local_db()
 
     mp = db.mp[subix]
