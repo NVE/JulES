@@ -59,9 +59,7 @@ function solve_stoch(t, delta, stepnr, skipmed)
                     @spawnat _core update_sps(t, stepnr, subix)
                 end
                     
-                println("solve_benders")
                 solve_benders(stepnr, subix)
-                println("final_solve_mp")
                 final_solve_mp(t, mp.prob)
             end
         end
@@ -73,7 +71,7 @@ function update_sps(t, stepnr, subix)
 
     for (_scenix, _subix, _core) in db.dist_sp
         if (_core == db.core) && (subix == _subix)
-            update_endstates_sp(_scenix, subix)
+            update_endconditions_sp(_scenix, subix)
             perform_scenmod_sp(_scenix, subix)
             update_prices_sp(stepnr, _scenix, subix)
             update_sp(t, _scenix, subix)
@@ -139,7 +137,6 @@ function solve_benders(stepnr, subix)
         if cutix > getmaxcuts(mp.cuts)
             cutix = 1
         end
-        println(collect(values(mp.states)))
 
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
@@ -147,7 +144,7 @@ function solve_benders(stepnr, subix)
             end
         end
 
-        for (_scenix, _subix, _core) in db.dist_sp
+        for (_scenix, _subix, _core) in db.dist_sp # TODO: Do sync
             if _subix == subix
                 future = @spawnat _core get_data_sp(_scenix, _subix)
                 objectivevalue, scenslopes, scenconstant = fetch(future)
@@ -166,7 +163,7 @@ function solve_benders(stepnr, subix)
 
         updatecutparameters!(mp.prob, mp.cuts)
         if (count == 0 && cutreuse) 
-            updatecuts!(mp.prob, mp.cuts)
+            updatecuts!(mp.prob, mp.cuts) # Remove?
         else
             updatelastcut!(mp.prob, mp.cuts)
         end
@@ -346,7 +343,7 @@ function perform_scenmod_sp(scenix, subix)
     return
 end
 
-function update_endstates_sp(scenix, subix)
+function update_endconditions_sp(scenix, subix)
     db = get_local_db()
 
     subsystem = db.subsystems[subix]
@@ -366,8 +363,9 @@ function update_endstates_sp(scenix, subix)
             setobjcoeff!(sp.prob, getid(obj), T, -enddual)
         end
     elseif endvaluemethod_sp == "startequalstop"
-        setendstates!(sp.prob, storages, startstates)
-    elseif endvaluemethod_sp == "evp"
+        setendstates!(sp.prob, storages, db.startstates)
+    elseif endvaluemethod_sp == "evp" # TODO: Store bid and period in sp (or subsystem?)
+        core_evp = get_core_evp(db, scenix, subix)
         for obj in storages
             commodityname = getinstancename(getid(getcommodity(getbalance(obj))))
             horizon_sp = gethorizon(getbalance(obj))
@@ -375,11 +373,9 @@ function update_endstates_sp(scenix, subix)
             term_evp = get_horizonterm_evp(subsystem)
             horizon_evp = db.horizons[(scenix, term_evp, commodityname)]
             period_evp = getendperiodfromduration(horizon_evp, duration_stoch)
-            core_evp = get_core_evp(db, scenix, subix)
             bid = getid(getbalance(obj))
             future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period_evp)
             dual_evp = fetch(future)
-            # println("dual evp $(dual_evp)")
 
             period_sp = getnumperiods(horizon_sp)
             setobjcoeff!(sp.prob, getid(obj), period_sp, dual_evp)
@@ -409,7 +405,7 @@ function get_balancedual_evp(scenix, subix, bid, period)
 end
 
 function update_probabilities(cuts, scenmod)
-    cuts.probabilities -= [get_probability(scenario) for scenario in scenmod.scenarios]
+    cuts.probabilities = [get_probability(scenario) for scenario in scenmod.scenarios]
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
