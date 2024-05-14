@@ -94,8 +94,7 @@ function init_databases(input::AbstractJulESInput)
     println("Add local subsystems")
     @time begin
         c = first(cores)
-        future = @spawnat c add_local_subsystems()
-        wait(future)
+        wait(@spawnat c add_local_subsystems())
     end
 
     println("Add local scenmod")
@@ -109,8 +108,7 @@ function init_databases(input::AbstractJulESInput)
     # transfer this data to all other cores
     println("Add local problem distribution")
     @time begin
-        future = @spawnat c add_local_problem_distribution(c)
-        wait(future)
+        wait(@spawnat c add_local_problem_distribution(c))
     end
 
     println("Add local horizons")
@@ -156,8 +154,7 @@ Updated after each simulation step
 """
 function add_local_output()
     db = get_local_db()
-    f = @spawnat db.core_cp init_local_output()
-    wait(f)
+    wait(@spawnat db.core_cp init_local_output())
 end
 
 """
@@ -692,11 +689,9 @@ function step_jules(t, delta, stepnr, skipmed)
     @time begin
         c = first(cores)
         if stepnr == 1 
-            f = @spawnat c update_scenmod_sim()
-            wait(f)
+            wait(@spawnat c update_scenmod_sim())
         end
-        f = @spawnat c update_scenmod_ppp(t, skipmed)
-        wait(f)
+        wait(@spawnat c update_scenmod_ppp(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_ppp(t, delta, stepnr, skipmed)
@@ -710,8 +705,7 @@ function step_jules(t, delta, stepnr, skipmed)
     println("End value problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        f = @spawnat c update_scenmod_evp(t, skipmed)
-        wait(f)
+        wait(@spawnat c update_scenmod_evp(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_evp(t, delta, stepnr, skipmed)
@@ -721,8 +715,7 @@ function step_jules(t, delta, stepnr, skipmed)
     println("Subsystem problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        f = @spawnat c update_scenmod_stoch(t, skipmed)
-        wait(f)
+        wait(@spawnat c update_scenmod_stoch(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_stoch(t, delta, stepnr, skipmed)
@@ -738,7 +731,7 @@ function step_jules(t, delta, stepnr, skipmed)
 
     println("Update output")
     @time begin
-        @spawnat db.core_cp update_output(t, stepnr)
+        wait(@spawnat db.core_cp update_output(t, stepnr))
     end
 
     # do dynamic load balancing here

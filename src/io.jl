@@ -608,8 +608,7 @@ end
 function get_output_timing(output, steplength, skipmax)
     db = get_local_db()
 
-    f = @spawnat db.core_cp get_output_timing_local(output, steplength, skipmax)
-    wait(f)
+    wait(@spawnat db.core_cp get_output_timing_local(output, steplength, skipmax))
 end
 
 function get_output_timing_local(data, steplength, skipmax)
