@@ -87,7 +87,7 @@ function init_databases(input::AbstractJulESInput)
     println("Add local dummyobjects")
     @time begin
         @sync for core in cores
-            @spawnat core add_local_dummyobjects(core)
+            @spawnat core add_local_dummyobjects()
         end
     end
 
@@ -108,13 +108,13 @@ function init_databases(input::AbstractJulESInput)
     # transfer this data to all other cores
     println("Add local problem distribution")
     @time begin
-        wait(@spawnat c add_local_problem_distribution(c))
+        wait(@spawnat c add_local_problem_distribution())
     end
 
     println("Add local horizons")
     @time begin
         @sync for core in cores
-            @spawnat core add_local_horizons(core)
+            @spawnat core add_local_horizons()
         end
     end
 
@@ -171,7 +171,7 @@ Build dummyobjects on each core
 For use in scenario modelling, validate elements and collect storages
 """
 # TODO: Only validate once
-function add_local_dummyobjects(thiscore)
+function add_local_dummyobjects()
     db = get_local_db()
 
     # Horizons are needed to build modelobjects, but not used in scenario modelling
@@ -560,7 +560,7 @@ further (i.e. move problem-core-location) based on collected timing data.
 The initial distribution on cores is calculated on one core, and then transfered
 to all other cores. 
 """
-function add_local_problem_distribution(thiscore)
+function add_local_problem_distribution()
     db = get_local_db()
 
     dist_ppp = get_dist_ppp(db.input)
@@ -582,7 +582,7 @@ function add_local_problem_distribution(thiscore)
 
     cores = get_cores(db.input)
     @sync for core in cores
-        if core != thiscore
+        if core != db.core
             @spawnat core set_local_dists(dists)
         end
     end
@@ -615,13 +615,13 @@ non-master horizons do update-by-transfer, we want to turn off update-by-solve b
 Hence, we wrap them in ExternalHorizon, which specializes the update! method to do nothing. 
 Which cores own which scenarios are defined in db.dist_ppp at any given time. 
 """
-function add_local_horizons(thiscore)
+function add_local_horizons()
     db = get_local_db()
     horizons = get_horizons(db.input)
     d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
     for (scenarioix, ownercore) in db.dist_ppp
         for ((term, commodity), horizon) in horizons
-            if ownercore != thiscore
+            if ownercore != db.core
                 horizon = getlightweightself(horizon)
                 horizon = deepcopy(horizon)
                 externalhorizon = ExternalHorizon(horizon)
