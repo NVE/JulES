@@ -19,7 +19,7 @@ using Random
 using JLD2
 
 
-mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: TimeVector, F1, F2, F3, F4, F5, F6}
+mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: TimeVector}
     predictor::P
 
     basin_area::Float64
@@ -33,18 +33,12 @@ mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: 
     pred_T::Vector{Float32}  
     pred_Lday::Vector{Float32} 
     pred_timepoints::Vector{Float32}
-    pred_itp_P::F1
-    pred_itp_T::F2
-    pred_itp_Lday::F3
 
     obs_ndays::Int
     obs_P::Vector{Float32}   
     obs_T::Vector{Float32}  
     obs_Lday::Vector{Float32} 
     obs_timepoints::Vector{Float32}
-    obs_itp_P::F4
-    obs_itp_T::F5
-    obs_itp_Lday::F6
 
     prev_t::Union{ProbTime, Nothing}
 
@@ -59,15 +53,10 @@ mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: 
         isnothing(obs_T) || @assert len(obs_T) == obs_ndays
         isnothing(obs_Lday) || @assert len(obs_Lday) == obs_ndays
 
-        itp_method = SteffenMonotonicInterpolation()
-
         pred_timepoints = Vector{Float32}(1:pred_ndays)
         pred_P = zeros(Float32, pred_ndays)
         pred_T = zeros(Float32, pred_ndays)
         pred_Lday = zeros(Float32, pred_ndays)
-        pred_itp_P = interpolate(pred_timepoints, pred_P, itp_method)
-        pred_itp_T = interpolate(pred_timepoints, pred_T, itp_method)
-        pred_itp_Lday = interpolate(pred_timepoints, pred_Lday, itp_method)
 
         obs_usehist = false
         obs_timepoints = Vector{Float32}(1:obs_ndays)
@@ -77,9 +66,6 @@ mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: 
             obs_T = zeros(Float32, obs_ndays)
             obs_Lday = zeros(Float32, obs_ndays)
         end
-        obs_itp_P = interpolate(obs_timepoints, obs_P, itp_method)
-        obs_itp_T = interpolate(obs_timepoints, obs_T, itp_method)
-        obs_itp_Lday = interpolate(obs_timepoints, obs_Lday, itp_method)
 
         prev_t = nothing
 
@@ -87,19 +73,11 @@ mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: 
         T1 = typeof(hist_P)
         T2 = typeof(hist_T)
         T3 = typeof(hist_Lday)
-        F1 = typeof(pred_itp_P)
-        F2 = typeof(pred_itp_T)
-        F3 = typeof(pred_itp_Lday)        
-        F4 = typeof(obs_itp_P)
-        F5 = typeof(obs_itp_T)
-        F6 = typeof(obs_itp_Lday)
 
-        return new{P, T1, T2, T3, F1, F2, F3, F4, F5, F6}(
+        return new{P, T1, T2, T3}(
             predictor, basin_area, hist_P, hist_T, hist_Lday,
-            pred_ndays, pred_P, pred_T, pred_Lday,
-            pred_timepoints, pred_itp_P, pred_itp_T, pred_itp_Lday,
-            obs_usehist, obs_ndays, obs_P, obs_T, obs_Lday, 
-            obs_timepoints, obs_itp_P, obs_itp_T, obs_itp_Lday, prev_t)
+            pred_ndays, pred_P, pred_T, pred_Lday, pred_timepoints,
+            obs_usehist, obs_ndays, obs_P, obs_T, obs_Lday, obs_timepoints, prev_t)
     end
 end
 
@@ -147,7 +125,11 @@ function estimate_initial_state(m::_InflowModelHandler, t::ProbTime)
 
     # do hindcast up until today
     (S0, G0) = (Float32(0), Float32(0)) 
-    (__, OED_sol) = m.predictor.predict(S0, G0, m.obs_itp_Lday, m.obs_itp_P, m.obs_itp_T, m.obs_timepoints)
+    itp_method = SteffenMonotonicInterpolation()
+    itp_P = interpolate(m.obs_timepoints, m.obs_P, itp_method)
+    itp_T = interpolate(m.obs_timepoints, m.obs_T, itp_method)
+    itp_Lday = interpolate(m.obs_timepoints, m.obs_Lday, itp_method)
+    (__, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.obs_timepoints)
 
     # extract states
     est_S0 = last(OED_sol[1, :])
@@ -169,7 +151,11 @@ function predict(m::_InflowModelHandler, initial_State, t::ProbTime)
     end
 
     (S0, G0) = initial_State
-    (__, OED_sol) = m.predictor.predict(S0, G0, m.pred_itp_Lday, m.pred_itp_P, m.pred_itp_T, m.pred_timepoints)
+    itp_method = SteffenMonotonicInterpolation()
+    itp_P = interpolate(m.pred_timepoints, m.pred_P, itp_method)
+    itp_T = interpolate(m.pred_timepoints, m.pred_T, itp_method)
+    itp_Lday = interpolate(m.pred_timepoints, m.pred_Lday, itp_method)
+    (__, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.pred_timepoints)
 
     Q = Float64.(Q)
     Q .= Q ./ mm_per_m3s
@@ -262,29 +248,29 @@ function NeuralODE_M100(p, norm_S0, norm_S1, norm_P, norm_T, itp_Lday, itp_P, it
     return Qout_, sol
 end
 
-struct _NeuralODEPredictor{P, F1, F2, F3, F4}
+struct _NeuralODEPredictor{P}
     nn_params::P
-    norm_S::F1
-    norm_G::F2
-    norm_P::F3
-    norm_T::F4
+    mean_S::Float32
+    mean_G::Float32
+    mean_P::Float32
+    mean_T::Float32
+    std_S::Float32
+    std_G::Float32
+    std_P::Float32
+    std_T::Float32
     function _NeuralODEPredictor(model_params)
         (nn_params, moments) = model_params
-        (mean_S, std_S, mean_G, std_G, mean_P, std_P, mean_T, std_T) = moments    
-        norm_S = (S) -> (S.-mean_S)./std_S
-        norm_G = (G) -> (G.-mean_G)./std_G
-        norm_P = (P) -> (P.-mean_P)./std_P
-        norm_T = (T) -> (T.-mean_T)./std_T
-        P = typeof(nn_params)
-        F1 = typeof(norm_S)
-        F2 = typeof(norm_G)
-        F3 = typeof(norm_P)
-        F4 = typeof(norm_T)
-        return new{P, F1, F2, F3, F4}(nn_params, norm_S, norm_G, norm_P, norm_T)
-
+        return new{typeof(nn_params)}(nn_params, moments...)
+    end
 end
+
 function predict(m::_NeuralODEPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
-    NeuralODE_M100(m.nn_params, m.norm_S, m.norm_G, m.norm_P, m.norm_T, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
+    norm_S = (S) -> (S.-m.mean_S)./m.std_S
+    norm_G = (G) -> (G.-m.mean_G)./m.std_G
+    norm_P = (P) -> (P.-m.mean_P)./m.std_P
+    norm_T = (T) -> (T.-m.mean_T)./m.std_T
+    NeuralODE_M100(m.nn_params, m.norm_S, m.norm_G, m.norm_P, 
+        m.norm_T, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
 end
 
 struct NeuralOEDInflowModel{H} <: InflowModel
