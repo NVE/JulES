@@ -12,7 +12,8 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     numscen_stoch = get_numscen_stoch(db.input)
     cutobjects = getcutobjects(modelobjects)
     cuts = initialize_cuts!(modelobjects, cutobjects, maxcuts, lb, numscen_stoch)
-    states = get_states(cutobjects) # state variables in master and subs for boundary reservoirs
+    states = get_states(cutobjects)
+    cuts.statevars = [var for (var, value) in states] # TODO: Find better way of getting same order in states and cuts.statevars
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["master"]["solver"])
     prob = buildprob(probmethod, modelobjects)
@@ -29,8 +30,7 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     startduration = parse_duration(settings["horizons"]["clearing"], "termduration")
     endduration = get_duration_stoch(subsystem)
     modelobjects = make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, false)
-    cutobjects = getcutobjects(modelobjects)
-    states = get_states(cutobjects)
+    states = get_states(modelobjects) # different order than mp.cuts.statevars, so only use length
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
     prob = buildprob(probmethod, modelobjects)
@@ -106,10 +106,8 @@ function solve_benders(stepnr, subix)
     ub = 0.0
     lb = mp.cuts.lower_bound
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-    println(getid(getobjects(mp.prob)[1]))
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-        println(count)
         count == 0 && setwarmstart!(mp.prob, false)
 
         if cutreuse # try to reuse cuts from last time step
@@ -152,33 +150,12 @@ function solve_benders(stepnr, subix)
                 ub += objectivevalue*mp.cuts.probabilities[_scenix]
                 mp.cuts.scenslopes[_scenix, cutix, :] .= scenslopes
                 mp.cuts.scenconstants[_scenix, cutix] = scenconstant
-
-                # println(objectivevalue)
-                # println(scenslopes)
-                # println(scenconstant)
             end
         end
-        println(ub)
-        println(lb)
 
         updatecutparameters!(mp.prob, mp.cuts)
-        if (count == 0 && cutreuse) 
-            updatecuts!(mp.prob, mp.cuts) # Remove?
-        else
-            updatelastcut!(mp.prob, mp.cuts)
-        end
+        updatelastcut!(mp.prob, mp.cuts)
         count += 1
-
-        if count == 20
-            for obj in getobjects(mp.prob)
-                println(getid(obj))
-            end
-            error("Not converging")
-        end
-        # display(ub)
-        # display(abs((lb-ub)/lb))
-        # display(abs(ub-lb))
-        # display(cuts.slopes)
     end
     return
 end
@@ -397,9 +374,6 @@ function get_balancedual_evp(scenix, subix, bid, period)
     db = get_local_db()
 
     evp = db.evp[(scenix, subix)]
-    # for p in 1:period
-    #     println("$(getinstancename(bid)) $(p) $(getcondual(evp.prob, bid, period))")
-    # end
     dual_evp = getcondual(evp.prob, bid, period)
     return dual_evp
 end
@@ -510,7 +484,7 @@ end
 
 function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int)
     # Make a cutid
-    cutname = getinstancename(getid(modelobjects[1]))
+    cutname = getinstancename(getid(cutobjects[1]))
     cutid = Id(BOUNDARYCONDITION_CONCEPT,"StorageCuts" * cutname)
     
     # Make cut modelobject
