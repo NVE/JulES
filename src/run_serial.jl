@@ -437,13 +437,12 @@ end
 
 function get_element_from_obj(dataelements::Vector{DataElement}, obj::Any)
     objid = getid(obj)
-    elkey = ElementKey(objid.conceptname, string(typeof(obj)), objid.instancename)
+    elkey = ElementKey(objid.conceptname, string(nameof(typeof(obj))), objid.instancename)
     for (i, dataelement) in enumerate(dataelements)
         if getelkey(dataelement) == elkey
             return (i, dataelement)
         end
     end
-    error("element not in dataelements")
 end
     
 function get_commodities_from_dataelements(elements::Vector{DataElement})
