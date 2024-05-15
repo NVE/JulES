@@ -7,6 +7,7 @@ Interface:
 """
 abstract type InflowModel end
 
+# TODO: Remove unused packages
 using CSV
 using DataFrames, Dates, Statistics
 using OrdinaryDiffEq, DiffEqFlux, Lux
@@ -386,6 +387,16 @@ function solve_inflow_models(t, stepnr)
                 d[scenix] = predict(inflow_model, initial_state, scentime)
             end
             db.inflow_prognosis[station] = (stepnr, d)
+        end
+    end
+end
+
+function create_inflow_models()
+    db = get_local_db()
+    modelobjects = getmodelobjects(get_inflow_model_elements(db.input))
+    for (station, core) in db.dist_inflow_models
+        if core == db.core
+            db.inflow_models[station] = modelobjects[Id(TuLiPa.INFLOW_MODEL_CONCEPT, station)]
         end
     end
 end

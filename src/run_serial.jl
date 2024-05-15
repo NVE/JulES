@@ -120,6 +120,13 @@ function init_databases(input::AbstractJulESInput)
         end
     end
 
+    println("Add inflow models")
+    @time begin
+        @sync for core in cores
+            @spawnat core create_inflow_models()
+        end
+    end
+
     println("Add local problems")
     @time begin
         @sync for core in cores
