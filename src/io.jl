@@ -602,7 +602,40 @@ function get_output_final(steplength, skipmax)
 
     get_output_timing(output, steplength, skipmax)
 
+    get_output_memory(output)
+
     return output
+end
+
+function get_output_memory(output)
+    db = get_local_db()
+
+    names = vcat(["coreid", "sum_unique"], fieldnames(typeof(db)))
+    df = DataFrame(DataFrame([[] for _ = names] , names))
+    cores = get_cores(db)
+    for core in cores # TODO: Do sync
+        f = @spawnat core get_output_memory_local()
+        push!(df, fetch(f))
+    end
+    df[!, :sum] = sum(eachcol(select(df, Not(:coreid, :sum_unique))))
+    df = permutedims(df, "coreid")
+    if length(cores) > 1
+        df[!, :sum] = sum(eachcol(select(df, Not(:coreid))))
+    end
+    println(df)
+end
+
+function get_output_memory_local()
+    db = get_local_db()
+
+    values = Any[string(db.core), Base.summarysize(db)/1e6]
+
+    for field in fieldnames(typeof(db))
+        field_value = getfield(db, field)
+        field_memory_size = Base.summarysize(field_value)/1e6
+        push!(values, field_memory_size)
+    end
+    return values
 end
 
 function get_output_timing(output, steplength, skipmax)
