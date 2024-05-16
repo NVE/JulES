@@ -400,3 +400,66 @@ function create_inflow_models()
         end
     end
 end
+
+
+struct InflowProfile{T <: TimeVector} <: TimeVector
+    timevector::T
+    ref_period::Tuple{Int, Int}
+    scale_factor::Float64
+
+    function InflowProfile(timevector, ref_period)
+        (yr_start, yr_stop) = ref_period
+        @assert yr_stop >= yr_start
+        scale_factor = 0.0
+        N = 0
+        t = getisoyearstart(yr_start)
+        stop = getisoyearstart(yr_stop + 1)
+        delta = MSTimeDelta(Day(1))
+        while t < stop
+            scale_factor += getweightedaverage(timevector, t, delta)
+            N += 1
+            t += getduration(delta)
+        end
+        scale_factor = 1/((scale_factor / N) * 365)
+        return new{typeof(timevector)}(timevector, ref_period, scale_factor)
+    end
+end
+
+function getweightedaverage(x::InflowProfile, t::DateTime, delta::TimeDelta)
+    getweightedaverage(x.timevector, t, delta)
+end
+
+function includeInflowProfile!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+    checkkey(lowlevel, elkey)
+
+    deps = Id[]
+    
+    ref_yr_start = getdictvalue(value, "RefYearStart", Int, elkey)
+    ref_yr_stop = getdictvalue(value, "RefYearStop", Int, elkey)
+    (ref_yr_start > ref_yr_stop) && error("RefYearStart > RefYearStop for $elkey")
+    
+    timevectorname = getdictvalue(value, TIMEVECTOR_CONCEPT, String, elkey)
+    timevectorkey = Id(TIMEVECTOR_CONCEPT,  timevectorname)
+    push!(deps, timevectorkey)
+    haskey(lowlevel, timevectorkey)   || return (false, deps)
+
+    timevector = lowlevel[timevectorkey]
+    
+    res_period = (ref_yr_start, ref_yr_stop)
+    lowlevel[getobjkey(elkey)] = InflowProfile(timevector, ref_period)
+    
+    return (true, deps)
+end
+
+
+# Plan is to create InfiniteTimeVector with prognosis from InflowModel
+# Then use scale_factor from corresponding InflowProfile to get normalized
+# profile values 
+struct ScaledTimeVector{T <: TimeVector} <: TimeVector
+    timevector::T
+    scale_factor::Float64
+end
+
+function getweightedaverage(x::ScaledTimeVector, t::DateTime, delta::TimeDelta)
+    getweightedaverage(x.timevector, t, delta) * x.scale_factor
+end
