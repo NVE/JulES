@@ -270,8 +270,8 @@ function predict(m::_NeuralODEPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoi
     norm_G = (G) -> (G.-m.mean_G)./m.std_G
     norm_P = (P) -> (P.-m.mean_P)./m.std_P
     norm_T = (T) -> (T.-m.mean_T)./m.std_T
-    NeuralODE_M100(m.nn_params, m.norm_S, m.norm_G, m.norm_P, 
-        m.norm_T, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
+    NeuralODE_M100(m.nn_params, norm_S, norm_G, norm_P, norm_T, 
+        S0, G0, itp_Lday, itp_P, itp_T, timepoints)
 end
 
 struct NeuralOEDInflowModel{H} <: InflowModel
