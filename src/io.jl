@@ -610,7 +610,7 @@ end
 function get_output_memory(output)
     db = get_local_db()
 
-    names = vcat(["coreid", "sum_unique"], fieldnames(typeof(db)))
+    names = vcat(["coreid", "sum_unique"], string.(fieldnames(typeof(db))))
     df = DataFrame(DataFrame([[] for _ = names] , names))
     cores = get_cores(db)
     for core in cores # TODO: Do sync
