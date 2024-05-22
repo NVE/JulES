@@ -715,7 +715,7 @@ function step_jules(t, delta, stepnr, skipmed)
         end
 
         @sync for core in cores
-            @spawnat core synchronize_inflow_ifm()
+            @spawnat core synchronize_ifm_output()
         end
 
         @sync for core in cores

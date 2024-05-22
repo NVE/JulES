@@ -364,9 +364,9 @@ end
 How inflow_models are distributed on cores initially
 """
 function get_dist_ifm(input::AbstractJulESInput)
+    names = get_inflow_names(input)
     cores = get_cores(input)
     N = length(cores)
-    names = get_inflow_model_names(input)
     dist = Vector{Tuple{String, CoreId}}(undef, length(names))
     for (i, name) in enumerate(names)
         j = (i - 1) % N + 1
@@ -378,11 +378,11 @@ end
 
 function solve_ifm(t)
     db = get_local_db()
-    normalize_factors = get_inflow_normalize_factors(db.input)
+    normfactors = get_ifm_normfactors(db)
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
             inflow_model = db.ifm[inflow_name]
-            normalize_factor = normalize_factors[inflow_name]
+            normalize_factor = normfactors[inflow_name]
             initial_state = estimate_initial_state(inflow_model, t)
             scenarios = get_scenarios(db.scenmod_ppp)
             for (scenix, scen) in enumerate(scenarios)
@@ -391,47 +391,48 @@ function solve_ifm(t)
                 Q .= Q .* normalize_factor
                 start = getscenariotime(scentime)
                 ix = [start + Day(i-1) for i in 1:length(Q)]    # TODO: Allocate this only once, then reuse
-                db.inflow_ifm[inflow_name][scenix] = (ix, Q)
+                db.ifm_output[inflow_name][scenix] = (ix, Q)
             end
         end
     end
 end
 
-function synchronize_inflow_ifm()
+function synchronize_ifm_output()
     db = get_local_db()
     cores = get_cores(db)
     @sync for (inflow_name, core) in db.dist_ifm
         if core == db.core
-            data = db.inflow_ifm[inflow_name]
+            data = db.ifm_output[inflow_name]
             for other_core in cores
                 if other_core != db.core
-                    @spawnat other_core set_inflow_ifm(data, inflow_name)
+                    @spawnat other_core set_ifm_output(data, inflow_name)
                 end
             end
         end
     end
 end
 
-function set_inflow_ifm(data, inflow_name)
+function set_ifm_output(data, inflow_name)
     db = get_local_db()
-    db.inflow_ifm[inflow_name] = data
+    db.ifm_output[inflow_name] = data
     return
 end
 
-function update_weighted_ifm()
+function update_ifm_derived()
     db = get_local_db()
-    for weighted_inflow_name in keys(db.weighted_ifm)
+    ifm_weights = get_ifm_weights(db)
+    for derived_name in keys(db.ifm_derived)
+        weights = ifm_weights[derived_name]
         do_ix = true
-        for scenix in keys(db.weighted_ifm[weighted_inflow_name])
-            (weighted_ix, weighted_vals) = db.weighted_ifm[weighted_inflow_name][scenix]
-            fill!(weighted_vals, 0.0)
-            for (inflow_name, weight) in db.weights_ifm[weighted_inflow_name]
-                (ix, vals) = db.inflow_ifm[inflow_name][scenix]
+        for (scenix, (derived_ix, derived_vals)) in db.ifm_derived[derived_name]
+            fill!(derived_vals, 0.0)
+            for (inflow_name, weight) in weights
+                (ix, vals) = db.ifm_output[inflow_name][scenix]
                 if do_ix
-                    weighted_ix .= ix
+                    derived_ix .= ix
                     do_ix = false
                 end
-                weighted_vals .= weighted_vals .+ weight .* vals
+                derived_vals .= derived_vals .+ weight .* vals
             end
         end
     end
@@ -439,10 +440,12 @@ end
 
 function create_ifm()
     db = get_local_db()
-    modelobjects = getmodelobjects(get_elements_ifm(db.input))
+    elements = get_ifm_elements(db)
+    modelobjects = getmodelobjects(elements)
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
-            db.ifm[inflow_name] = modelobjects[Id(TuLiPa.INFLOW_MODEL_CONCEPT, inflow_name)]
+            id = Id(TuLiPa.INFLOW_MODEL_CONCEPT, inflow_name)
+            db.ifm[inflow_name] = modelobjects[id]
         end
     end
 end

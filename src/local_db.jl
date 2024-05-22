@@ -75,9 +75,8 @@ mutable struct LocalDB
 
     div::Dict
 
-    inflow_ifm::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
-    weighted_ifm::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
-    weights_ifm::Dict{String, Dict{String, Float64}}
+    ifm_output::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
+    ifm_derived::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
 
     function LocalDB()
         return new(
@@ -118,9 +117,8 @@ mutable struct LocalDB
 
             Dict(),   # div
 
-            Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}(),   # inflow_ifm
-            Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}(),   # weighted_ifm
-            Dict{String, Dict{String, Float64}}(),                                        # weights_ifm
+            Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}(),   # ifm_output
+            Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}(),   # ifm_weighted
         )
     end
 end
@@ -152,10 +150,12 @@ get_dist_mp(db::LocalDB) = db.dist_mp
 get_dist_sp(db::LocalDB) = db.dist_sp
 get_core_cp(db::LocalDB) = db.core_cp
 get_div(db::LocalDB) = db.div
-get_inflow_ifm(db::LocalDB) = db.inflow_ifm
-get_weighted_ifm(db::LocalDB) = db.weighted_ifm
-get_weights_ifm(db::LocalDB) = db.weights_ifm
+get_ifm_output(db::LocalDB) = db.ifm_output
+get_ifm_derived(db::LocalDB) = db.ifm_derived
 
+get_ifm_weights(db::LocalDB) = get_ifm_weights(get_input(db))
+get_ifm_normfactors(db::LocalDB) = get_ifm_normfactors(get_input(db))
+get_ifm_elements(db::LocalDB) = get_ifm_elements(get_input(db))
 get_cores(db::LocalDB) = get_cores(get_input(db))
 get_dataset(db::LocalDB) = get_dataset(get_input(db))
 get_mainconfig(db::LocalDB) = get_mainconfig(get_input(db))
