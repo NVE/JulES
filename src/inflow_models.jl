@@ -156,7 +156,7 @@ function predict(m::_InflowModelHandler, initial_State, t::ProbTime)
     itp_P = interpolate(m.pred_timepoints, m.pred_P, itp_method)
     itp_T = interpolate(m.pred_timepoints, m.pred_T, itp_method)
     itp_Lday = interpolate(m.pred_timepoints, m.pred_Lday, itp_method)
-    (__, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.pred_timepoints)
+    (Q, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.pred_timepoints)
 
     Q = Float64.(Q)
     Q .= Q ./ mm_per_m3s
