@@ -56,6 +56,7 @@ mutable struct LocalDB
     scenmod_evp::AbstractScenarioModellingMethod
     scenmod_stoch::AbstractScenarioModellingMethod
 
+    ifm::Dict{String, Union{InflowModel, Nothing}}
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
     prices_ppp::Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
@@ -63,6 +64,7 @@ mutable struct LocalDB
     sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
     cp::Union{Nothing, ClearingProblem}
 
+    dist_ifm::Tuple{String, CoreId}
     dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}
     dist_evp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
     dist_mp::Vector{Tuple{ScenarioIx, CoreId}}
@@ -72,6 +74,10 @@ mutable struct LocalDB
     # time_cp::Float64
 
     div::Dict
+
+    inflow_ifm::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
+    weighted_ifm::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
+    weights_ifm::Dict{String, Dict{String, Float64}}
 
     function LocalDB()
         return new(
@@ -95,13 +101,15 @@ mutable struct LocalDB
             NothingScenarioModellingMethod(), # scenmod_evp
             NothingScenarioModellingMethod(), # scenmod_stoch
 
+            Dict{String, Union{InflowModel, Nothing}}(),                             # ifm
             Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
-            Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}(), # prices_ppp
+            Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}(),    # prices_ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),                 # evp
             Dict{SubsystemIx, MasterProblem}(),                                      # mp
             Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),                 # sp
             nothing,                                                                 # cp
 
+            Tuple{String, CoreId}[],                    # dist_ifm
             Tuple{ScenarioIx, CoreId}[],                # dist_ppp
             Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_evp
             Tuple{SubsystemIx, CoreId}[],               # dist_mp
@@ -109,6 +117,10 @@ mutable struct LocalDB
             -1,   # core_cp
 
             Dict(),   # div
+
+            Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}(),   # inflow_ifm
+            Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}(),   # weighted_ifm
+            Dict{String, Dict{String, Float64}}(),                                        # weights_ifm
         )
     end
 end
@@ -127,17 +139,22 @@ get_scenmod_sim(db::LocalDB) = db.scenmod_sim
 get_scenmod_ppp(db::LocalDB) = db.scenmod_ppp
 get_scenmod_evp(db::LocalDB) = db.scenmod_evp
 get_scenmod_stoch(db::LocalDB) = db.scenmod_stoch
+get_ifm(db::LocalDB) = db.ifm
 get_ppp(db::LocalDB) = db.ppp
 get_evp(db::LocalDB) = db.evp
 get_mp(db::LocalDB) = db.mp
 get_sp(db::LocalDB) = db.sp
 get_cp(db::LocalDB) = db.cp
+get_dist_ifm(db::LocalDB) = db.dist_ifm
 get_dist_ppp(db::LocalDB) = db.dist_ppp
 get_dist_evp(db::LocalDB) = db.dist_evp
 get_dist_mp(db::LocalDB) = db.dist_mp
 get_dist_sp(db::LocalDB) = db.dist_sp
 get_core_cp(db::LocalDB) = db.core_cp
 get_div(db::LocalDB) = db.div
+get_inflow_ifm(db::LocalDB) = db.inflow_ifm
+get_weighted_ifm(db::LocalDB) = db.weighted_ifm
+get_weights_ifm(db::LocalDB) = db.weights_ifm
 
 get_cores(db::LocalDB) = get_cores(get_input(db))
 get_dataset(db::LocalDB) = get_dataset(get_input(db))

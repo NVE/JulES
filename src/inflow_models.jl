@@ -165,6 +165,7 @@ function predict(m::_InflowModelHandler, initial_State, t::ProbTime)
 end
 
 # ---- Common functions for NeuralOED model and Bucket -----
+# TODO: link to source to give credit
 step_fct(x) = (tanh(5.0*x) + 1.0)*0.5
 Ps(P, T, Tmin) = step_fct(Tmin-T)*P
 Pr(P, T, Tmin) = step_fct(T-Tmin)*P
@@ -362,7 +363,7 @@ end
 """
 How inflow_models are distributed on cores initially
 """
-function get_dist_inflow_models(input::AbstractJulESInput)
+function get_dist_ifm(input::AbstractJulESInput)
     cores = get_cores(input)
     N = length(cores)
     names = get_inflow_model_names(input)
@@ -374,29 +375,71 @@ function get_dist_inflow_models(input::AbstractJulESInput)
     return dist
 end
 
-function solve_inflow_models(t, stepnr)
+
+function solve_ifm(t)
     db = get_local_db()
-    for (station, core) in db.dist_inflow_models
+    for (inflow_name, core) in db.dist_ifm
         if core == db.core
-            inflow_model = db.inflow_models[station]
-            (stored_stepnr, d) = db.inflow_prognosis[station]
+            inflow_model = db.ifm[inflow_name]
             initial_state = estimate_initial_state(inflow_model, t)
             scenarios = get_scenarios(db.scenmod_ppp)
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
-                d[scenix] = predict(inflow_model, initial_state, scentime)
+                normalized_Q = predict(inflow_model, initial_state, scentime)
+                start = getscenariotime(scentime)
+                ix = [start + Day(i-1) for i in 1:length(normalized_Q)]    # TODO: Allocate this only once, then reuse
+                db.inflow_ifm[inflow_name][scenix] = (ix, normalized_Q)
             end
-            db.inflow_prognosis[station] = (stepnr, d)
         end
     end
 end
 
-function create_inflow_models()
+function synchronize_inflow_ifm()
     db = get_local_db()
-    modelobjects = getmodelobjects(get_inflow_model_elements(db.input))
-    for (station, core) in db.dist_inflow_models
+    cores = get_cores(db)
+    @sync for (inflow_name, core) in db.dist_ifm
         if core == db.core
-            db.inflow_models[station] = modelobjects[Id(TuLiPa.INFLOW_MODEL_CONCEPT, station)]
+            data = db.inflow_ifm[inflow_name]
+            for other_core in cores
+                if other_core != db.core
+                    @spawnat other_core set_inflow_ifm(data, inflow_name)
+                end
+            end
+        end
+    end
+end
+
+function set_inflow_ifm(data, inflow_name)
+    db = get_local_db()
+    db.inflow_ifm[inflow_name] = data
+    return
+end
+
+function update_weighted_ifm()
+    db = get_local_db()
+    for weighted_inflow_name in keys(db.weighted_ifm)
+        do_ix = true
+        for scenix in keys(db.weighted_ifm[weighted_inflow_name])
+            (weighted_ix, weighted_vals) = db.weighted_ifm[weighted_inflow_name][scenix]
+            fill!(weighted_vals, 0.0)
+            for (inflow_name, weight) in db.weights_ifm[weighted_inflow_name]
+                (ix, vals) = db.inflow_ifm[inflow_name][scenix]
+                if do_ix
+                    weighted_ix .= ix
+                    do_ix = false
+                end
+                weighted_vals .= weighted_vals .+ weight .* vals
+            end
+        end
+    end
+end
+
+function create_ifm()
+    db = get_local_db()
+    modelobjects = getmodelobjects(get_elements_ifm(db.input))
+    for (inflow_name, core) in db.dist_ifm
+        if core == db.core
+            db.ifm[inflow_name] = modelobjects[Id(TuLiPa.INFLOW_MODEL_CONCEPT, inflow_name)]
         end
     end
 end
@@ -426,7 +469,7 @@ struct InflowProfile{T <: TimeVector} <: TimeVector
 end
 
 function getweightedaverage(x::InflowProfile, t::DateTime, delta::TimeDelta)
-    getweightedaverage(x.timevector, t, delta)
+    getweightedaverage(x.timevector, t, delta) * x.scale_factor
 end
 
 function includeInflowProfile!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
@@ -451,7 +494,6 @@ function includeInflowProfile!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
     return (true, deps)
 end
 
-
 # Plan is to create InfiniteTimeVector with prognosis from InflowModel
 # Then use scale_factor from corresponding InflowProfile to get normalized
 # profile values 
@@ -462,4 +504,44 @@ end
 
 function getweightedaverage(x::ScaledTimeVector, t::DateTime, delta::TimeDelta)
     getweightedaverage(x.timevector, t, delta) * x.scale_factor
+end
+
+# TODO: Complete
+function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+    checkkey(lowlevel, elkey)
+
+    deps = Id[]
+
+    # hist_profile
+    # level
+    # inflow_name
+    # scenix    (this value is set by JulES, and is not part of the input)
+
+    # creates a infinite timevector that refers to vectors stored in local db, which will be updated by JulES each step after running inflow models
+    # this way, model objects holding reference to such RHS term, will use updated prognosis from db when called by update!(prob, t)
+    prognosis_profile = get_prognosis_from_local_db(inflow_name, scenix)
+
+    param = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
+
+    isingoing = true
+
+    id = Id(RHSTERM_CONCEPT, inflow_name)
+
+    lowlevel[id] = BaseRHSTerm(id, param, isingoing)
+
+    return (true, deps)
+end
+
+function get_prognosis_from_local_db(inflow_model, scenix)
+    db = get_local_db()
+    if haskey(db.weights_ifm, inflow_name)
+        d = db.weighted_ifm
+    else
+        d = db.inflow_ifm
+    end
+    if !haskey(d[inflow_name], scenix)
+        d[inflow_name][scenix] = (DateTime[], Float64[])
+    end
+    (ix, vals) = d[inflow_name][scenix]
+    return InfiniteTimeVector(ix, vals)
 end

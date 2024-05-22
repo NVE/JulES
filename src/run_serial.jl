@@ -570,6 +570,8 @@ to all other cores.
 function add_local_problem_distribution(thiscore)
     db = get_local_db()
 
+    dist_ifm = get_dist_ifm(db.input)
+    println(dist_ifm)
     dist_ppp = get_dist_ppp(db.input)
     println(dist_ppp)
     dist_evp = get_dist_evp(db.input, db.subsystems_evp)
@@ -579,13 +581,14 @@ function add_local_problem_distribution(thiscore)
     println(dist_sp)
     core_cp = get_core_cp(db.input)
 
+    db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
     db.core_cp = core_cp
 
-    dists = (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
+    dists = (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
 
     cores = get_cores(db.input)
     @sync for core in cores
@@ -598,10 +601,11 @@ function add_local_problem_distribution(thiscore)
 end
 
 function set_local_dists(dists)
-    (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
+    (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
 
     db = get_local_db()
     
+    db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
@@ -644,6 +648,12 @@ end
 
 function add_local_problems(thiscore)
     db = get_local_db()
+
+    for (inflow_name, core) in db.dist_ifm
+        if core == thiscore
+            create_ifm(db)
+        end
+    end
 
     for (scenix, core) in db.dist_ppp
         if core == thiscore
@@ -701,7 +711,15 @@ function step_jules(t, delta, stepnr, skipmed)
     print("Solve inflow models")
     @time begin
         @sync for core in cores
-            @spawnat core solve_inflow_models(t, stepnr)
+            @spawnat core solve_ifm(t)
+        end
+
+        @sync for core in cores
+            @spawnat core synchronize_inflow_ifm()
+        end
+
+        @sync for core in cores
+            @spawnat core update_weighted_ifm()
         end
     end
 
