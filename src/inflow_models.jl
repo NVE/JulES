@@ -378,17 +378,20 @@ end
 
 function solve_ifm(t)
     db = get_local_db()
+    normalize_factors = get_inflow_normalize_factors(db.input)
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
             inflow_model = db.ifm[inflow_name]
+            normalize_factor = normalize_factors[inflow_name]
             initial_state = estimate_initial_state(inflow_model, t)
             scenarios = get_scenarios(db.scenmod_ppp)
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
-                normalized_Q = predict(inflow_model, initial_state, scentime)
+                Q = predict(inflow_model, initial_state, scentime)
+                Q .= Q .* normalize_factor
                 start = getscenariotime(scentime)
-                ix = [start + Day(i-1) for i in 1:length(normalized_Q)]    # TODO: Allocate this only once, then reuse
-                db.inflow_ifm[inflow_name][scenix] = (ix, normalized_Q)
+                ix = [start + Day(i-1) for i in 1:length(Q)]    # TODO: Allocate this only once, then reuse
+                db.inflow_ifm[inflow_name][scenix] = (ix, Q)
             end
         end
     end
