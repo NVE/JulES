@@ -503,7 +503,7 @@ function get_prognosis_from_local_db(inflow_name, scenix)
     return InfiniteTimeVector(ix, vals)
 end
 
-function add_scenix_to_ModeledInflow_elements(elements, scenix)
+function add_scenix_to_ABSTRACT_MODELED_INFLOW(elements, scenix)
     for e in elements
         if e.conceptname == ABSTRACT_MODELED_INFLOW
             set_scenix_ABSTRACT_MODELED_INFLOW(e, value, scenix)

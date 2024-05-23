@@ -76,7 +76,7 @@ function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_h
     elements1 = copy(elements)
     
     # Needed for inflow_models.includeModeledInflow! to work
-    add_scenix_to_ModeledInflow_elements(elements1, scenix)
+    add_scenix_to_ABSTRACT_MODELED_INFLOW(elements1, scenix)
 
     set_horizon!(elements1, "Power", power_horizon)
     set_horizon!(elements1, "Battery", power_horizon)
