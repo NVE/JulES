@@ -218,6 +218,9 @@ return new{typeof(handler)}(id, handler)
     end
 end
 
+estimate_initial_state(m::BucketInflowModel, t::ProbTime) = estimate_initial_state(m.handler, t)
+predict(m::BucketInflowModel, initial_State, t::ProbTime) = predict(m.handler, initial_State, t)
+
 function includeBucketInflowModel!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     _common_includeInflowModel!(BucketInflowModel, toplevel, lowlevel, elkey, value)
 end
@@ -287,6 +290,9 @@ struct NeuralOEDInflowModel{H} <: AbstractInflowModel
         return new{typeof(handler)}(id, handler)
     end
 end
+
+estimate_initial_state(m::NeuralOEDInflowModel, t::ProbTime) = estimate_initial_state(m.handler, t)
+predict(m::NeuralOEDInflowModel, initial_State, t::ProbTime) = predict(m.handler, initial_State, t)
 
 function includeNeuralOEDInflowModel!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     _common_includeInflowModel!(NeuralOEDInflowModel, toplevel, lowlevel, elkey, value)
