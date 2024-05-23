@@ -478,7 +478,7 @@ function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
     # prognosis from db when called upon by update!(prob, t)
     prognosis_profile = get_prognosis_from_local_db(inflow_name, scenix)
 
-    steps = 1   # TODO: Is this correct?
+    steps = 1
     param = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
 
     isingoing = true
