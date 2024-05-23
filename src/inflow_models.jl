@@ -211,10 +211,10 @@ struct BucketInflowModel{H} <: AbstractInflowModel
         predictor = _BucketPredictor(model_params)
         handler = _InflowModelHandler(predictor, basin_area, hist_P, hist_T, hist_Lday, 
                                         pred_ndays, obs_ndays;
-                                        obs_P::Union{Nothing, Vector{Float32}}=nothing,
-                                        obs_T::Union{Nothing, Vector{Float32}}=nothing,
-                                        obs_Lday::Union{Nothing, Vector{Float32}}=nothing)        
-        return new{typeof(handler)}(id, handler)
+                                        obs_P=obs_P,
+                                        obs_T=obs_T,
+                                        obs_Lday=obs_Lday)        
+return new{typeof(handler)}(id, handler)
     end
 end
 
@@ -281,9 +281,9 @@ struct NeuralOEDInflowModel{H} <: AbstractInflowModel
         predictor = _NeuralODEPredictor(model_params)
         handler = _InflowModelHandler(predictor, basin_area, hist_P, hist_T, hist_Lday, 
                                         pred_ndays, obs_ndays;
-                                        obs_P::Union{Nothing, Vector{Float32}}=nothing,
-                                        obs_T::Union{Nothing, Vector{Float32}}=nothing,
-                                        obs_Lday::Union{Nothing, Vector{Float32}}=nothing)        
+                                        obs_P=obs_P,
+                                        obs_T=obs_T,
+                                        obs_Lday=obs_Lday)        
         return new{typeof(handler)}(id, handler)
     end
 end
