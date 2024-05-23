@@ -1,10 +1,15 @@
 """
-Implementation of BucketInflowModel and NeuralOEDInflowModel
+In this file we define:
+- BucketInflowModel and NeuralOEDInflowModel
 
-Definition of ModeledInflow DataElement, which connects output from
-inflow models to model object inflow in optimization problems in JulES,
-through the local db.
+- Functions used in run_serial in connection with inflow models
+
+- The ModeledInflow DataElement, which connects output from
+  inflow models to model object inflow in optimization problems in JulES,
+  through the local db
 """
+
+# --- BucketInflowModel and NeuralOEDInflowModel ---
 
 """
 Common component of BucketInflowModel and NeuralOEDInflowModel
@@ -346,6 +351,10 @@ function _common_includeInflowModel!(Constructor, toplevel::Dict, lowlevel::Dict
     return (true, deps)
 end
 
+
+# --- Functions used in run_serial in connection with inflow models ---
+
+
 function solve_ifm(t)
     db = get_local_db()
     normfactors = get_ifm_normfactors(db)
@@ -419,6 +428,8 @@ function create_ifm()
         end
     end
 end
+
+# ---- The ModeledInflow DataElement -----
 
 function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     checkkey(lowlevel, elkey)
