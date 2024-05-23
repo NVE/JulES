@@ -358,12 +358,12 @@ end
 function solve_ifm(t)
     db = get_local_db()
     normfactors = get_ifm_normfactors(db)
+    scenarios = get_scenarios(db.scenmod_ppp)
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
             initial_state = estimate_initial_state(inflow_model, t)
-            scenarios = get_scenarios(db.scenmod_ppp)
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
                 Q = predict(inflow_model, initial_state, scentime)
