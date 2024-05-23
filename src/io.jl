@@ -349,7 +349,7 @@ function get_horizons(settings, datayear)
     n_durations = Dict{Tuple{TermName, CommodityName}, Tuple{Int, Millisecond}}()
 
     for term in keys(settings["horizons"])
-        if term != "commodities"
+        if !(term in ["commodities", "shrinkable"])
             for commodity in commoditites
                 n_durations = get_n_durations(term, commodity, settings)
 
@@ -369,10 +369,12 @@ end
 function build_sequentialhorizon(term, commodity, settings, n_durations)
     horizon = SequentialHorizon(n_durations...)
 
-    # TODO: Shrinkable
-    # if settings["horizons"][term]["shrinkable"]
-    #     horizon = ShrinkableHorizon(horizon, )
-    # end
+    if get_shrinkable(settings["horizons"][term])
+        startafter = parse_duration(settings["horizons"]["shrinkable"], "startafter")
+        shrinkatleast = parse_duration(settings["horizons"]["shrinkable"], "shrinkatleast")
+        minperiod = parse_duration(settings["horizons"]["clearing"], "termduration")
+        horizon = ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
+    end
 
     return horizon
 end
@@ -387,17 +389,19 @@ function build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
 
     horizon = AdaptiveHorizon(clusters, unitduration, rhsdata, rhsmethod, n_durations...)
 
-    # TODO: Shrinkable
-    # if settings["horizons"][term]["shrinkable"]
-    #     horizon = ShrinkableHorizon(horizon)
-    # end
+    if get_shrinkable(settings["horizons"][term])
+        startafter = parse_duration(settings["horizons"]["shrinkable"], "startafter")
+        shrinkatleast = parse_duration(settings["horizons"]["shrinkable"], "shrinkatleast")
+        minperiod = parse_duration(settings["horizons"]["clearing"], "termduration")
+        horizon = ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
+    end
 
     return horizon
 end
 
-function get_shrinkable(settings::Dict)
-    if haskey(settings, "shrinkable")
-        return settings["shrinkable"]
+function get_shrinkable(horizonterm::Dict)
+    if haskey(horizonterm, "shrinkable")
+        return horizonterm["shrinkable"]
     else
         return false
     end

@@ -121,7 +121,7 @@ function solve_ppp(t, steplength, stepnr, skipmed)
             maintiming = p.div[MainTiming]
 
             scentime = get_scentphasein(t, get_scenarios(db.scenmod_ppp)[scenix], db.input)
-            # TODO: Should scentime depend on Dynamic og Static RHSAHData
+            # TODO: Should scentime depend on Dynamic or Static RHSAHData
 
             if skipmed.value == 0
                 maintiming[3, 1] = @elapsed begin
@@ -134,10 +134,10 @@ function solve_ppp(t, steplength, stepnr, skipmed)
 
                 maintiming[3, 2] = @elapsed begin
                     set_startstates!(p.medprob, getstorages(getobjects(p.medprob)), startstates)
+                    maintiming[1, 2] = @elapsed update!(p.medprob, scentime)
                     lhh = horizons[(scenix, "long", "Hydro")]
                     mhh = horizons[(scenix, "med", "Hydro")]
                     transfer_duals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
-                    maintiming[1, 2] = @elapsed update!(p.medprob, scentime)
                     maintiming[2, 2] = @elapsed solve!(p.medprob)
                 end
             else

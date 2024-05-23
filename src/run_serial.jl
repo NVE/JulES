@@ -16,7 +16,7 @@ Design goals
 
 function run_serial(input::AbstractJulESInput)
     (t, N, delta, skipmed, skipmax) = init_jules(input)
-    for stepnr in 1:N
+    totaltime = @elapsed for stepnr in 1:N
         step_jules(t, delta, stepnr, skipmed)
         t += delta
         skipmed += Millisecond(delta)
@@ -24,6 +24,9 @@ function run_serial(input::AbstractJulESInput)
             skipmed = Millisecond(0)
         end
     end
+    println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
+    println(string("Time usage per simulation step: ", round(totaltime/N; digits=2), " seconds\n"))
+
     output = get_output_final(delta, skipmax)
     cleanup_jules(input)
     return output
@@ -626,6 +629,7 @@ function add_local_horizons()
                 externalhorizon = ExternalHorizon(horizon)
                 d[(scenarioix, term, commodity)] = externalhorizon
             else
+                horizon = deepcopy(horizon) # TODO: Only deepcopy parts of horizon
                 d[(scenarioix, term, commodity)] = horizon
             end
         end
