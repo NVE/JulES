@@ -496,6 +496,6 @@ end
 
 
 # Register extentions to TuLiPa input system
-INCLUDEELEMENT[TypeKey("AbstractInflowModel", "BucketInflowModel")] = includeBucketInflowModel!
-INCLUDEELEMENT[TypeKey("AbstractInflowModel", "NeuralOEDInflowModel")] = includeNeuralOEDInflowModel!
-INCLUDEELEMENT[TypeKey("AbstractModeledInflow", "ModeledInflow")] = includeModeledInflow!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractInflowModel", "BucketInflowModel")] = includeBucketInflowModel!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractInflowModel", "NeuralOEDInflowModel")] = includeNeuralOEDInflowModel!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractModeledInflow", "ModeledInflow")] = includeModeledInflow!
