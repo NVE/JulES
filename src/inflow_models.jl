@@ -402,8 +402,8 @@ function update_ifm_derived()
     ifm_weights = get_ifm_weights(db)
     for derived_name in keys(db.ifm_derived)
         weights = ifm_weights[derived_name]
-        do_ix = true
         for (scenix, (derived_ix, derived_vals)) in db.ifm_derived[derived_name]
+            do_ix = true
             fill!(derived_vals, 0.0)
             for (inflow_name, weight) in weights
                 (ix, vals) = db.ifm_output[inflow_name][scenix]
