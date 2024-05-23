@@ -506,12 +506,12 @@ end
 function add_scenix_to_ModeledInflow_elements(elements, scenix)
     for e in elements
         if e.conceptname == ABSTRACT_MODELED_INFLOW
-            set_scenix_ABSTRACT_MODELED_INFLOW(e, value)
+            set_scenix_ABSTRACT_MODELED_INFLOW(e, value, scenix)
         end
     end
 end
 
-function set_scenix_ABSTRACT_MODELED_INFLOW(e::DataElement, value::Dict)
+function set_scenix_ABSTRACT_MODELED_INFLOW(e::DataElement, value::Dict, scenix)
     e.value["ScenarioIndex"] = scenix
 end
 
