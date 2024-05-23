@@ -56,7 +56,7 @@ mutable struct LocalDB
     scenmod_evp::AbstractScenarioModellingMethod
     scenmod_stoch::AbstractScenarioModellingMethod
 
-    ifm::Dict{String, Union{InflowModel, Nothing}}
+    ifm::Dict{String, Union{AbstractInflowModel, Nothing}}
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
     prices_ppp::Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
@@ -100,7 +100,7 @@ mutable struct LocalDB
             NothingScenarioModellingMethod(), # scenmod_evp
             NothingScenarioModellingMethod(), # scenmod_stoch
 
-            Dict{String, Union{InflowModel, Nothing}}(),                             # ifm
+            Dict{String, Union{AbstractInflowModel, Nothing}}(),                     # ifm
             Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
             Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}(),    # prices_ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),                 # evp

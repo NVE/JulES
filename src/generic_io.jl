@@ -3,6 +3,21 @@ Generic fallbacks for AbstractJulESInput and AbstractJulESOutput
 """
 
 """
+How inflow models (ifm) are distributed on cores initially
+"""
+function get_dist_ifm(input::AbstractJulESInput)
+    names = get_ifm_names(input)
+    cores = get_cores(input)
+    N = length(cores)
+    dist = Vector{Tuple{String, CoreId}}(undef, length(names))
+    for (i, name) in enumerate(names)
+        j = (i - 1) % N + 1
+        dist[i] = (name, cores[j])
+    end
+    return dist
+end
+
+"""
 How price prognosis problems (ppp) are distributed on cores initially
 """
 function get_dist_ppp(input::AbstractJulESInput)

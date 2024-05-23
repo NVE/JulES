@@ -1,25 +1,14 @@
+"""
+Implementation of BucketInflowModel and NeuralOEDInflowModel
 
+Definition of ModeledInflow DataElement, which connects output from
+inflow models to model object inflow in optimization problems in JulES,
+through the local db.
+"""
 
 """
-Interface:
-    estimate_S0(::InflowModel, ::ProbTime) -> S0
-    predict(::InflowModel, ::ProbTime) -> (Q, S)
+Common component of BucketInflowModel and NeuralOEDInflowModel
 """
-abstract type InflowModel end
-
-# TODO: Remove unused packages
-using CSV
-using DataFrames, Dates, Statistics
-using OrdinaryDiffEq, DiffEqFlux, Lux
-using ComponentArrays
-using SciMLSensitivity
-using Optimization, OptimizationOptimisers, OptimizationBBO
-using Zygote
-using Interpolations
-using Random
-using JLD2
-
-
 mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: TimeVector}
     predictor::P
 
@@ -205,7 +194,7 @@ function predict(m::_BucketPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints
     bucket_predict(m.model_params, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
 end
 
-struct BucketInflowModel{H} <: InflowModel
+struct BucketInflowModel{H} <: AbstractInflowModel
     id::Id
     handler::H
 
@@ -275,7 +264,7 @@ function predict(m::_NeuralODEPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoi
         S0, G0, itp_Lday, itp_P, itp_T, timepoints)
 end
 
-struct NeuralOEDInflowModel{H} <: InflowModel
+struct NeuralOEDInflowModel{H} <: AbstractInflowModel
     id::Id
     handler::H
 
@@ -356,25 +345,6 @@ function _common_includeInflowModel!(Constructor, toplevel::Dict, lowlevel::Dict
 
     return (true, deps)
 end
-
-
-
-
-"""
-How inflow_models are distributed on cores initially
-"""
-function get_dist_ifm(input::AbstractJulESInput)
-    names = get_inflow_names(input)
-    cores = get_cores(input)
-    N = length(cores)
-    dist = Vector{Tuple{String, CoreId}}(undef, length(names))
-    for (i, name) in enumerate(names)
-        j = (i - 1) % N + 1
-        dist[i] = (name, cores[j])
-    end
-    return dist
-end
-
 
 function solve_ifm(t)
     db = get_local_db()
