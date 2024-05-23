@@ -445,7 +445,11 @@ function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
 
     deps = Id[]
 
+    # Not part of user input 
+    # This info is added by JulES
+    # See e.g. prob_stoch.get_elements_with_horizons
     scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
+
     inflow_name = getdictvalue(value, "InflowName", String, elkey)
 
     hist_profile_name = getdictvalue(value, "HistoricalProfile", String, elkey)
@@ -478,7 +482,6 @@ function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
     return (true, deps)
 end
 
-
 function get_prognosis_from_local_db(inflow_model, scenix)
     db = get_local_db()
     ifm_weights = get_ifm_weights(db)
@@ -494,6 +497,13 @@ function get_prognosis_from_local_db(inflow_model, scenix)
     return InfiniteTimeVector(ix, vals)
 end
 
+function add_scenix_to_ModeledInflow_elements(elements, scenix)
+    for e in elements
+        if e.typename == "ModeledInflow"
+            e.value["ScenarioIndex"] = scenix
+        end
+    end
+end
 
 # Register extentions to TuLiPa input system
 TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractInflowModel", "BucketInflowModel")] = includeBucketInflowModel!

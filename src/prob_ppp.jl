@@ -26,7 +26,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     residualarealist = settings["problems"]["prognosis"]["residualarealist"]
 
     # Create long problems
-    longobjects = make_obj(elements, lhh, lph)
+    longobjects = make_obj(elements, lhh, lph, scenix)
     simplify!(longobjects; aggzone=aggzone, aggsupplyn=aggsupplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
     add_PowerUpperSlack!(longobjects)
 
@@ -34,7 +34,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     longprob = buildprob(longprobmethod, longobjects)
 
     # Create med problems
-    medobjects = make_obj(elements, mhh, mph)
+    medobjects = make_obj(elements, mhh, mph, scenix)
     simplify!(medobjects; aggzone=aggzone, aggsupplyn=aggsupplyn, removestoragehours=removestoragehours, residualarealist=residualarealist)
     add_PowerUpperSlack!(medobjects)
 
@@ -48,7 +48,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     push!(medprob.objects, medendvaluesobj) # push end values object to med problem objects
 
     # Create short problems
-    shortobjects = make_obj(elements, shh, sph)
+    shortobjects = make_obj(elements, shh, sph, scenix)
     simplify!(shortobjects; aggzone=aggzone, removestartup=false)
     add_PowerUpperSlack!(shortobjects)
 
@@ -72,8 +72,11 @@ function create_ppp(db::LocalDB, scenix::Int)
     return
 end
 
-function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon; validate::Bool=false)
+function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, scenix; validate::Bool=false)
     elements1 = copy(elements)
+    
+    # Needed for inflow_models.includeModeledInflow! to work
+    add_scenix_to_ModeledInflow_elements(elements1, scenix)
 
     set_horizon!(elements1, "Power", power_horizon)
     set_horizon!(elements1, "Battery", power_horizon)
