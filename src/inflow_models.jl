@@ -450,89 +450,39 @@ function create_ifm()
     end
 end
 
-
-struct InflowProfile{T <: TimeVector} <: TimeVector
-    timevector::T
-    ref_period::Tuple{Int, Int}
-    scale_factor::Float64
-
-    function InflowProfile(timevector, ref_period)
-        (yr_start, yr_stop) = ref_period
-        @assert yr_stop >= yr_start
-        scale_factor = 0.0
-        N = 0
-        t = getisoyearstart(yr_start)
-        stop = getisoyearstart(yr_stop + 1)
-        delta = MSTimeDelta(Day(1))
-        while t < stop
-            scale_factor += getweightedaverage(timevector, t, delta)
-            N += 1
-            t += getduration(delta)
-        end
-        scale_factor = 1/((scale_factor / N) * 365)
-        return new{typeof(timevector)}(timevector, ref_period, scale_factor)
-    end
-end
-
-function getweightedaverage(x::InflowProfile, t::DateTime, delta::TimeDelta)
-    getweightedaverage(x.timevector, t, delta) * x.scale_factor
-end
-
-function includeInflowProfile!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
-    checkkey(lowlevel, elkey)
-
-    deps = Id[]
-    
-    ref_yr_start = getdictvalue(value, "RefYearStart", Int, elkey)
-    ref_yr_stop = getdictvalue(value, "RefYearStop", Int, elkey)
-    (ref_yr_start > ref_yr_stop) && error("RefYearStart > RefYearStop for $elkey")
-    
-    timevectorname = getdictvalue(value, TIMEVECTOR_CONCEPT, String, elkey)
-    timevectorkey = Id(TIMEVECTOR_CONCEPT,  timevectorname)
-    push!(deps, timevectorkey)
-    haskey(lowlevel, timevectorkey)   || return (false, deps)
-
-    timevector = lowlevel[timevectorkey]
-    
-    res_period = (ref_yr_start, ref_yr_stop)
-    lowlevel[getobjkey(elkey)] = InflowProfile(timevector, ref_period)
-    
-    return (true, deps)
-end
-
-# Plan is to create InfiniteTimeVector with prognosis from InflowModel
-# Then use scale_factor from corresponding InflowProfile to get normalized
-# profile values 
-struct ScaledTimeVector{T <: TimeVector} <: TimeVector
-    timevector::T
-    scale_factor::Float64
-end
-
-function getweightedaverage(x::ScaledTimeVector, t::DateTime, delta::TimeDelta)
-    getweightedaverage(x.timevector, t, delta) * x.scale_factor
-end
-
-# TODO: Complete
 function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     checkkey(lowlevel, elkey)
 
     deps = Id[]
 
-    # hist_profile
-    # level
-    # inflow_name
-    # scenix    (this value is set by JulES, and is not part of the input)
+    scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
+    inflow_name = getdictvalue(value, "InflowName", String, elkey)
 
-    # creates a infinite timevector that refers to vectors stored in local db, which will be updated by JulES each step after running inflow models
-    # this way, model objects holding reference to such RHS term, will use updated prognosis from db when called by update!(prob, t)
+    hist_profile_name = getdictvalue(value, "HistoricalProfile", String, elkey)
+    hist_profile_key = Id(TIMEVECTOR_CONCEPT,  hist_profile_name)
+    push!(deps, hist_profile_key)
+
+    level_name = getdictvalue(value, "Level", String, elkey)
+    level_key = Id(TIMEVECTOR_CONCEPT,  level_name)
+    push!(deps, level_key)
+
+    haskey(lowlevel, hist_profile_key)   || return (false, deps)
+    haskey(lowlevel, level_key)          || return (false, deps)
+
+    hist_profile = lowlevel[hist_profile_key]
+    level = lowlevel[level_key]
+
+    # Creates an infinite timevector that refers to vectors stored in local db, 
+    # which will be updated by JulES each step after running inflow models.
+    # This way, model objects holding reference to such RHS term, will use updated 
+    # prognosis from db when called upon by update!(prob, t)
     prognosis_profile = get_prognosis_from_local_db(inflow_name, scenix)
 
+    steps = 1   # TODO: Is this correct?
     param = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
 
     isingoing = true
-
     id = Id(RHSTERM_CONCEPT, inflow_name)
-
     lowlevel[id] = BaseRHSTerm(id, param, isingoing)
 
     return (true, deps)
@@ -540,10 +490,11 @@ end
 
 function get_prognosis_from_local_db(inflow_model, scenix)
     db = get_local_db()
-    if haskey(db.weights_ifm, inflow_name)
-        d = db.weighted_ifm
+    ifm_weights = get_ifm_weights(db)
+    if haskey(ifm_weights, inflow_name)
+        d = db.ifm_derived
     else
-        d = db.inflow_ifm
+        d = db.ifm_output
     end
     if !haskey(d[inflow_name], scenix)
         d[inflow_name][scenix] = (DateTime[], Float64[])
