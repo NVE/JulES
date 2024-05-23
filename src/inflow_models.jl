@@ -505,10 +505,14 @@ end
 
 function add_scenix_to_ModeledInflow_elements(elements, scenix)
     for e in elements
-        if e.typename == "ModeledInflow"
-            e.value["ScenarioIndex"] = scenix
+        if e.conceptname == ABSTRACT_MODELED_INFLOW
+            set_scenix_ABSTRACT_MODELED_INFLOW(e, value)
         end
     end
+end
+
+function set_scenix_ABSTRACT_MODELED_INFLOW(e::DataElement, value::Dict)
+    e.value["ScenarioIndex"] = scenix
 end
 
 # Register extentions to TuLiPa input system
