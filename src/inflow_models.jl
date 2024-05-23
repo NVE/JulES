@@ -354,6 +354,18 @@ end
 
 # --- Functions used in run_serial in connection with inflow models ---
 
+function create_ifm()
+    db = get_local_db()
+    elements = get_ifm_elements(db)
+    modelobjects = getmodelobjects(elements)
+    for (inflow_name, core) in db.dist_ifm
+        if core == db.core
+            id = Id(TuLiPa.INFLOW_MODEL_CONCEPT, inflow_name)
+            db.ifm[inflow_name] = modelobjects[id]
+        end
+    end
+end
+
 
 function solve_ifm(t)
     db = get_local_db()
@@ -376,6 +388,10 @@ function solve_ifm(t)
     end
 end
 
+"""
+Ensure that all cores have the latest output for all inflow models for all scenarios.
+A core holding output from an inflow model, copies the output to the local db on all other cores.
+"""
 function synchronize_ifm_output()
     db = get_local_db()
     cores = get_cores(db)
@@ -397,6 +413,11 @@ function set_ifm_output(data, inflow_name)
     return
 end
 
+"""
+Some inflow profiles are derived from (they are weighted averages of) 
+other inflow profiles. This function utdates the derived profiles data 
+so as to reflect the latest underlying output.
+"""
 function update_ifm_derived()
     db = get_local_db()
     ifm_weights = get_ifm_weights(db)
@@ -413,18 +434,6 @@ function update_ifm_derived()
                 end
                 derived_vals .= derived_vals .+ weight .* vals
             end
-        end
-    end
-end
-
-function create_ifm()
-    db = get_local_db()
-    elements = get_ifm_elements(db)
-    modelobjects = getmodelobjects(elements)
-    for (inflow_name, core) in db.dist_ifm
-        if core == db.core
-            id = Id(TuLiPa.INFLOW_MODEL_CONCEPT, inflow_name)
-            db.ifm[inflow_name] = modelobjects[id]
         end
     end
 end
