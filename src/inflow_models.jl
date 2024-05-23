@@ -218,7 +218,7 @@ struct BucketInflowModel{H} <: AbstractInflowModel
     end
 end
 
-function includeBucketInflowModel!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+function includeBucketInflowModel!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     _common_includeInflowModel!(BucketInflowModel, toplevel, lowlevel, elkey, value)
 end
 
@@ -288,7 +288,7 @@ struct NeuralOEDInflowModel{H} <: AbstractInflowModel
     end
 end
 
-function includeNeuralOEDInflowModel!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+function includeNeuralOEDInflowModel!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     _common_includeInflowModel!(NeuralOEDInflowModel, toplevel, lowlevel, elkey, value)
 end
 
