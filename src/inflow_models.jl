@@ -478,6 +478,7 @@ function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
     return (true, deps)
 end
 
+
 function get_prognosis_from_local_db(inflow_model, scenix)
     db = get_local_db()
     ifm_weights = get_ifm_weights(db)
@@ -492,3 +493,9 @@ function get_prognosis_from_local_db(inflow_model, scenix)
     (ix, vals) = d[inflow_name][scenix]
     return InfiniteTimeVector(ix, vals)
 end
+
+
+# Register extentions to TuLiPa input system
+INCLUDEELEMENT[TypeKey("AbstractInflowModel", "BucketInflowModel")] = includeBucketInflowModel!
+INCLUDEELEMENT[TypeKey("AbstractInflowModel", "NeuralOEDInflowModel")] = includeNeuralOEDInflowModel!
+INCLUDEELEMENT[TypeKey("AbstractModeledInflow", "ModeledInflow")] = includeModeledInflow!
