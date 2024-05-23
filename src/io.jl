@@ -606,7 +606,7 @@ function get_output_final(steplength, skipmax)
 
     get_output_timing(output, steplength, skipmax)
 
-    # get_output_memory(output) # TODO: Find problem
+    get_output_memory(output) # TODO: Find problem
 
     return output
 end
