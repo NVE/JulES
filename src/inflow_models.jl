@@ -366,7 +366,7 @@ function create_ifm()
     modelobjects = getmodelobjects(elements)
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
-            id = Id(TuLiPa.INFLOW_MODEL_CONCEPT, inflow_name)
+            id = Id(ABSTRACT_INFLOW_MODEL, inflow_name)
             db.ifm[inflow_name] = modelobjects[id]
         end
     end
@@ -512,6 +512,6 @@ function add_scenix_to_ModeledInflow_elements(elements, scenix)
 end
 
 # Register extentions to TuLiPa input system
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractInflowModel", "BucketInflowModel")] = includeBucketInflowModel!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractInflowModel", "NeuralOEDInflowModel")] = includeNeuralOEDInflowModel!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey("AbstractModeledInflow", "ModeledInflow")] = includeModeledInflow!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "BucketInflowModel")] = includeBucketInflowModel!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "NeuralOEDInflowModel")] = includeNeuralOEDInflowModel!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_MODELED_INFLOW, "ModeledInflow")] = includeModeledInflow!
