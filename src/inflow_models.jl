@@ -488,7 +488,7 @@ function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
     return (true, deps)
 end
 
-function get_prognosis_from_local_db(inflow_model, scenix)
+function get_prognosis_from_local_db(inflow_name, scenix)
     db = get_local_db()
     ifm_weights = get_ifm_weights(db)
     if haskey(ifm_weights, inflow_name)
