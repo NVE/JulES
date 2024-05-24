@@ -461,13 +461,6 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     # See e.g. prob_stoch.get_elements_with_horizons
     scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
 
-    # Use replacemap (paraminstancename->inflowname mapping) 
-    # stored in local to look up inflow_name
-    db = get_local_db()
-    replacemap = get_ifm_replacemap(db.input)
-    haskey(replacemap, elkey.instancename) || error("Instance name not found in replacemap for $elkey")
-    inflow_name = replacemap[elkey.instancename]
-
     hist_profile_name = getdictvalue(value, "HistoricalProfile", String, elkey)
     hist_profile_key = Id(TIMEVECTOR_CONCEPT,  hist_profile_name)
     push!(deps, hist_profile_key)
@@ -486,17 +479,10 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     # which will be updated by JulES each step after running inflow models.
     # This way, model objects holding reference to such RHS term, will use updated 
     # prognosis from db when called upon by update!(prob, t)
-    prognosis_profile = get_prognosis_from_local_db(inflow_name, scenix)
-
-    steps = 1   # use prognosis 100% when it applies
-
-    lowlevel[getobjkey(elkey)] = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
-
-    return (true, deps)
-end
-
-function get_prognosis_from_local_db(inflow_name, scenix)
     db = get_local_db()
+    replacemap = get_ifm_replacemap(db.input)
+    haskey(replacemap, elkey.instancename) || error("Instance name not found in replacemap for $elkey")
+    inflow_name = replacemap[elkey.instancename]
     ifm_weights = get_ifm_weights(db)
     if haskey(ifm_weights, inflow_name)
         d = db.ifm_derived
@@ -507,7 +493,13 @@ function get_prognosis_from_local_db(inflow_name, scenix)
         d[inflow_name][scenix] = (DateTime[], Float64[])
     end
     (ix, vals) = d[inflow_name][scenix]
-    return InfiniteTimeVector(ix, vals)
+    prognosis_profile = InfiniteTimeVector(ix, vals)    
+
+    steps = 1   # use prognosis 100% when it applies
+
+    lowlevel[getobjkey(elkey)] = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
+
+    return (true, deps)
 end
 
 function add_scenix_to_ModeledInflowParam(elements, scenix)
