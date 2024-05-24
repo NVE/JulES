@@ -457,7 +457,7 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     deps = Id[]
 
     # Not part of user input 
-    # This info is added by JulES
+    # This info is added by JulES with add_scenix_to_ModeledInflowParam
     # See e.g. prob_stoch.get_elements_with_horizons
     scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
 
@@ -475,9 +475,9 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     hist_profile = lowlevel[hist_profile_key]
     level = lowlevel[level_key]
 
-    # Creates an infinite timevector that refers to vectors stored in local db, 
+    # Creates an InfiniteTimeVector that refers to vectors stored in local db, 
     # which will be updated by JulES each step after running inflow models.
-    # This way, model objects holding reference to such RHS term, will use updated 
+    # This way, model objects holding reference to such Param, will use updated 
     # prognosis from db when called upon by update!(prob, t)
     db = get_local_db()
     replacemap = get_ifm_replacemap(db.input)
@@ -502,6 +502,10 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     return (true, deps)
 end
 
+"""
+Used by JulES in appropriate places to embed scenix info 
+into data elements of type ModeledInflowParam 
+"""
 function add_scenix_to_ModeledInflowParam(elements, scenix)
     for e in elements
         if e.typename == "ModeledInflowParam"
