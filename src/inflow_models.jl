@@ -4,7 +4,7 @@ In this file we define:
 
 - Functions used in run_serial in connection with inflow models
 
-- The ModeledInflow DataElement, which connects output from
+- The ModeledInflowParam DataElement, which connects output from
   inflow models to model object inflow in optimization problems in JulES,
   through the local db
 """
@@ -444,9 +444,14 @@ function update_ifm_derived()
     end
 end
 
-# ---- The ModeledInflow DataElement -----
+# ---- The ModeledInflowParam DataElement -----
 
-function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+"""
+ModeledInflowParam is actually a PrognosisSeriesParam under the hood,
+but where the prognosis part is created and managed by JulES and not given as 
+user input.
+"""
+function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     checkkey(lowlevel, elkey)
 
     deps = Id[]
@@ -478,12 +483,9 @@ function includeModeledInflow!(::Dict, lowlevel::Dict, elkey::ElementKey, value:
     # prognosis from db when called upon by update!(prob, t)
     prognosis_profile = get_prognosis_from_local_db(inflow_name, scenix)
 
-    steps = 1
-    param = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
+    steps = 1   # use prognosis 100% when it applies
 
-    isingoing = true
-    id = Id(RHSTERM_CONCEPT, inflow_name)
-    lowlevel[id] = BaseRHSTerm(id, param, isingoing)
+    lowlevel[getobjkey(elkey)] = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
 
     return (true, deps)
 end
@@ -503,19 +505,15 @@ function get_prognosis_from_local_db(inflow_name, scenix)
     return InfiniteTimeVector(ix, vals)
 end
 
-function add_scenix_to_ABSTRACT_MODELED_INFLOW(elements, scenix)
+function add_scenix_to_ModeledInflowParam(elements, scenix)
     for e in elements
-        if e.conceptname == ABSTRACT_MODELED_INFLOW
-            set_scenix_ABSTRACT_MODELED_INFLOW(e, value, scenix)
+        if e.typename == "ModeledInflowParam"
+            e.value["ScenarioIndex"] = scenix
         end
     end
-end
-
-function set_scenix_ABSTRACT_MODELED_INFLOW(e::DataElement, value::Dict, scenix)
-    e.value["ScenarioIndex"] = scenix
 end
 
 # Register extentions to TuLiPa input system
 TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "BucketInflowModel")] = includeBucketInflowModel!
 TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "NeuralOEDInflowModel")] = includeNeuralOEDInflowModel!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_MODELED_INFLOW, "ModeledInflow")] = includeModeledInflow!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!

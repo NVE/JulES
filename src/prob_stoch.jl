@@ -493,8 +493,8 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
         end
     end
 
-    # Needed for inflow_models.includeModeledInflow! to work
-    add_scenix_to_ABSTRACT_MODELED_INFLOW(subelements, scenix)
+    # Needed for inflow_models.includeModeledInflowParam! to work
+    add_scenix_to_ModeledInflowParam(subelements, scenix)
 
     return subelements, numperiods_powerhorizon
 end

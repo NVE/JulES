@@ -7,4 +7,3 @@ abstract type AbstractInflowModel end
 
 
 const ABSTRACT_INFLOW_MODEL = "AbstractInflowModel"
-const ABSTRACT_MODELED_INFLOW = "AbstractModeledInflow"
