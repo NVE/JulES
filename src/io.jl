@@ -99,6 +99,8 @@ get_ifm_weights(input::DefaultJulESInput) = input.dataset["ifm_weights"]
 get_ifm_normfactors(input::DefaultJulESInput) = input.dataset["ifm_normfactors"]
 get_ifm_elements(input::DefaultJulESInput) = input.dataset["ifm_elements"]
 get_ifm_names(input::DefaultJulESInput) = input.dataset["ifm_names"]
+get_ifm_replacemap(input::DefaultJulESInput) = input.dataset["ifm_replacemap"]
+
 
 
 function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)

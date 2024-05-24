@@ -447,9 +447,9 @@ end
 # ---- The ModeledInflowParam DataElement -----
 
 """
-ModeledInflowParam is actually a PrognosisSeriesParam under the hood,
-but where the prognosis part is created and managed by JulES and not given as 
-user input.
+ModeledInflowParam is actually a PrognosisSeriesParam under-the-hood,
+but where the prognosis part is created and managed by JulES and not 
+given as user input
 """
 function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     checkkey(lowlevel, elkey)
@@ -461,7 +461,12 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     # See e.g. prob_stoch.get_elements_with_horizons
     scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
 
-    inflow_name = getdictvalue(value, "InflowName", String, elkey)
+    # Use replacemap (paraminstancename->inflowname mapping) 
+    # stored in local to look up inflow_name
+    db = get_local_db()
+    replacemap = get_ifm_replacemap(db.input)
+    haskey(replacemap, elkey.instancename) || error("Instance name not found in replacemap for $elkey")
+    inflow_name = replacemap[elkey.instancename]
 
     hist_profile_name = getdictvalue(value, "HistoricalProfile", String, elkey)
     hist_profile_key = Id(TIMEVECTOR_CONCEPT,  hist_profile_name)
