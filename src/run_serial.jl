@@ -712,7 +712,7 @@ function step_jules(t, delta, stepnr, skipmed)
         end
 
         @sync for core in cores
-            @spawnat core update_weighted_ifm()
+            @spawnat core update_ifm_derived()
         end
     end
 
