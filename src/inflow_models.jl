@@ -306,26 +306,26 @@ function _common_includeInflowModel!(Constructor, toplevel::Dict, lowlevel::Dict
         model_params = JLD2.load_object(model_params)
     end
 
-    hist_P = getdictvalue(value, "Historical_Percipitation",   TIMEVECTORPARSETYPES, elkey)
-    hist_T = getdictvalue(value, "Historical_Temperature", TIMEVECTORPARSETYPES, elkey)
-    hist_Lday = getdictvalue(value, "Historical_Daylight", TIMEVECTORPARSETYPES, elkey)
+    hist_P = getdictvalue(value, "HistoricalPercipitation",   TIMEVECTORPARSETYPES, elkey)
+    hist_T = getdictvalue(value, "HistoricalTemperature", TIMEVECTORPARSETYPES, elkey)
+    hist_Lday = getdictvalue(value, "HistoricalDaylight", TIMEVECTORPARSETYPES, elkey)
 
-    pred_ndays = getdictvalue(value, "NDays_Pred", Int, elkey)
-    obs_ndays = getdictvalue(value, "NDays_Obs", Int, elkey)
-    basin_area = getdictvalue(value, "Basin_Area", Float64, elkey)
+    pred_ndays = getdictvalue(value, "NDaysPred", Int, elkey)
+    obs_ndays = getdictvalue(value, "NDaysObs", Int, elkey)
+    basin_area = getdictvalue(value, "BasinArea", Float64, elkey)
 
-    if haskey(value, "Observed_Percipitation")
-        obs_P = getdictvalue(value, "Observed_Percipitation",   Vector{Real}, elkey)
+    if haskey(value, "ObservedPercipitation")
+        obs_P = getdictvalue(value, "ObservedPercipitation",   Vector{Real}, elkey)
     else
         obs_P = nothing
     end
-    if haskey(value, "Observed_Temperature")
-        obs_T = getdictvalue(value, "Observed_Temperature",   Vector{Real}, elkey)
+    if haskey(value, "ObservedTemperature")
+        obs_T = getdictvalue(value, "ObservedTemperature",   Vector{Real}, elkey)
     else
         obs_T = nothing
     end
-    if haskey(value, "Observed_Daylight")
-        obs_Lday = getdictvalue(value, "Observed_Daylight",   Vector{Real}, elkey)
+    if haskey(value, "ObservedDaylight")
+        obs_Lday = getdictvalue(value, "ObservedDaylight",   Vector{Real}, elkey)
     else
         obs_Lday = nothing
     end
