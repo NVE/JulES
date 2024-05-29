@@ -7,6 +7,9 @@ In this file we define:
 - The ModeledInflowParam DataElement, which connects output from
   inflow models to model object inflow in optimization problems in JulES,
   through the local db
+
+- The MixedInflowParam DataElement, which first uses PrognosisSeriesParam 
+  for N days and thereafter uses ModeledInflowParam
 """
 
 # --- BucketInflowModel and NeuralOEDInflowModel ---
@@ -372,7 +375,6 @@ function create_ifm()
     end
 end
 
-
 function solve_ifm(t)
     db = get_local_db()
     normfactors = get_ifm_normfactors(db)
@@ -381,10 +383,10 @@ function solve_ifm(t)
         if core == db.core
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
-            initial_state = estimate_initial_state(inflow_model, t)
+            S0 = estimate_S0(inflow_model, t)
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
-                Q = predict(inflow_model, initial_state, scentime)
+                Q = predict(inflow_model, S0, scentime) # TODO: Return (Q, S) instead
                 Q .= Q .* normalize_factor
                 start = getscenariotime(scentime)
                 ix = [start + Day(i-1) for i in 1:length(Q)]    # TODO: Allocate this only once, then reuse
@@ -503,15 +505,65 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
 end
 
 """
-Used by JulES in appropriate places to embed scenix info 
-into data elements of type ModeledInflowParam 
+MixedInflowParam...
 """
-function add_scenix_to_ModeledInflowParam(elements, scenix)
+# TODO: Complete this
+# struct MixedInflowParam{P1, P2} <: Param
+#     directparam::P1
+#     ifmparam::P2
+#     ndays::Int
+# end
+# function includeMixedInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+# end
+# TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "MixedInflowParam")] = includeMixedInflowParam!
+
+"""
+Used by JulES in appropriate places to embed scenix info 
+into data elements of type ModeledInflowParam or MixedInflowParam
+"""
+function add_scenix_to_InflowParam(elements, scenix)
     for e in elements
-        if e.typename == "ModeledInflowParam"
+        if e.typename == "ModeledInflowParam" || e.typename == "MixedInflowParam"
             e.value["ScenarioIndex"] = scenix
         end
     end
+end
+
+"""
+Return copy of elements with replacement of PrognosisSeriesParam 
+in ifm_replacemap in accordance with value of iprogtype
+"""
+function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
+    if iprogtype == "ifm"
+        elements1 = DataElement[]
+        for e in elements
+            if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
+                new_e = DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
+                    Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"]))
+                push!(elements1, new_e)
+            else
+                push!(elements1, e)
+            end
+        end
+    elseif startswith(iprogtype, "mix")
+        # TODO: Validate ndays > 0 in constructor of DefaultJulESInput
+        ndays = parse(Int, iprogtype[4:end])
+        elements1 = DataElement[]
+        for e in elements
+            if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
+                new_value = copy(e.value::Dict)
+                new_value["ndays"] = ndays
+                new_e = DataElement(e.conceptname, "MixedInflowParam", e.instancename, new_value)
+                push!(elements1, new_e)
+            else
+                push!(elements1, e)
+            end
+        end
+    else
+        @assert iprogtype == "direct"
+        elements1 = copy(elements)
+    end
+    return elements1
 end
 
 # Register extentions to TuLiPa input system
