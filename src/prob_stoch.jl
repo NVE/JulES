@@ -493,16 +493,18 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
         end
     end
 
-    # Needed for inflow_models.includeModeledInflowParam! to work
-    add_scenix_to_ModeledInflowParam(subelements, scenix)
+    add_scenix_to_InflowParam(subelements, scenix)
 
     return subelements, numperiods_powerhorizon
 end
 
-get_subelements(db, subsystem::ExogenSubsystem) = copy(get_elements(db.input))
+function get_subelements(db, subsystem::ExogenSubsystem)
+    return copy_elements_iprogtype(get_elements(db.input), get_iprogtype(db), get_ifm_replacemap(db))
+end
+
 function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
     elements = get_elements(db.input)
-    return copy(elements[subsystem.dataelements])
+    return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db), get_ifm_replacemap(db))
 end
 
 function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond)
