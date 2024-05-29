@@ -79,7 +79,7 @@ mutable struct _InflowModelHandler{P, T1 <: TimeVector, T2 <: TimeVector, T3 <: 
     end
 end
 
-function estimate_initial_state(m::_InflowModelHandler, t::ProbTime)
+function estimate_S0(m::_InflowModelHandler, t::ProbTime)
     mm_per_m3s = ((1000**3)/(m.basin_area*10**6)*86400)
 
     is_first_step = isnothing(m.prev_t)
@@ -161,38 +161,10 @@ function predict(m::_InflowModelHandler, initial_State, t::ProbTime)
     return Q
 end
 
-# ---- Common functions for NeuralOED model and Bucket -----
-# TODO: link to source to give credit
-step_fct(x) = (tanh(5.0*x) + 1.0)*0.5
-Ps(P, T, Tmin) = step_fct(Tmin-T)*P
-Pr(P, T, Tmin) = step_fct(T-Tmin)*P
-M(S0, T, Df, Tmax) = step_fct(T-Tmax)*step_fct(S0)*minimum([S0, Df*(T-Tmax)])
-PET(T, Lday) = 29.8 * Lday * 0.611 * exp((17.3*T)/(T+237.3)) / (T + 273.2)
-ET(S1, T, Lday, Smax) = step_fct(S1)*step_fct(S1-Smax)*PET(T,Lday) + step_fct(S1)*step_fct(Smax-S1)*PET(T,Lday)*(S1/Smax)
-Qb(S1,f,Smax,Qmax) = step_fct(S1)*step_fct(S1-Smax)*Qmax + step_fct(S1)*step_fct(Smax-S1)*Qmax*exp(-f*(Smax-S1))
-Qs(S1, Smax) = step_fct(S1)*step_fct(S1-Smax)*(S1-Smax)
-
-
 # ---- BucketInflowModel ---
 
 function bucket_predict(p, S0, G0, itp_Lday, itp_P, itp_T, t_out)
-
-    function exp_hydro_optim_states!(dS,S,ps,t)
-        f, Smax, Qmax, Df, Tmax, Tmin = ps
-        Lday = itp_Lday(t)
-        P    = itp_P(t)
-        T    = itp_T(t)
-        Q_out = Qb(S[2],f,Smax,Qmax) + Qs(S[2], Smax)
-        dS[1] = Ps(P, T, Tmin) - M(S[1], T, Df, Tmax)
-        dS[2] = Pr(P, T, Tmin) + M(S[1], T, Df, Tmax) - ET(S[2], T, Lday, Smax) - Q_out
-    end
-
-    prob = ODEProblem(exp_hydro_optim_states!, [S0, G0], Float64.((t_out[1], maximum(t_out))))
-    sol = solve(prob, BS3(), u0=[S0, G0], p=p, saveat=t_out, reltol=1e-3, abstol=1e-3, sensealg=ForwardDiffSensitivity())
-    Qb_ = Qb.(sol[2,:], p[1], p[2], p[3])
-    Qs_ = Qs.(sol[2,:], p[2])
-    Qout_ = Qb_.+Qs_
-    return Qout_, sol
+    basic_bucket_incl_states([S0, G0, p...], itp_Lday, itp_P, itp_T, t_out)
 end
 
 struct _BucketPredictor{P}
@@ -221,8 +193,8 @@ return new{typeof(handler)}(id, handler)
     end
 end
 
-estimate_initial_state(m::BucketInflowModel, t::ProbTime) = estimate_initial_state(m.handler, t)
-predict(m::BucketInflowModel, initial_State, t::ProbTime) = predict(m.handler, initial_State, t)
+estimate_S0(m::BucketInflowModel, t::ProbTime) = estimate_S0(m.handler, t)
+predict(m::BucketInflowModel, S0, t::ProbTime) = predict(m.handler, S0, t)
 
 function includeBucketInflowModel!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     _common_includeInflowModel!(BucketInflowModel, toplevel, lowlevel, elkey, value)
@@ -230,27 +202,8 @@ end
 
 # ---- NeuralOEDInflowModel ---
 
-function NeuralODE_M100(p, norm_S0, norm_S1, norm_P, norm_T, itp_Lday, itp_P, itp_T, t_out, ann; S_init = [0.0, 0.0])
-    function NeuralODE_M100_core!(dS,S,p,t)
-        Lday = itp_Lday(t)
-        P    = itp_P(t)
-        T    = itp_T(t)
-        g = ann([norm_S0(S[1]), norm_S1(S[2]), norm_P(P), norm_T(T)],p)
-        melting = relu(step_fct(S[1])*sinh(g[3]))
-        dS[1] = relu(sinh(g[4])*step_fct(-T)) - melting
-        dS[2] = relu(sinh(g[5])) + melting - step_fct(S[2])*Lday*exp(g[1])- step_fct(S[2])*exp(g[2])
-    end
-    prob = ODEProblem(NeuralODE_M100_core!, S_init, Float64.((t_out[1], maximum(t_out))), p)
-    sol = solve(prob, BS3(), dt=1.0, saveat=t_out, reltol=1e-3, abstol=1e-3, sensealg=BacksolveAdjoint(autojacvec=ZygoteVJP()))
-    P_interp = norm_P.(itp_P.(t_out))
-    T_interp = norm_T.(itp_T.(t_out))
-    S0_ = norm_S0.(sol[1,:])
-    S1_ = norm_S1.(sol[2,:])
-    Qout_ =  exp.(ann(permutedims([S0_ S1_ P_interp T_interp]),p)[2,:])
-    return Qout_, sol
-end
-
-struct _NeuralODEPredictor{P}
+struct _NeuralODEPredictor{P, NN}
+    nn::NN
     nn_params::P
     mean_S::Float32
     mean_G::Float32
@@ -261,8 +214,9 @@ struct _NeuralODEPredictor{P}
     std_P::Float32
     std_T::Float32
     function _NeuralODEPredictor(model_params)
+        (nn, __) = initialize_NN_model()
         (nn_params, moments) = model_params
-        return new{typeof(nn_params)}(nn_params, moments...)
+        return new{typeof(nn_params)}(nn_params, nn, moments...)
     end
 end
 
@@ -272,7 +226,7 @@ function predict(m::_NeuralODEPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoi
     norm_P = (P) -> (P.-m.mean_P)./m.std_P
     norm_T = (T) -> (T.-m.mean_T)./m.std_T
     NeuralODE_M100(m.nn_params, norm_S, norm_G, norm_P, norm_T, 
-        S0, G0, itp_Lday, itp_P, itp_T, timepoints)
+        S0, G0, itp_Lday, itp_P, itp_T, timepoints, m.nn)
 end
 
 struct NeuralOEDInflowModel{H} <: AbstractInflowModel
@@ -294,8 +248,8 @@ struct NeuralOEDInflowModel{H} <: AbstractInflowModel
     end
 end
 
-estimate_initial_state(m::NeuralOEDInflowModel, t::ProbTime) = estimate_initial_state(m.handler, t)
-predict(m::NeuralOEDInflowModel, initial_State, t::ProbTime) = predict(m.handler, initial_State, t)
+estimate_S0(m::NeuralOEDInflowModel, t::ProbTime) = estimate_S0(m.handler, t)
+predict(m::NeuralOEDInflowModel, S0, t::ProbTime) = predict(m.handler, S0, t)
 
 function includeNeuralOEDInflowModel!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     _common_includeInflowModel!(NeuralOEDInflowModel, toplevel, lowlevel, elkey, value)
