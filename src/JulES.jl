@@ -1,6 +1,17 @@
 module JulES
 
-using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames, JSON
+using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames, JSON, CSV
+
+# Used by ifm
+using OrdinaryDiffEq, DiffEqFlux, Lux
+using ComponentArrays
+using SciMLSensitivity
+using Optimization, OptimizationOptimisers, OptimizationBBO
+using Zygote
+using Interpolations
+using Random
+using JLD2
+
 include("abstract_types.jl") 
 include("dimension_types.jl")
 include("generic_io.jl") 
