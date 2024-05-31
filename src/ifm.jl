@@ -1,3 +1,5 @@
+# TODO: Illustrate how data_obs, data_pred and data_forecast are updated over time
+
 # TODO: Interfaces
 abstract type AbstractTwoStateIfmDataUpdater end
 abstract type AbstractTwoStateIfmPredictor end
@@ -194,7 +196,7 @@ struct SimpleIfmDataUpdater <: AbstractTwoStateIfmDataUpdater
 end
 
 function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpdater, t::ProbTime)
-    if m.ndays_forecast_used > 0
+    if m.ndays_forecast > 0
         ndays_before_estimate_u0_call = m.ndays_forecast + m.ndays_forecast_used
         startix = length(m.data_forecast.P) - ndays_before_estimate_u0_call + 1
         stopix = startix + m.ndays_forecast_used
@@ -204,7 +206,7 @@ function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpd
             m.data_pred.Lday[i] = m.data_forecast.Lday[j]
         end
     end
-    for i in (ndays_forecast_used + 1):m.pred_ndays
+    for i in (m.ndays_forecast_used + 1):m.pred_ndays
         start = getscenariotime(t) + Day(i-1)
         m.data_pred.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA) * m.m3s_per_mm
         m.data_pred.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
