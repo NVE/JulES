@@ -110,7 +110,7 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
         j += 1
     end
 
-    # use forecast if available
+    # use forecast for P and T if available
     m.ndays_forecast_used = 0
     if m.ndays_forecast > 0
         startix = length(m.data_forecast) - m.ndays_forecast + 1
@@ -121,12 +121,11 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
         for i in startix:stopix
             m.data_obs.P[j] = m.data_forecast.P[i]
             m.data_obs.T[j] = m.data_forecast.T[i]
-            m.data_obs.Lday[j] = m.data_forecast.Lday[i]
             j += 1
         end
     end
 
-    # update possible remaining values
+    # update possible remaining values for P and T
     ndays_remaining = ndays_update - m.ndays_forecast_used
     if ndays_remaining > 0
         start = getscenariotime(t) - Day(ndays_remaining + 1)
@@ -134,10 +133,18 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
         for __ in 1:ndays_remaining
             m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
-            m.data_obs.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
             start += Day(1) 
             i += 1
         end
+    end
+
+    # always use hist to update Lday
+    start = getscenariotime(t) - Day(ndays_update + 1)
+    i = m.ndays_obs - ndays_update + 1
+    for __ in 1:ndays_update
+        m.data_obs.Lday[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
+        start += Day(1) 
+        i += 1
     end
 
     # update struct state
@@ -200,15 +207,21 @@ end
 
 function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpdater, t::ProbTime)
     if m.ndays_forecast > 0
+        # use forecast for P and T if available
         ndays_before_estimate_u0_call = m.ndays_forecast + m.ndays_forecast_used
         startix = length(m.data_forecast) - ndays_before_estimate_u0_call + 1
         stopix = startix + m.ndays_forecast_used
         for (i, j) in enumerate(startix:stopix)
             m.data_pred.P[i] = m.data_forecast.P[j]
             m.data_pred.T[i] = m.data_forecast.T[j]
-            m.data_pred.Lday[i] = m.data_forecast.Lday[j]
+        end
+        # always use hist to update Lday
+        for i in 1:m.ndays_forecast_used
+                start = getscenariotime(t) + Day(i-1)
+                m.data_pred.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         end
     end
+    # use hist to update after forecast period
     for i in (m.ndays_forecast_used + 1):m.pred_ndays
         start = getscenariotime(t) + Day(i-1)
         m.data_pred.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
@@ -290,3 +303,96 @@ estimate_u0(m::TwoStateNeuralODEIfm, t::ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
 
 
+
+function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+    checkkey(toplevel, elkey)
+
+    OBSERVED_PERCIPITATION = "ObservedPercipitation"
+    OBSERVED_TEMPERATURE = "ObservedTemperature"
+    FORECASTED_PERCIPITATION = "ForecastedPercipitation"
+    FORECASTED_TEMPERATURE = "ForecastedTemperature"
+    
+    model_params = getdictvalue(value, "ModelParams", (Any, ), elkey)
+    if model_params isa String
+        model_params = JLD2.load_object(model_params)
+    end
+
+    hist_P = getdictvalue(value, "HistoricalPercipitation",   TIMEVECTORPARSETYPES, elkey)
+    hist_T = getdictvalue(value, "HistoricalTemperature", TIMEVECTORPARSETYPES, elkey)
+    hist_Lday = getdictvalue(value, "HistoricalDaylight", TIMEVECTORPARSETYPES, elkey)
+
+    ndays_pred = getdictvalue(value, "NDaysPred", Int, elkey)
+    basin_area = getdictvalue(value, "BasinArea", Float64, elkey)
+
+    if haskey(value, OBSERVED_PERCIPITATION)
+        obs_P = getdictvalue(value, OBSERVED_PERCIPITATION,   Vector{Real}, elkey)
+    else
+        obs_P = nothing
+    end
+    if haskey(value, OBSERVED_TEMPERATURE)
+        obs_T = getdictvalue(value, OBSERVED_TEMPERATURE,   Vector{Real}, elkey)
+    else
+        obs_T = nothing
+    end
+    
+    if haskey(value, FORECASTED_PERCIPITATION)
+        forecast_P = getdictvalue(value, FORECASTED_PERCIPITATION,   Vector{Real}, elkey)
+    else
+        forecast_P = nothing
+    end
+    if haskey(value, FORECASTED_TEMPERATURE)
+        forecast_T = getdictvalue(value, FORECASTED_TEMPERATURE,   Vector{Real}, elkey)
+    else
+        forecast_T = nothing
+    end
+
+    isnothing(obs_P) && (!isnothing(obs_T)) && error("Missing $OBSERVED_PERCIPITATION for $elkey")
+    isnothing(obs_T) && (!isnothing(obs_P)) && error("Missing $OBSERVED_TEMPERATURE for $elkey")
+
+    isnothing(obs_P) && (!isnothing(obs_T)) && error("Missing $FORECASTED_PERCIPITATION for $elkey")
+    isnothing(obs_T) && (!isnothing(obs_P)) && error("Missing $FORECASTED_TEMPERATURE for $elkey")
+
+    deps = Id[]
+    all_ok = true
+
+    (id, percipitation, ok) = getdicttimevectorvalue(lowlevel, percipitation)    
+    all_ok = all_ok && ok
+    _update_deps(deps, id, ok)
+    
+    (id, temperature, ok) = getdicttimevectorvalue(lowlevel, temperature)  
+    all_ok = all_ok && ok
+    _update_deps(deps, id, ok)
+
+    (id, daylight, ok) = getdicttimevectorvalue(lowlevel, daylight)  
+    all_ok = all_ok && ok
+    _update_deps(deps, id, ok)
+
+    if all_ok == false
+        return (false, deps)
+    end
+
+    if !(isnothing(obs_P) || isnothing(obs_T))
+        dummy_Lday = zeros(eltype(obs_P), length(obs_P))
+        data_obs = TwoStateIfmData(obs_P, obs_T, dummy_Lday)
+        ndays_obs == length(data_obs)
+    else
+        data_obs = nothing
+        ndays_obs = 365
+    end
+
+
+    if !(isnothing(forecast_P) || isnothing(forecast_T))
+        dummy_Lday = zeros(eltype(forecast_P), length(forecast_P))
+        data_forecast = TwoStateIfmData(forecast_P, forecast_T, dummy_Lday)
+        ndays_forecast = length(data_forecast)
+    else
+        data_forecast = nothing
+        ndays_forecast = 0
+    end
+
+    id = getobjkey(elkey)
+    toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
+        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+
+    return (true, deps)
+end
