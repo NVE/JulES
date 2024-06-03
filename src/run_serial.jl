@@ -565,6 +565,8 @@ to all other cores.
 function add_local_problem_distribution()
     db = get_local_db()
 
+    dist_ifm = get_dist_ifm(db.input)
+    println(dist_ifm)
     dist_ppp = get_dist_ppp(db.input)
     println(dist_ppp)
     dist_evp = get_dist_evp(db.input, db.subsystems_evp)
