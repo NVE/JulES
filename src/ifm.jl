@@ -211,7 +211,7 @@ function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpd
     end
     for i in (m.ndays_forecast_used + 1):m.pred_ndays
         start = getscenariotime(t) + Day(i-1)
-        m.data_pred.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA) * m.m3s_per_mm
+        m.data_pred.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
         m.data_pred.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
         m.data_pred.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
     end
