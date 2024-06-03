@@ -1,0 +1,128 @@
+function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
+    subsystem = get_subsystems(db)[subix]
+    settings = get_settings(db)
+
+    startduration = Millisecond(0)
+    endduration = get_duration_evp(subsystem)
+    modelobjects = make_modelobjects_evp(db, scenix, subix, startduration, endduration)
+
+    probmethod = parse_methods(settings["problems"]["endvalue"]["solver"])
+    prob = buildprob(probmethod, modelobjects)
+
+    div = Dict()
+    div[MainTiming] = zeros(3)
+
+    db.evp[(scenix, subix)] = EndValueProblem(prob, div)
+
+    return
+end
+
+function solve_evp(t, delta, stepnr, skipmed)
+    db = get_local_db()
+
+    for (scenix, subix, core) in db.dist_evp
+        if core == db.core
+            subsystem = db.subsystems[subix]
+            evp = db.evp[(scenix, subix)]
+            maintiming = evp.div[MainTiming]
+            if skipmed_check(subsystem, skipmed)
+                maintiming[3] = @elapsed begin
+                    # TODO: set nonstorage startstates
+                    set_startstates!(evp.prob, getstorages(getobjects(evp.prob)), db.startstates)
+                    update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
+                    update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
+
+                    scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
+                    maintiming[1] = @elapsed update!(evp.prob, scentime)
+                    # TODO: perform_scenmod()
+                    maintiming[2] = @elapsed solve!(evp.prob)
+                end
+            else
+                fill!(maintiming, 0.0)
+            end
+        end
+    end
+    return
+end
+
+function skipmed_check(subsystem, skipmed)
+    if get_skipmed_impact(subsystem)
+        if skipmed.value == 0
+            return true
+        end
+    end
+    return false
+end
+
+function update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem)
+    term_ppp = get_horizonterm_evp(subsystem)
+    for obj in getobjects(evp.prob)
+        update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
+    end
+
+    return
+end
+
+function update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem)
+    endvaluemethod_ev = get_endvaluemethod_evp(subsystem)
+
+    storages = getstorages(getobjects(evp.prob))
+    if endvaluemethod_ev == "startequalstop"
+        setendstates!(evp.prob, storages, startstates)
+    elseif endvaluemethod_ev == "ppp"
+        detailedrescopl = get_dataset(db)["detailedrescopl"]
+        enekvglobaldict = get_dataset(db)["enekvglobaldict"]
+        for obj in storages
+            balance = getbalance(obj)
+            commodityname = getinstancename(getid(getcommodity(balance)))
+            bid = getid(balance)
+            instancename = split(getinstancename(bid), "Balance_")
+            if haskey(detailedrescopl, instancename[2])
+                balancename = detailedrescopl[instancename[2]]
+                bid = Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
+            end
+            endperiod = gethorizon(getbalance(obj)).ix_stop
+            term_ppp = get_horizonterm_evp(subsystem)
+            core_ppp = get_core_ppp(db, scenix)
+            future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, endperiod, term_ppp)
+            dual_ppp = fetch(future)
+            if haskey(enekvglobaldict, instancename[2])
+                dual_ppp *= enekvglobaldict[instancename[2]]
+            end
+
+            setobjcoeff!(evp.prob, getid(obj), endperiod, dual_ppp)
+        end
+    end
+
+    return
+end
+
+function get_balancedual_ppp(scenix, bid, period, term_ppp)
+    db = get_local_db()
+
+    ppp = db.ppp[scenix]
+    if term_ppp == LongTermName
+        return getcondual(ppp.longprob, bid, period)
+    elseif term_ppp == MedTermName
+        return getcondual(ppp.medprob, bid, period)
+    elseif term_ppp == ShortTermName
+        return getcondual(ppp.shortprob, bid, period)
+    end
+end
+
+# Util functions for create_evp() (see also utils for create_mp/create_sp) ----------------------------------------------------------
+function make_modelobjects_evp(db, scenix, subix, startduration, endduration)
+    subsystem = get_subsystems(db)[subix]
+    term_ppp = get_horizonterm_evp(subsystem)
+    subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
+
+    aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))
+    change_elements!(subelements, aggzonecopl=aggzonecopl)
+
+    add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
+
+    modelobjects = getmodelobjects(subelements, validate=false)
+
+    return modelobjects
+end
+

@@ -1,3 +1,5 @@
+# TODO: This is not up to date
+
 main:
     inputpath: "data"
     numcores: 1
@@ -38,10 +40,6 @@ weeklydaily:
             numscen: 7
             scendelta_days: 365
             parts: 4
-        prognosis:
-            numscen: 7
-        stochastic:
-            numscen: 7
     problems:
         stochastic:
             maxcuts: 13
