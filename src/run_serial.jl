@@ -650,6 +650,12 @@ end
 function add_local_problems()
     db = get_local_db()
 
+    for (inflow_name, core) in db.dist_ifm
+        if core == thiscore
+            create_ifm(db)
+        end
+    end
+
     for (scenix, core) in db.dist_ppp
         if core == db.core
             create_ppp(db, scenix)
@@ -689,15 +695,33 @@ function step_jules(t, delta, stepnr, skipmed)
             @spawnat core update_startstates(stepnr, t)
         end
     end
-
-    println("Price prognosis problems")
+    
+    # TODO: Remove update_scenmod_ppp?
+    println("Choose scenarios for price prognosis problems")
     @time begin
-        c = first(cores)
         if stepnr == 1 
-            wait(@spawnat c update_scenmod_sim())
+            wait(@spawnat firstcore update_scenmod_sim())
         end
-        wait(@spawnat c update_scenmod_ppp(t, skipmed))
+        wait(@spawnat firstcore update_scenmod_ppp(t, skipmed))
+    end
 
+    print("Solve inflow models")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_ifm(t)
+        end
+
+        @sync for core in cores
+            @spawnat core synchronize_ifm_output()
+        end
+
+        @sync for core in cores
+            @spawnat core update_ifm_derived()
+        end
+    end
+
+    println("Solve price prognosis problems")
+    @time begin
         @sync for core in cores
             @spawnat core solve_ppp(t, delta, stepnr, skipmed)
         end
@@ -710,6 +734,7 @@ function step_jules(t, delta, stepnr, skipmed)
     println("End value problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+        # TODO: Remove update_scenmod_evp?
         wait(@spawnat c update_scenmod_evp(t, skipmed))
 
         @sync for core in cores
