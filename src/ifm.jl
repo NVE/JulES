@@ -218,3 +218,75 @@ function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpd
     return
 end
 
+struct TwoStateBucketIfmPredictor{P} <: AbstractTwoStateIfmPredictor
+    model_params::P
+end
+
+function predict(m::TwoStateBucketIfmPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
+    basic_bucket_incl_states([S0, G0, m.model_params...], itp_Lday, itp_P, itp_T, timepoints)
+end
+
+struct TwoStateBucketIfm{H} <: AbstractInflowModel
+    id::Id
+    handler::H
+
+    function TwoStateBucketIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
+                                ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+        predictor = TwoStateBucketIfmPredictor(model_params)
+        handler = TwoStateIfmHandler(predictor, updater, basin_area, hist_P, hist_T, hist_Lday, 
+                                        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)        
+        return new{typeof(handler)}(id, handler)
+    end
+end
+
+estimate_u0(m::TwoStateBucketIfm, t::ProbTime) = estimate_u0(m.handler, t)
+predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
+
+function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+    common_includeTwoStateIfm!(TwoStateBucketIfm, toplevel, lowlevel, elkey, value)
+end
+
+struct TwoStateNeuralODEIfmPredictor{P, NN} <: AbstractTwoStateIfmPredictor
+    nn::NN
+    nn_params::P
+    mean_S::Float32
+    mean_G::Float32
+    mean_P::Float32
+    mean_T::Float32
+    std_S::Float32
+    std_G::Float32
+    std_P::Float32
+    std_T::Float32
+    function TwoStateNeuralODEIfmPredictor(model_params)
+        (nn, __) = initialize_NN_model()
+        (nn_params, moments) = model_params
+        return new{typeof(nn_params), typeof(nn)}(nn_params, nn, moments...)
+    end
+end
+
+function predict(m::TwoStateNeuralODEIfmPredictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
+    norm_S = (S) -> (S.-m.mean_S)./m.std_S
+    norm_G = (G) -> (G.-m.mean_G)./m.std_G
+    norm_P = (P) -> (P.-m.mean_P)./m.std_P
+    norm_T = (T) -> (T.-m.mean_T)./m.std_T
+    NeuralODE_M100(m.nn_params, norm_S, norm_G, norm_P, norm_T, 
+        S0, G0, itp_Lday, itp_P, itp_T, timepoints, m.nn)
+end
+
+struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
+    id::Id
+    handler::H
+
+    function TwoStateNeuralODEIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
+                                    ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+        predictor = TwoStateNeuralODEIfmPredictor(model_params)
+        handler = TwoStateIfmHandler(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
+                                        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)        
+        return new{typeof(handler)}(id, handler)
+    end
+end
+
+estimate_u0(m::TwoStateNeuralODEIfm, t::ProbTime) = estimate_u0(m.handler, t)
+predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
+
+
