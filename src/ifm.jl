@@ -302,8 +302,6 @@ end
 estimate_u0(m::TwoStateNeuralODEIfm, t::ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
 
-
-
 function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
     checkkey(toplevel, elkey)
 
@@ -395,4 +393,109 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
 
     return (true, deps)
+end
+
+
+# --- Functions used in run_serial in connection with inflow models ---
+
+"""
+Create inflow models and store some of them locally according to db.dist_ifm
+"""
+function create_ifm()
+    db = get_local_db()
+    elements = get_ifm_elements(db)
+    modelobjects = getmodelobjects(elements)
+    for (inflow_name, core) in db.dist_ifm
+        if core == db.core
+            id = Id(ABSTRACT_INFLOW_MODEL, inflow_name)
+            db.ifm[inflow_name] = modelobjects[id]
+        end
+    end
+end
+
+"""
+Sequentially solve inflow models stored locally. 
+Each inflow model is solved for each scenario.
+"""
+function solve_ifm(t)
+    db = get_local_db()
+    normfactors = get_ifm_normfactors(db)
+    scenarios = get_scenarios(db.scenmod_ppp)
+    for (inflow_name, core) in db.dist_ifm
+        if core == db.core
+            if !haskey(db.ifm_output, inflow_name)
+                db.ifm_output[inflow_name] = Dict()
+            end
+            inflow_model = db.ifm[inflow_name]
+            normalize_factor = normfactors[inflow_name]
+            u0 = estimate_u0(inflow_model, t)
+            for (scenix, scen) in enumerate(scenarios)
+                scentime = get_scentphasein(t, scen, db.input)
+                (Q, u) = predict(inflow_model, u0, scentime)
+                Q .= Q .* normalize_factor
+                start = getscenariotime(scentime)
+                if !haskey(db.ifm_output[inflow_name], scenix)
+                    ix = [start + Day(i-1) for i in 1:length(Q)]
+                    db.ifm_output[inflow_name][scenix] = (ix, Q, u)
+                else
+                    (stored_ix, stored_Q, stored_u) = db.ifm_output[inflow_name][scenix]
+                    for in in 1:length(Q)
+                        stored_ix[i] = start + Day(i-1)
+                        stored_Q[i] = Q[i]
+                        stored_u[i] = u[i]
+                    end
+                end
+            end
+        end
+    end
+end
+
+"""
+Ensure that all cores have the latest output for all inflow models for all scenarios.
+A core holding output from an inflow model, copies the output to the local db on all other cores.
+"""
+function synchronize_ifm_output()
+    db = get_local_db()
+    cores = get_cores(db)
+    @sync for (inflow_name, core) in db.dist_ifm
+        if core == db.core
+            data = db.ifm_output[inflow_name]
+            for other_core in cores
+                if other_core != db.core
+                    @spawnat other_core set_ifm_output(data, inflow_name)
+                end
+            end
+        end
+    end
+end
+
+function set_ifm_output(data, inflow_name)
+    db = get_local_db()
+    db.ifm_output[inflow_name] = data
+    return
+end
+
+"""
+Some inflow profiles are derived from (they are weighted averages of) 
+other inflow profiles. This function utdates the derived profiles data 
+so as to reflect the latest underlying output.
+"""
+function update_ifm_derived()
+    db = get_local_db()
+    ifm_weights = get_ifm_weights(db)
+    for derived_name in keys(db.ifm_derived)
+        weights = ifm_weights[derived_name]
+        for (scenix, (derived_ix, derived_vals)) in db.ifm_derived[derived_name]
+            do_ix = true
+            fill!(derived_vals, 0.0)
+            for (inflow_name, weight) in weights
+                (ix, vals) = db.ifm_output[inflow_name][scenix]
+                if do_ix
+                    derived_ix .= ix
+                    do_ix = false
+                end
+                derived_vals .= derived_vals .+ weight .* vals
+            end
+        end
+    end
 end
