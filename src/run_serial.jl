@@ -513,7 +513,7 @@ function add_local_scenariomodelling()
     scenarios_data = get_scenarios(scenmod_data)
     settings = get_settings(db)
 
-    # Simulation scenario modelling - choose scenarios for the whole simulation
+    # Simulation scenario modelling - choose scenarios for price prognosis and endvalue problems for the whole simulation
     numscen_sim = get_numscen_sim(db.input)
     @assert numscen_sim <= numscen_data
     if numscen_sim == numscen_data
@@ -522,29 +522,11 @@ function add_local_scenariomodelling()
         db.scenmod_sim = get_scenmod(scenarios_data, settings["scenariogeneration"]["simulation"], numscen_sim, collect(values(first(get_dummyobjects_ppp(db)))))
     end
 
-    # Prognosis scenario modelling - choose scenarios for the price prognosis models
-    numscen_ppp = get_numscen_ppp(db.input)
-    @assert numscen_ppp <= numscen_sim
-    if numscen_ppp == numscen_sim
-        db.scenmod_ppp = db.scenmod_sim
-    else
-        db.scenmod_ppp = get_scenmod(scenarios_data, settings["scenariogeneration"]["prognosis"], numscen_ppp, collect(values(first(get_dummyobjects_ppp(db)))))
-    end
-
-    # EVP scenario modelling - choose scenarios for the end values models
-    numscen_evp = get_numscen_evp(db.input)
-    @assert numscen_evp <= numscen_ppp
-    if numscen_evp == numscen_ppp
-        db.scenmod_evp = db.scenmod_ppp
-    else
-        db.scenmod_evp = get_scenmod(scenarios_data, settings["scenariogeneration"]["endvalue"], numscen_evp, collect(values(first(get_dummyobjects(db)))))
-    end
-
     # Stochastic scenario modelling - choose scenarios for the price stochastic models
     numscen_stoch = get_numscen_stoch(db.input)
-    @assert numscen_stoch <= numscen_evp
-    if numscen_stoch == numscen_evp
-        db.scenmod_stoch = db.scenmod_evp
+    @assert numscen_stoch <= numscen_sim
+    if numscen_stoch == numscen_sim
+        db.scenmod_stoch = db.scenmod_sim
     else
         db.scenmod_stoch = get_scenmod(scenarios_data, settings["scenariogeneration"]["stochastic"], numscen_stoch, collect(values(first(get_dummyobjects(db)))))
     end
@@ -694,8 +676,6 @@ function step_jules(t, delta, stepnr, skipmed)
         if stepnr == 1 
             wait(@spawnat c update_scenmod_sim())
         end
-        wait(@spawnat c update_scenmod_ppp(t, skipmed))
-
         @sync for core in cores
             @spawnat core solve_ppp(t, delta, stepnr, skipmed)
         end
@@ -708,8 +688,6 @@ function step_jules(t, delta, stepnr, skipmed)
     println("End value problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        wait(@spawnat c update_scenmod_evp(t, skipmed))
-
         @sync for core in cores
             @spawnat core solve_evp(t, delta, stepnr, skipmed)
         end
@@ -759,14 +737,6 @@ function set_scenmodchanges_sim(changes)
     db = get_local_db()
     set_changes(db.scenmod_sim, changes)
 end
-function set_scenmodchanges_ppp(changes)
-    db = get_local_db()
-    set_changes(db.scenmod_ppp, changes)
-end
-function set_scenmodchanges_evp(changes)
-    db = get_local_db()
-    set_changes(db.scenmod_evp, changes)
-end
 function set_scenmodchanges_stoch(changes)
     db = get_local_db()
     set_changes(db.scenmod_stoch, changes)
@@ -794,36 +764,10 @@ function update_scenmod_sim()
         end
     end
 end
-function update_scenmod_ppp(simtime, skipmed)
-    db = get_local_db()
-
-    update_scenmod(db.scenmod_ppp, db.scenmod_sim, true, simtime, skipmed)
-    changes = get_changes(db.scenmod_ppp)
-
-    cores = get_cores(db.input)
-    @sync for core in cores
-        if core != db.core
-            @spawnat core set_scenmodchanges_ppp(changes)
-        end
-    end
-end
-function update_scenmod_evp(simtime, skipmed)
-    db = get_local_db()
-
-    update_scenmod(db.scenmod_evp, db.scenmod_ppp, false, simtime, skipmed)
-    changes = get_changes(db.scenmod_evp)
-
-    cores = get_cores(db.input)
-    @sync for core in cores
-        if core != db.core
-            @spawnat core set_scenmodchanges_evp(changes)
-        end
-    end
-end
 function update_scenmod_stoch(simtime, skipmed)
     db = get_local_db()
 
-    update_scenmod(db.scenmod_stoch, db.scenmod_evp, false, simtime, skipmed)
+    update_scenmod(db.scenmod_stoch, db.scenmod_sim, false, simtime, skipmed)
     changes = get_changes(db.scenmod_stoch)
 
     cores = get_cores(db.input)

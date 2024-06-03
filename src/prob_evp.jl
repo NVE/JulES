@@ -32,7 +32,7 @@ function solve_evp(t, delta, stepnr, skipmed)
                     update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
                     update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
 
-                    scentime = get_scentphasein(t, get_scenarios(db.scenmod_evp)[scenix], db.input)
+                    scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
                     maintiming[1] = @elapsed update!(evp.prob, scentime)
                     # TODO: perform_scenmod()
                     maintiming[2] = @elapsed solve!(evp.prob)

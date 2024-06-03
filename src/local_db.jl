@@ -52,8 +52,6 @@ mutable struct LocalDB
     subsystems_stoch::Vector{Tuple{SubsystemIx, AbstractSubsystem}}
 
     scenmod_sim::AbstractScenarioModellingMethod
-    scenmod_ppp::AbstractScenarioModellingMethod
-    scenmod_evp::AbstractScenarioModellingMethod
     scenmod_stoch::AbstractScenarioModellingMethod
 
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
@@ -91,8 +89,6 @@ mutable struct LocalDB
             AbstractSubsystem[],       # subsystems_stoch
 
             NothingScenarioModellingMethod(), # scenmod_sim
-            NothingScenarioModellingMethod(), # scenmod_ppp
-            NothingScenarioModellingMethod(), # scenmod_evp
             NothingScenarioModellingMethod(), # scenmod_stoch
 
             Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
@@ -124,8 +120,6 @@ get_subsystems(db::LocalDB) = db.subsystems
 get_subsystems_evp(db::LocalDB) = db.subsystems_evp
 get_subsystems_stoch(db::LocalDB) = db.subsystems_stoch
 get_scenmod_sim(db::LocalDB) = db.scenmod_sim
-get_scenmod_ppp(db::LocalDB) = db.scenmod_ppp
-get_scenmod_evp(db::LocalDB) = db.scenmod_evp
 get_scenmod_stoch(db::LocalDB) = db.scenmod_stoch
 get_ppp(db::LocalDB) = db.ppp
 get_evp(db::LocalDB) = db.evp
