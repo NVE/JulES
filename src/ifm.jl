@@ -27,6 +27,8 @@ struct TwoStateIfmData
     end
 end
 
+length(x::TwoStateIfmData) = length(x.P)
+
 const ONEDAY_MS_TIMEDELTA = MSTimeDelta(Day(1))
 
 mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor, 
@@ -59,8 +61,8 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         @assert ndays_forecast >= 0
         @assert ndays_pred >= ndays_forecast
         @assert ndays_obs > 0
-        isnothing(data_obs) || @assert ndays_obs == length(data_obs.P)
-        isnothing(data_forecast) || @assert ndays_forecast == length(data_forecast.P)
+        isnothing(data_obs) || @assert ndays_obs == length(data_obs)
+        isnothing(data_forecast) || @assert ndays_forecast == length(data_forecast)
         (ndays_forecast > 0) && @assert !isnothing(data_forecast)
         data_pred = TwoStateIfmData(ndays_pred)
         m3s_per_mm = 1/((1000**3)/(basin_area*10**6)*86400)
@@ -69,7 +71,7 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         T1 = typeof(hist_P)
         T2 = typeof(hist_T)
         T3 = typeof(hist_Lday)
-        return new{P, T1, T2, T3}(predictor, basin_area, m3s_per_mm, hist_P, hist_T, hist_Lday, 
+        return new{P, U, T1, T2, T3}(predictor, updater, basin_area, m3s_per_mm, hist_P, hist_T, hist_Lday, 
             ndays_pred, ndays_obs, ndays_forecast, data_pred, 
             data_obs, data_forecast, nothing, 0)
     end
@@ -83,7 +85,7 @@ function _initial_data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
         for i in 1:m.ndays_obs
             ndays_back = m.ndays_obs + 1 - i
             start = getdatatime(t) - Day(ndays_back)
-            m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA) * m.m3s_per_mm
+            m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         end
@@ -130,17 +132,18 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
         start = getscenariotime(t) - Day(ndays_remaining + 1)
         i = m.ndays_obs - ndays_remaining + 1
         for __ in 1:ndays_remaining
-            m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA) * m.m3s_per_mm
+            m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
             start += Day(1) 
             i += 1
         end
     end
-    @assert m.ndays_forecast >= 0   # TODO: remove validation
 
     # update struct state
     m.ndays_forecast -= m.ndays_forecast_used
+    @assert m.ndays_forecast >= 0   # TODO: remove validation
+    
     m.prev_t = t    
 
     return
