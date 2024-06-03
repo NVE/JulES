@@ -113,9 +113,9 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
     # use forecast if available
     m.ndays_forecast_used = 0
     if m.ndays_forecast > 0
-        startix = length(m.data_forecast.P) - m.ndays_forecast + 1
-        stopix = length(m.data_forecast.P) - m.ndays_forecast + ndays_update
-        stopix = min(stopix, length(m.data_forecast.P))
+        startix = length(m.data_forecast) - m.ndays_forecast + 1
+        stopix = length(m.data_forecast) - m.ndays_forecast + ndays_update
+        stopix = min(stopix, length(m.data_forecast))
         m.ndays_forecast_used = (stopix - startix) + 1
         j = m.ndays_obs - ndays_forecast_used + 1
         for i in startix:stopix
@@ -201,7 +201,7 @@ end
 function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpdater, t::ProbTime)
     if m.ndays_forecast > 0
         ndays_before_estimate_u0_call = m.ndays_forecast + m.ndays_forecast_used
-        startix = length(m.data_forecast.P) - ndays_before_estimate_u0_call + 1
+        startix = length(m.data_forecast) - ndays_before_estimate_u0_call + 1
         stopix = startix + m.ndays_forecast_used
         for (i, j) in enumerate(startix:stopix)
             m.data_pred.P[i] = m.data_forecast.P[j]
