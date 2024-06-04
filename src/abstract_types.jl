@@ -13,3 +13,8 @@ Interface:
 """
 abstract type AbstractInflowModel end
 const ABSTRACT_INFLOW_MODEL = "AbstractInflowModel"
+
+# TODO: Interfaces
+abstract type AbstractTwoStateIfmDataUpdater end
+abstract type AbstractTwoStateIfmPredictor end
+
