@@ -514,6 +514,7 @@ function add_local_scenariomodelling()
     settings = get_settings(db)
 
     # Simulation scenario modelling - choose scenarios for price prognosis and endvalue problems for the whole simulation
+    # TODO: Add possibility to update simulation scenarios (for long simulations)
     numscen_sim = get_numscen_sim(db.input)
     @assert numscen_sim <= numscen_data
     if numscen_sim == numscen_data
