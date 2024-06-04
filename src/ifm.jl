@@ -142,7 +142,7 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
     start = getscenariotime(t) - Day(ndays_update + 1)
     i = m.ndays_obs - ndays_update + 1
     for __ in 1:ndays_update
-        m.data_obs.Lday[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
+        m.data_obs.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         start += Day(1) 
         i += 1
     end
