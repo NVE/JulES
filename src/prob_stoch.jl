@@ -5,6 +5,8 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
 
     startduration = Millisecond(0)
     endduration = parse_duration(settings["horizons"]["clearing"], "termduration")
+
+    # TODO: Not use ifm here as in clearnig?
     modelobjects = make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, true)
 
     maxcuts = settings["problems"]["stochastic"]["maxcuts"] # preallocate fixed number of cuts, no cut selection
