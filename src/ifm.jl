@@ -384,6 +384,9 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         ndays_forecast = 0
     end
 
+    # TODO: Maybe make this user input in future?
+    updater = SimpleIfmDataUpdater()
+
     id = getobjkey(elkey)
     toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
         ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
