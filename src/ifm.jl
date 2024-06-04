@@ -23,7 +23,7 @@ struct TwoStateIfmData
     end
 end
 
-length(x::TwoStateIfmData) = length(x.P)
+getndays(x::TwoStateIfmData) = length(x.P)
 
 const ONEDAY_MS_TIMEDELTA = MsTimeDelta(Day(1))
 
@@ -57,8 +57,8 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         @assert ndays_forecast >= 0
         @assert ndays_pred >= ndays_forecast
         @assert ndays_obs > 0
-        isnothing(data_obs) || @assert ndays_obs == length(data_obs)
-        isnothing(data_forecast) || @assert ndays_forecast == length(data_forecast)
+        isnothing(data_obs) || @assert ndays_obs == getndays(data_obs)
+        isnothing(data_forecast) || @assert ndays_forecast == getndays(data_forecast)
         (ndays_forecast > 0) && @assert !isnothing(data_forecast)
         data_pred = TwoStateIfmData(ndays_pred)
         m3s_per_mm = 1/((1000**3)/(basin_area*10**6)*86400)
@@ -109,9 +109,9 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
     # use forecast for P and T if available
     m.ndays_forecast_used = 0
     if m.ndays_forecast > 0
-        startix = length(m.data_forecast) - m.ndays_forecast + 1
-        stopix = length(m.data_forecast) - m.ndays_forecast + ndays_update
-        stopix = min(stopix, length(m.data_forecast))
+        startix = getndays(m.data_forecast) - m.ndays_forecast + 1
+        stopix = getndays(m.data_forecast) - m.ndays_forecast + ndays_update
+        stopix = min(stopix, getndays(m.data_forecast))
         m.ndays_forecast_used = (stopix - startix) + 1
         j = m.ndays_obs - ndays_forecast_used + 1
         for i in startix:stopix
@@ -205,7 +205,7 @@ function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpd
     if m.ndays_forecast > 0
         # use forecast for P and T if available
         ndays_before_estimate_u0_call = m.ndays_forecast + m.ndays_forecast_used
-        startix = length(m.data_forecast) - ndays_before_estimate_u0_call + 1
+        startix = getndays(m.data_forecast) - ndays_before_estimate_u0_call + 1
         stopix = startix + m.ndays_forecast_used
         for (i, j) in enumerate(startix:stopix)
             m.data_pred.P[i] = m.data_forecast.P[j]
@@ -368,7 +368,7 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     if !(isnothing(obs_P) || isnothing(obs_T))
         dummy_Lday = zeros(eltype(obs_P), length(obs_P))
         data_obs = TwoStateIfmData(obs_P, obs_T, dummy_Lday)
-        ndays_obs == length(data_obs)
+        ndays_obs == getndays(data_obs)
     else
         data_obs = nothing
         ndays_obs = 365
@@ -378,7 +378,7 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     if !(isnothing(forecast_P) || isnothing(forecast_T))
         dummy_Lday = zeros(eltype(forecast_P), length(forecast_P))
         data_forecast = TwoStateIfmData(forecast_P, forecast_T, dummy_Lday)
-        ndays_forecast = length(data_forecast)
+        ndays_forecast = getndays(data_forecast)
     else
         data_forecast = nothing
         ndays_forecast = 0
