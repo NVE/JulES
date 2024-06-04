@@ -450,6 +450,7 @@ function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
     return 
 end
 
+
 function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
     horizons = get_horizons(db)
     subelements = get_subelements(db, subsystem)
@@ -462,13 +463,19 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
             numperiods_powerhorizon = getnumperiods(horizon)
         end
     end
+
+    add_scenix_to_InflowParam(subelements, scenix)
+
     return subelements, numperiods_powerhorizon
 end
 
-get_subelements(db, subsystem::ExogenSubsystem) = copy(get_elements(db.input))
+function get_subelements(db, subsystem::ExogenSubsystem)
+    return copy_elements_iprogtype(get_elements(db.input), get_iprogtype(db.input), get_ifm_replacemap(db.input))
+end
+
 function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
     elements = get_elements(db.input)
-    return copy(elements[subsystem.dataelements])
+    return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_replacemap(db.input))
 end
 
 function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond)
