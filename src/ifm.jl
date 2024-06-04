@@ -1,9 +1,5 @@
 # TODO: Illustrate how data_obs, data_pred and data_forecast are updated over time
 
-# TODO: Interfaces
-abstract type AbstractTwoStateIfmDataUpdater end
-abstract type AbstractTwoStateIfmPredictor end
-
 struct TwoStateIfmData
     P::Vector{Float32}   
     T::Vector{Float32}  
