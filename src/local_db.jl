@@ -56,6 +56,7 @@ mutable struct LocalDB
     scenmod_evp::AbstractScenarioModellingMethod
     scenmod_stoch::AbstractScenarioModellingMethod
 
+    ifm::Dict{String, Union{AbstractInflowModel, Nothing}}
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
     prices_ppp::Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
@@ -63,6 +64,7 @@ mutable struct LocalDB
     sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
     cp::Union{Nothing, ClearingProblem}
 
+    dist_ifm::Vector{Tuple{String, CoreId}}
     dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}
     dist_evp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
     dist_mp::Vector{Tuple{ScenarioIx, CoreId}}
@@ -72,6 +74,9 @@ mutable struct LocalDB
     # time_cp::Float64
 
     div::Dict
+
+    ifm_output::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
+    ifm_derived::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
 
     function LocalDB()
         return new(
@@ -95,6 +100,7 @@ mutable struct LocalDB
             NothingScenarioModellingMethod(), # scenmod_evp
             NothingScenarioModellingMethod(), # scenmod_stoch
 
+            Dict(), # ifm
             Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
             Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}(), # prices_ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),                 # evp
@@ -102,6 +108,7 @@ mutable struct LocalDB
             Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),                 # sp
             nothing,                                                                 # cp
 
+            [], # dist_ifm
             Tuple{ScenarioIx, CoreId}[],                # dist_ppp
             Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_evp
             Tuple{SubsystemIx, CoreId}[],               # dist_mp
@@ -109,6 +116,10 @@ mutable struct LocalDB
             -1,   # core_cp
 
             Dict(),   # div
+
+            Dict(),   # ifm_output
+            Dict(),   # ifm_weighted
+
         )
     end
 end
@@ -138,6 +149,15 @@ get_dist_mp(db::LocalDB) = db.dist_mp
 get_dist_sp(db::LocalDB) = db.dist_sp
 get_core_cp(db::LocalDB) = db.core_cp
 get_div(db::LocalDB) = db.div
+
+get_ifm(db::LocalDB) = db.ifm
+get_dist_ifm(db::LocalDB) = db.dist_ifm
+get_ifm_output(db::LocalDB) = db.ifm_output
+get_ifm_derived(db::LocalDB) = db.ifm_derived
+
+get_ifm_weights(db::LocalDB) = get_ifm_weights(get_input(db))
+get_ifm_normfactors(db::LocalDB) = get_ifm_normfactors(get_input(db))
+get_ifm_elements(db::LocalDB) = get_ifm_elements(get_input(db))
 
 get_cores(db::LocalDB) = get_cores(get_input(db))
 get_dataset(db::LocalDB) = get_dataset(get_input(db))
