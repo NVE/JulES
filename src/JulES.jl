@@ -1,19 +1,27 @@
 module JulES
 
-using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames, JSON, CSV
+using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames, JSON
 
 # Used by ifm
+using CSV
 using Random
-using OrdinaryDiffEq, DiffEqFlux, Lux
+using OrdinaryDiffEq
+using Lux
 using ComponentArrays
-using SciMLSensitivity
-using Optimization, OptimizationOptimisers, OptimizationBBO
-using Zygote
 using Interpolations
 using JLD2
+# TODO: Can remove the ones below because only used for training?
+using DiffEqFlux
+using SciMLSensitivity
+using Optimization
+using OptimizationOptimisers
+using OptimizationBBO
+using Zygote
 
 include("abstract_types.jl") 
 include("dimension_types.jl")
+include("ifm_bsd.jl")
+include("ifm.jl")
 include("generic_io.jl") 
 include("prob.jl")
 include("io.jl")
