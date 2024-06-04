@@ -499,3 +499,131 @@ function update_ifm_derived()
         end
     end
 end
+
+
+"""
+ModeledInflowParam is actually a PrognosisSeriesParam under-the-hood,
+but where the prognosis part is created and managed by JulES and not 
+given as user input
+"""
+function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+    checkkey(lowlevel, elkey)
+
+    deps = Id[]
+
+    # Not part of user input 
+    # This info is added by JulES with add_scenix_to_ModeledInflowParam
+    # See e.g. prob_stoch.get_elements_with_horizons
+    scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
+
+    hist_profile_name = getdictvalue(value, "HistoricalProfile", String, elkey)
+    hist_profile_key = Id(TIMEVECTOR_CONCEPT,  hist_profile_name)
+    push!(deps, hist_profile_key)
+
+    level_name = getdictvalue(value, "Level", String, elkey)
+    level_key = Id(TIMEVECTOR_CONCEPT,  level_name)
+    push!(deps, level_key)
+
+    haskey(lowlevel, hist_profile_key)   || return (false, deps)
+    haskey(lowlevel, level_key)          || return (false, deps)
+
+    hist_profile = lowlevel[hist_profile_key]
+    level = lowlevel[level_key]
+
+    # Creates an InfiniteTimeVector that refers to vectors stored in local db, 
+    # which will be updated by JulES each step after running inflow models.
+    # This way, model objects holding reference to such Param, will use updated 
+    # prognosis from db when called upon by update!(prob, t)
+    db = get_local_db()
+    replacemap = get_ifm_replacemap(db.input)
+    haskey(replacemap, elkey.instancename) || error("Instance name not found in replacemap for $elkey")
+    inflow_name = replacemap[elkey.instancename]
+    ifm_weights = get_ifm_weights(db)
+    if haskey(ifm_weights, inflow_name)
+        d = db.ifm_derived
+    else
+        d = db.ifm_output
+    end
+    if !haskey(d[inflow_name], scenix)
+        d[inflow_name][scenix] = (DateTime[], Float64[])
+    end
+    (ix, vals) = d[inflow_name][scenix]
+    prognosis_profile = InfiniteTimeVector(ix, vals)    
+
+    steps = 1   # use prognosis 100% when it applies
+
+    lowlevel[getobjkey(elkey)] = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
+
+    return (true, deps)
+end
+
+"""
+MixedInflowParam...
+"""
+# TODO: Complete this
+# struct MixedInflowParam{P1, P2} <: Param
+#     directparam::P1
+#     ifmparam::P2
+#     ndays::Int
+# end
+# function includeMixedInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+# end
+# TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "MixedInflowParam")] = includeMixedInflowParam!
+
+"""
+Used by JulES in appropriate places to embed scenix info 
+into data elements of type ModeledInflowParam or MixedInflowParam
+"""
+function add_scenix_to_InflowParam(elements, scenix)
+    for e in elements
+        if e.typename == "ModeledInflowParam" || e.typename == "MixedInflowParam"
+            e.value["ScenarioIndex"] = scenix
+        end
+    end
+end
+
+"""
+Return copy of elements with replacement of PrognosisSeriesParam 
+in ifm_replacemap in accordance with value of iprogtype
+"""
+function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
+    if iprogtype == "ifm"
+        elements1 = DataElement[]
+        for e in elements
+            if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
+                new_e = DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
+                    Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"]))
+                push!(elements1, new_e)
+            else
+                push!(elements1, e)
+            end
+        end
+
+    elseif startswith(iprogtype, "mix")
+        # TODO: Validate ndays > 0 in constructor of DefaultJulESInput
+        ndays = parse(Int, iprogtype[4:end])
+        elements1 = DataElement[]
+        for e in elements
+            if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
+                new_value = copy(e.value::Dict)
+                new_value["ndays"] = ndays
+                new_e = DataElement(e.conceptname, "MixedInflowParam", e.instancename, new_value)
+                push!(elements1, new_e)
+            else
+                push!(elements1, e)
+            end
+        end
+
+    else
+        @assert iprogtype == "direct"
+        elements1 = copy(elements)
+    end
+
+    return elements1
+end
+
+# Register extentions to TuLiPa input system
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateBucketIfm")] = includeTwoStateBucketIfm!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateNeuralODEIfm")] = includeTwoStateNeuralODEIfm!
+TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!
+
