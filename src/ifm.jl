@@ -25,7 +25,7 @@ end
 
 length(x::TwoStateIfmData) = length(x.P)
 
-const ONEDAY_MS_TIMEDELTA = MSTimeDelta(Day(1))
+const ONEDAY_MS_TIMEDELTA = MsTimeDelta(Day(1))
 
 mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor, 
                                 U <: AbstractTwoStateIfmDataUpdater, 
