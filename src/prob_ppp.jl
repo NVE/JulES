@@ -72,7 +72,11 @@ function create_ppp(db::LocalDB, scenix::Int)
     return
 end
 
-function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, scenix::Int, iprogtype::String, ifm_replacemap; validate::Bool=false)
+function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, scenix::Int; validate::Bool=false)
+    db = get_local_db()
+    iprogtype = get_iprogtype(db.input)
+    ifm_replacemap = ifm_replacemap(db.input)
+
     elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
 
     add_scenix_to_InflowParam(elements1, scenix)
