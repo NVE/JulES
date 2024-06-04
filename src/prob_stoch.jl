@@ -386,7 +386,7 @@ end
 function make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, master)
     subsystem = get_subsystems(db)[subix]
     term_ppp = get_horizonterm_stoch(subsystem)
-    subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
+    subelements, numperiods_powerhorizon = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, true)
 
     aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))
     change_elements!(subelements, aggzonecopl=aggzonecopl)
@@ -450,13 +450,15 @@ function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
     return 
 end
 
-function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp)
+function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, stochastic)
     horizons = get_horizons(db)
     subelements = get_subelements(db, subsystem)
+    numscen_sim = get_numscen_sim(db.input)
+    numscen_stoch = get_numscen_stoch(db.input)
     local numperiods_powerhorizon::Int
 
     for commodity in get_commodities(subsystem)
-        horizon = get_shortenedhorizon(horizons, scenix, term_ppp, commodity, startduration, endduration)
+        horizon = get_shortenedhorizon(horizons, scenix, term_ppp, commodity, startduration, endduration, stochastic, numscen_sim, numscen_stoch)
         set_horizon!(subelements, commodity, horizon)
         if commodity == "Power"
             numperiods_powerhorizon = getnumperiods(horizon)
@@ -471,7 +473,7 @@ function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
     return copy(elements[subsystem.dataelements])
 end
 
-function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond)
+function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
     subhorizon = horizons[(scenix, term, commodity)]
     if startduration.value == 0
         startperiod = 1
@@ -479,7 +481,12 @@ function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, Commodi
         startperiod = getendperiodfromduration(subhorizon, startduration) + 1
     end
     endperiod = getendperiodfromduration(subhorizon, endduration)
-    return ShortenedHorizon(subhorizon, startperiod, endperiod)
+    shortenedhorizon = ShortenedHorizon(subhorizon, startperiod, endperiod)
+    if stochastic && (numscen_sim != numscen_stoch)
+        # TODO: Could replace this with functionality that ignores mustupdate and shrinkatleast if scenario has changed between steps
+        shortenedhorizon = IgnoreMustupdateMayshiftfromHorizon(shortenedhorizon)
+    end
+    return shortenedhorizon
 end
 
 function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int)
