@@ -61,7 +61,7 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         isnothing(data_forecast) || @assert ndays_forecast == getndays(data_forecast)
         (ndays_forecast > 0) && @assert !isnothing(data_forecast)
         data_pred = TwoStateIfmData(ndays_pred)
-        m3s_per_mm = 1/((1000**3)/(basin_area*10**6)*86400)
+        m3s_per_mm = 1/((1000^3)/(basin_area*(10^6))*86400)
         P = typeof(predictor)
         U = typeof(updater)
         T1 = typeof(hist_P)

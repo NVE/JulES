@@ -75,7 +75,7 @@ end
 function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, scenix::Int; validate::Bool=false)
     db = get_local_db()
     iprogtype = get_iprogtype(db.input)
-    ifm_replacemap = ifm_replacemap(db.input)
+    ifm_replacemap = get_ifm_replacemap(db.input)
 
     elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
 
