@@ -1,5 +1,7 @@
 module JulES
 
+const TULIPA_EXTENSIONS = Set{Function}()
+
 using Distributed, TuLiPa, Dates, Statistics, Clustering, Distributions, DataFrames, JSON
 
 # Used by ifm

@@ -35,9 +35,31 @@ end
 function init_jules(input::AbstractJulESInput)
     (t, N, delta, skipmed, skipmax) = get_simperiod(input)
 
+    init_tulipa_extensions(input)
+
     init_databases(input)
     
     return (t, N, delta, skipmed, skipmax)
+end
+
+"""
+Add TuLiPa extensions on each core
+"""
+function init_tulipa_extensions(input::AbstractJulESInput)
+    cores = get_cores(input)
+    @sync for core in cores
+        @spawnat core add_local_tulipa_extensions()
+    end
+end
+
+"""
+Call all functions stored in JulES.TULIPA_EXTENSIONS
+"""
+function add_local_tulipa_extensions()
+    for f in JulES.TULIPA_EXTENSIONS
+        f()
+    end
+    return
 end
 
 """

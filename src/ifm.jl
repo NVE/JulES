@@ -621,8 +621,8 @@ function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
     return elements1
 end
 
-# Register extentions to TuLiPa input system
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateBucketIfm")] = includeTwoStateBucketIfm!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateNeuralODEIfm")] = includeTwoStateNeuralODEIfm!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!
+# Register extensions to TuLiPa input system to be added at run time
+push!(TULIPA_EXTENSIONS, () -> INCLUDEELEMENT[TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateBucketIfm")] = includeTwoStateBucketIfm!)
+push!(TULIPA_EXTENSIONS, () -> INCLUDEELEMENT[TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateNeuralODEIfm")] = includeTwoStateNeuralODEIfm!)
+push!(TULIPA_EXTENSIONS, () -> INCLUDEELEMENT[TypeKey(PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!)
 
