@@ -408,11 +408,11 @@ end
 function get_term_ppp(horizons, commodities, duration)
     dummycommodity = commodities[1]
     horizon_short = horizons[(ShortTermName, dummycommodity)]
-    if duration < getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
+    if duration <= getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
         return ShortTermName
     end
     horizon_med = horizons[(MedTermName, dummycommodity)]
-    if duration < getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
+    if duration <= getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
         return MedTermName
     end
     horizon_long = horizons[(LongTermName, dummycommodity)]
