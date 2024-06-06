@@ -598,13 +598,14 @@ function add_local_problem_distribution()
     println(dist_sp)
     core_cp = get_core_cp(db.input)
 
+    db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
     db.core_cp = core_cp
 
-    dists = (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
+    dists = (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
 
     cores = get_cores(db.input)
     @sync for core in cores
@@ -617,10 +618,11 @@ function add_local_problem_distribution()
 end
 
 function set_local_dists(dists)
-    (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
+    (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
 
     db = get_local_db()
     
+    db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
@@ -708,6 +710,7 @@ end
 function step_jules(t, delta, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
+    firstcore = first(cores)
 
     println(t)
 
@@ -757,7 +760,7 @@ function step_jules(t, delta, stepnr, skipmed)
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
         # TODO: Remove update_scenmod_evp?
-        wait(@spawnat c update_scenmod_evp(t, skipmed))
+        wait(@spawnat firstcore update_scenmod_evp(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_evp(t, delta, stepnr, skipmed)
