@@ -306,16 +306,21 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     FORECASTED_PERCIPITATION = "ForecastedPercipitation"
     FORECASTED_TEMPERATURE = "ForecastedTemperature"
     
-    model_params = getdictvalue(value, "ModelParams", (Any, ), elkey)
-    if model_params isa String
-        model_params = JLD2.load_object(model_params)
-    end
+    model_params = getdictvalue(value, "ModelParams", String, elkey)
+    model_params = JLD2.load_object(model_params)
 
     hist_P = getdictvalue(value, "HistoricalPercipitation",   TIMEVECTORPARSETYPES, elkey)
     hist_T = getdictvalue(value, "HistoricalTemperature", TIMEVECTORPARSETYPES, elkey)
     hist_Lday = getdictvalue(value, "HistoricalDaylight", TIMEVECTORPARSETYPES, elkey)
 
-    ndays_pred = getdictvalue(value, "NDaysPred", Int, elkey)
+    ndays_pred = getdictvalue(value, "NDaysPred", Real, elkey)
+    try 
+        ndays_pred = Int(ndays_pred)
+        @assert ndays_pred >= 0
+    catch e
+        error("Value for key NDaysPred must be positive integer for $elkey")
+    end
+
     basin_area = getdictvalue(value, "BasinArea", Float64, elkey)
 
     if haskey(value, OBSERVED_PERCIPITATION)
@@ -349,17 +354,17 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     deps = Id[]
     all_ok = true
 
-    (id, percipitation, ok) = getdicttimevectorvalue(lowlevel, percipitation)    
+    (id, hist_P, ok) = getdicttimevectorvalue(lowlevel, hist_P)    
     all_ok = all_ok && ok
-    _update_deps(deps, id, ok)
+    TuLiPa._update_deps(deps, id, ok)
     
-    (id, temperature, ok) = getdicttimevectorvalue(lowlevel, temperature)  
+    (id, hist_T, ok) = getdicttimevectorvalue(lowlevel, hist_T)  
     all_ok = all_ok && ok
-    _update_deps(deps, id, ok)
+    TuLiPa._update_deps(deps, id, ok)
 
-    (id, daylight, ok) = getdicttimevectorvalue(lowlevel, daylight)  
+    (id, hist_Lday, ok) = getdicttimevectorvalue(lowlevel, hist_Lday)  
     all_ok = all_ok && ok
-    _update_deps(deps, id, ok)
+    TuLiPa._update_deps(deps, id, ok)
 
     if all_ok == false
         return (false, deps)
