@@ -674,11 +674,7 @@ end
 function add_local_problems()
     db = get_local_db()
 
-    for (inflow_name, core) in db.dist_ifm
-        if core == thiscore
-            create_ifm(db)
-        end
-    end
+    create_ifm()
 
     for (scenix, core) in db.dist_ppp
         if core == db.core
