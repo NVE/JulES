@@ -14,6 +14,7 @@ Design goals
 
 # TODO: setup docstrings for automatic documentation
 
+
 function run_serial(input::AbstractJulESInput)
     (t, N, delta, skipmed, skipmax) = init_jules(input)
     totaltime = @elapsed for stepnr in 1:N
@@ -661,9 +662,14 @@ end
 function step_jules(t, delta, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
-
+	
+    if mod(stepnr, 20) == 0
+        @sync for core in cores
+            @spawnat core GC.gc()
+        end
+    end
+    
     println(t)
-
     println("Startstates")
     @time begin
         @sync for core in cores
@@ -685,7 +691,7 @@ function step_jules(t, delta, stepnr, skipmed)
             @spawnat core synchronize_horizons(skipmed)
         end
     end
-
+	
     println("End value problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -715,7 +721,7 @@ function step_jules(t, delta, stepnr, skipmed)
     @time begin
         wait(@spawnat db.core_cp update_output(t, stepnr))
     end
-
+	
     # do dynamic load balancing here
     return
 end
