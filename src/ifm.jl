@@ -248,6 +248,7 @@ struct TwoStateBucketIfm{H} <: AbstractInflowModel
     end
 end
 
+getid(m::TwoStateBucketIfm) = m.id
 estimate_u0(m::TwoStateBucketIfm, t::ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
 
@@ -295,6 +296,7 @@ struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
     end
 end
 
+getid(m::TwoStateNeuralODEIfm) = m.id
 estimate_u0(m::TwoStateNeuralODEIfm, t::ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
 
