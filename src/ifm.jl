@@ -463,10 +463,10 @@ A core holding output from an inflow model, copies the output to the local db on
 function synchronize_ifm_output()
     db = get_local_db()
     cores = get_cores(db)
-    @sync for (inflow_name, core) in db.dist_ifm
+    for (inflow_name, core) in db.dist_ifm
         if core == db.core
             data = db.ifm_output[inflow_name]
-            for other_core in cores
+            @sync for other_core in cores
                 if other_core != db.core
                     @spawnat other_core set_ifm_output(data, inflow_name)
                 end
