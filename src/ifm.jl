@@ -168,7 +168,7 @@ function estimate_u0(m::TwoStateIfmHandler, t::ProbTime)
     itp_T = interpolate(m.data_obs.timepoints, m.data_obs.T, itp_method)
     itp_Lday = interpolate(m.data_obs.timepoints, m.data_obs.Lday, itp_method)
 
-    (__, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.data_obs.timepoints)
+    (__, OED_sol) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_obs.timepoints)
 
     # extract states
     est_S0 = Float64(last(OED_sol[1, :]))
@@ -187,7 +187,7 @@ function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::ProbTime)
     itp_Lday = interpolate(m.data_pred.timepoints, m.data_pred.Lday, itp_method)
 
     (S0, G0) = u0
-    (Q, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
+    (Q, OED_sol) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
 
     Q = Float64.(Q)
     u = Float64.(OED_sol.u)
