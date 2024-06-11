@@ -31,7 +31,7 @@ function create_ppp(db::LocalDB, scenix::Int)
     add_PowerUpperSlack!(longobjects)
 
     longprobmethod = parse_methods(settings["problems"]["prognosis"]["long"]["solver"])
-    longprob = buildprob(longprobmethod, longobjects)
+    longprob = TuLiPa.buildprob(longprobmethod, longobjects)
 
     # Create med problems
     medobjects = make_obj(elements, mhh, mph, scenix)
@@ -39,12 +39,12 @@ function create_ppp(db::LocalDB, scenix::Int)
     add_PowerUpperSlack!(medobjects)
 
     medprobmethod = parse_methods(settings["problems"]["prognosis"]["med"]["solver"])
-    medprob = buildprob(medprobmethod, medobjects)
+    medprob = TuLiPa.buildprob(medprobmethod, medobjects)
 
     # TODO: Possible to improve? Not needed to make endvaluesobj and store it in probobjects
-    medstorages = getstorages(getobjects(medprob))
-    medendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
-    medendvaluesobj = EndValues(medendvaluesid, medstorages) # initialize endvalues object
+    medstorages = TuLiPa.getstorages(TuLiPa.getobjects(medprob))
+    medendvaluesid = TuLiPa.Id(TuLiPa.BOUNDARYCONDITION_CONCEPT,"EndValue")
+    medendvaluesobj = TuLiPa.EndValues(medendvaluesid, medstorages) # initialize endvalues object
     push!(medprob.objects, medendvaluesobj) # push end values object to med problem objects
 
     # Create short problems
@@ -53,16 +53,16 @@ function create_ppp(db::LocalDB, scenix::Int)
     add_PowerUpperSlack!(shortobjects)
 
     shortprobmethod = parse_methods(settings["problems"]["prognosis"]["short"]["solver"])
-    shortprob = buildprob(shortprobmethod, shortobjects)
+    shortprob = TuLiPa.buildprob(shortprobmethod, shortobjects)
 
-    shortstorages = getstorages(getobjects(shortprob))
-    shorttermstorages = getshorttermstorages(getobjects(shortprob), Hour(removestoragehours))
+    shortstorages = TuLiPa.getstorages(TuLiPa.getobjects(shortprob))
+    shorttermstorages = TuLiPa.getshorttermstorages(TuLiPa.getobjects(shortprob), Hour(removestoragehours))
     longtermstorages = setdiff(shortstorages, shorttermstorages)
-    shortendvaluesid = Id(BOUNDARYCONDITION_CONCEPT,"EndValue")
-    shortendvaluesobj = EndValues(shortendvaluesid, longtermstorages)
-    push!(getobjects(shortprob), shortendvaluesobj)
+    shortendvaluesid = TuLiPa.Id(TuLiPa.BOUNDARYCONDITION_CONCEPT,"EndValue")
+    shortendvaluesobj = TuLiPa.EndValues(shortendvaluesid, longtermstorages)
+    push!(TuLiPa.getobjects(shortprob), shortendvaluesobj)
 
-    nonstoragestates = get_nonstoragestatevariables(getobjects(shortprob))
+    nonstoragestates = get_nonstoragestatevariables(TuLiPa.getobjects(shortprob))
     
     div = Dict()
     div[MainTiming] = zeros(3, 3)
@@ -72,10 +72,10 @@ function create_ppp(db::LocalDB, scenix::Int)
     return
 end
 
-function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_horizon::Horizon, scenix::Int; validate::Bool=false)
+function make_obj(elements::Vector{TuLiPa.DataElement}, hydro_horizon::TuLiPa.Horizon, power_horizon::TuLiPa.Horizon, scenix::Int; validate::Bool=false)
     db = get_local_db()
     iprogtype = get_iprogtype(db.input)
-    ifm_replacemap = ifm_replacemap(db.input)
+    ifm_replacemap = get_ifm_replacemap(db.input)
 
     elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
 
@@ -85,7 +85,7 @@ function make_obj(elements::Vector{DataElement}, hydro_horizon::Horizon, power_h
     set_horizon!(elements1, "Battery", power_horizon)
     set_horizon!(elements1, "Hydro", hydro_horizon)
 
-    modelobjects = getmodelobjects(elements1; validate=validate)
+    modelobjects = TuLiPa.getmodelobjects(elements1; validate=validate)
 
     return modelobjects
 end
@@ -95,9 +95,12 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
     # For the new area FRACHE, the transmission line FRA-CHE is transformed into a demand based on the loss and utilization of the line
     aggzonedict = Dict()
     for (k,v) in aggzone
-        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [modelobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+        aggzonedict[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * k)] = [modelobjects[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
     end
-    aggzone!(modelobjects, aggzonedict)
+    # TODO: Fix
+    if length(aggzonedict) > 0
+        TuLiPa.aggzone!(modelobjects, aggzonedict)
+    end
 
     # Start-up-costs are not compatible with aggregatesupplycurve! or AdaptiveHorizon
     removestartup && remove_startupcosts!(modelobjects)
@@ -106,13 +109,13 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
     removetransmissionramping && remove_transmissionramping!(modelobjects)
 
     # Aggregate all simple plants (only connected to power market, mostly thermal) for each area into 4 equivalent plants
-    aggsupplyn > 0 && aggregatesupplycurve!(modelobjects, aggsupplyn)
+    aggsupplyn > 0 && TuLiPa.aggregatesupplycurve!(modelobjects, aggsupplyn)
 
     # Short-term storage systems are only needed when the horizon is fine 
-    removestoragehours > 0 && removestoragesystems!(modelobjects, Hour(removestoragehours))
+    removestoragehours > 0 && TuLiPa.removestoragesystems!(modelobjects, Hour(removestoragehours))
 
     # Only calculate AdaptiveHorizon based on residual loads in these areas
-    length(residualarealist) > 0 && residualloadareas!(modelobjects, residualarealist)
+    length(residualarealist) > 0 && TuLiPa.residualloadareas!(modelobjects, residualarealist)
 end
 
 function solve_ppp(t, steplength, stepnr, skipmed)
@@ -131,41 +134,41 @@ function solve_ppp(t, steplength, stepnr, skipmed)
 
             if skipmed.value == 0
                 maintiming[3, 1] = @elapsed begin
-                    set_startstates!(p.longprob, getstorages(getobjects(p.longprob)), startstates)
+                    set_startstates!(p.longprob, TuLiPa.getstorages(TuLiPa.getobjects(p.longprob)), startstates)
                     setstartstates!(p.longprob, startstates)
 
-                    maintiming[1, 1] = @elapsed update!(p.longprob, scentime)
-                    maintiming[2, 1] = @elapsed solve!(p.longprob)
+                    maintiming[1, 1] = @elapsed TuLiPa.update!(p.longprob, scentime)
+                    maintiming[2, 1] = @elapsed TuLiPa.solve!(p.longprob)
                 end
 
                 maintiming[3, 2] = @elapsed begin
-                    set_startstates!(p.medprob, getstorages(getobjects(p.medprob)), startstates)
-                    maintiming[1, 2] = @elapsed update!(p.medprob, scentime)
+                    set_startstates!(p.medprob, TuLiPa.getstorages(TuLiPa.getobjects(p.medprob)), startstates)
+                    maintiming[1, 2] = @elapsed TuLiPa.update!(p.medprob, scentime)
                     lhh = horizons[(scenix, "long", "Hydro")]
                     mhh = horizons[(scenix, "med", "Hydro")]
-                    transfer_duals!(p.longprob, lhh, p.medprob, mhh, getstorages(getobjects(p.medprob)))
-                    maintiming[2, 2] = @elapsed solve!(p.medprob)
+                    transfer_duals!(p.longprob, lhh, p.medprob, mhh, TuLiPa.getstorages(TuLiPa.getobjects(p.medprob)))
+                    maintiming[2, 2] = @elapsed TuLiPa.solve!(p.medprob)
                 end
             else
                 fill!(maintiming[:,1:2], 0.0)
             end
 
             maintiming[3, 3] = @elapsed begin
-                set_startstates!(p.shortprob, getstorages(getobjects(p.shortprob)), startstates)
-                shorttermstorages = getshorttermstorages(getobjects(p.shortprob), Hour(settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
-                allstorages = getstorages(getobjects(p.shortprob))
+                set_startstates!(p.shortprob, TuLiPa.getstorages(TuLiPa.getobjects(p.shortprob)), startstates)
+                shorttermstorages = TuLiPa.getshorttermstorages(TuLiPa.getobjects(p.shortprob), Hour(settings["problems"]["prognosis"]["shorttermstoragecutoff_hours"]))
+                allstorages = TuLiPa.getstorages(TuLiPa.getobjects(p.shortprob))
                 longtermstorages = setdiff(allstorages, shorttermstorages)
                 set_endstates!(p.shortprob, shorttermstorages, startstates)
                 if stepnr != 1
-                    nonstorageobjects = get_nonstorageobjects(getobjects(p.shortprob))
+                    nonstorageobjects = get_nonstorageobjects(TuLiPa.getobjects(p.shortprob))
                     set_startstates!(p.shortprob, nonstorageobjects, startstates) # NB! Assumes same resolution in shortprob as market clearing
                 end
                 if skipmed.value == 0 # cannot update if medprob not updated. Assume reuse of watervalues not important for short. TODO: Solve medprob at every step? Split second week in 2 day intervals? Don't reuse watervalues?
                     shh = horizons[(scenix, "short", "Hydro")]
                     transfer_duals!(p.medprob, mhh, p.shortprob, shh, longtermstorages)
                 end
-                maintiming[1, 3] = @elapsed update!(p.shortprob, scentime)
-                maintiming[2, 3] = @elapsed solve!(p.shortprob)
+                maintiming[1, 3] = @elapsed TuLiPa.update!(p.shortprob, scentime)
+                maintiming[2, 3] = @elapsed TuLiPa.solve!(p.shortprob)
 
                 sph = horizons[(scenix, "short", "Power")]
                 update_nonstoragestates!(p, db, sph, stepnr, steplength)
@@ -176,11 +179,11 @@ end
 
 # Dual values from long problem used as end values for med problem
 function transfer_duals!(giverprob, giverhorizon, takerprob, takerhorizon, storages)
-    period = getendperiodfromduration(giverhorizon, getduration(takerhorizon)) # which period in long problem correspond to end period in medium problem
+    period = TuLiPa.getendperiodfromduration(giverhorizon, TuLiPa.getduration(takerhorizon)) # which period in long problem correspond to end period in medium problem
     endvalues = get_insideduals(giverprob, storages, period) # get dual values from long problem at period which correspond to end period in medium problem
     
-    endvaluesobj = getobjects(takerprob)[findfirst(x -> getid(x) == Id(BOUNDARYCONDITION_CONCEPT,"EndValue"), getobjects(takerprob))]
-    updateendvalues!(takerprob, endvaluesobj, endvalues) # update end values in problem object and in problem formulation
+    endvaluesobj = TuLiPa.getobjects(takerprob)[findfirst(x -> TuLiPa.getid(x) == TuLiPa.Id(TuLiPa.BOUNDARYCONDITION_CONCEPT,"EndValue"), TuLiPa.getobjects(takerprob))]
+    TuLiPa.updateendvalues!(takerprob, endvaluesobj, endvalues) # update end values in problem object and in problem formulation
     return
 end
 
@@ -188,10 +191,10 @@ end
 # TODO: Only getoutgoingstates!, init should handle changeendtoinsidestates!
 function update_nonstoragestates!(ppp, db, sph, stepnr, steplength)
     if stepnr == 1
-        clearingperiod = getendperiodfromduration(sph, steplength) # which period in short problem correspond to end period in market clearing problem
-        changeendtoinsidestates!(ppp.shortprob, ppp.nonstoragestates_short, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
+        clearingperiod = TuLiPa.getendperiodfromduration(sph, steplength) # which period in short problem correspond to end period in market clearing problem
+        TuLiPa.changeendtoinsidestates!(ppp.shortprob, ppp.nonstoragestates_short, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
     else
-        getoutgoingstates!(ppp.shortprob, ppp.nonstoragestates_short)
+        TuLiPa.getoutgoingstates!(ppp.shortprob, ppp.nonstoragestates_short)
     end
 end
 
@@ -210,7 +213,7 @@ function synchronize_horizons(skipmed)
             continue
         end 
 
-        changes = getchanges(horizon)
+        changes = TuLiPa.getchanges(horizon)
 
         if length(changes) > 0
             @sync for core in get_cores(db)
@@ -226,7 +229,7 @@ end
 function transfer_horizon_changes(s::ScenarioIx, t::TermName, c::CommodityName, changes)
     db = get_local_db()
     h = db.horizons[(s, t, c)]
-    setchanges!(h, changes)
+    TuLiPa.setchanges!(h, changes)
     return
 end
 

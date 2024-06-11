@@ -18,8 +18,8 @@ function create_cp()
             end
         end
     end
-    modelobjects = getmodelobjects(elements)
-    add_PowerUpperSlack!(modelobjects)
+    modelobjects = TuLiPa.getmodelobjects(elements)
+    TuLiPa.add_PowerUpperSlack!(modelobjects)
 
     for (subix, core) in db.dist_mp # or get list of cuts from each core?
         future = @spawnat core get_lightcuts(subix)
@@ -27,18 +27,18 @@ function create_cp()
 
         # Change statevars so that they represents clearing version of objects
         for i in 1:length(cuts.statevars)
-            varin = getvarin(cuts.statevars[i])
-            (varid, varix) = getvarout(cuts.statevars[i])
+            varin = TuLiPa.getvarin(cuts.statevars[i])
+            (varid, varix) = TuLiPa.getvarout(cuts.statevars[i])
 
-            newt = getnumperiods(gethorizon(modelobjects[varid]))
-            cuts.statevars[i] = StateVariableInfo(varin, (varid, newt))
+            newt = TuLiPa.getnumperiods(TuLiPa.gethorizon(modelobjects[varid]))
+            cuts.statevars[i] = TuLiPa.StateVariableInfo(varin, (varid, newt))
         end
-        cutid = getid(cuts)
+        cutid = TuLiPa.getid(cuts)
         modelobjects[cutid] = cuts
     end
 
     probmethod = parse_methods(settings["problems"]["clearing"]["solver"])
-    prob = buildprob(probmethod, modelobjects)
+    prob = TuLiPa.buildprob(probmethod, modelobjects)
 
     db.cp = ClearingProblem(prob, Dict{String, Float64}(), Dict())
 
@@ -64,26 +64,26 @@ function solve_cp(t, delta, stepnr, skipmed)
 end
 
 # Util functions for solve_cp ----------------------------------------------------------------------------------
-function minstoragevaluerule(storage::Storage)
-    commodity = getinstancename(getid(getcommodity(getbalance(storage))))
+function minstoragevaluerule(storage::TuLiPa.Storage)
+    commodity = TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(TuLiPa.getbalance(storage))))
     if commodity == "Hydro"
         return 0.001
     end
     return 0.0
  end
 
-function set_minstoragevalue!(problem::Prob, costrule::Function)
-    for modelobject in getobjects(problem)
-        if modelobject isa Storage
-            id = getid(modelobject)
-            balance = getbalance(modelobject)
-            horizon = gethorizon(balance)
-            T = getnumperiods(horizon)
-            coeff = getobjcoeff(problem, id, T)
+function set_minstoragevalue!(problem::TuLiPa.Prob, costrule::Function)
+    for modelobject in TuLiPa.getobjects(problem)
+        if modelobject isa TuLiPa.Storage
+            id = TuLiPa.getid(modelobject)
+            balance = TuLiPa.getbalance(modelobject)
+            horizon = TuLiPa.gethorizon(balance)
+            T = TuLiPa.getnumperiods(horizon)
+            coeff = TuLiPa.getobjcoeff(problem, id, T)
             cost = costrule(modelobject)
             newcoeff = min(-cost, coeff)
             if !(coeff ≈ newcoeff)
-                setobjcoeff!(problem, id, T, newcoeff)
+                TuLiPa.setobjcoeff!(problem, id, T, newcoeff)
             end
         end
     end
@@ -99,8 +99,8 @@ function update_statedependent_cp(db, stepnr, t)
         init = true
     end
 
-    get_statedependentprod(settings["problems"]["clearing"]) && statedependentprod!(db.cp.prob, db.startstates, init=init)
-    get_statedependentpump(settings["problems"]["clearing"]) && statedependentpump!(db.cp.prob, db.startstates)
+    get_statedependentprod(settings["problems"]["clearing"]) && TuLiPa.statedependentprod!(db.cp.prob, db.startstates, init=init)
+    get_statedependentpump(settings["problems"]["clearing"]) && TuLiPa.statedependentpump!(db.cp.prob, db.startstates)
 
     # Headlosscosts
     if get_headlosscost(settings["problems"]["clearing"])
@@ -109,10 +109,10 @@ function update_statedependent_cp(db, stepnr, t)
             headlosscost_data = fetch(future)
 
             for (resid, headlosscost, T) in headlosscost_data
-                obj = find_obj_by_id(getobjects(db.cp.prob), resid)
-                T = getnumperiods(gethorizon(obj))
+                obj = find_obj_by_id(TuLiPa.getobjects(db.cp.prob), resid)
+                T = TuLiPa.getnumperiods(TuLiPa.gethorizon(obj))
                 
-                setobjcoeff!(db.cp.prob, resid, T, headlosscost)
+                TuLiPa.setobjcoeff!(db.cp.prob, resid, T, headlosscost)
             end
         end
     end
@@ -123,7 +123,7 @@ function get_headlosscost_data_from_mp(subix, t) # TODO: get method from config
 
     mp = db.mp[subix]
 
-    return get_headlosscost_data(ReservoirCurveSlopeMethod(), mp.prob, t)
+    return get_headlosscost_data(TuLiPa.ReservoirCurveSlopeMethod(), mp.prob, t)
 end
 
 function update_nonstoragestates_cp(db)
@@ -133,7 +133,7 @@ function update_nonstoragestates_cp(db)
         if scenix == _scenix
             future = @spawnat _core get_nonstoragestates_short(scenix)
             nonstoragestates_short = fetch(future)
-            setoutgoingstates!(db.cp.prob, nonstoragestates_short)
+            TuLiPa.setoutgoingstates!(db.cp.prob, nonstoragestates_short)
         end
     end
 end
@@ -154,7 +154,7 @@ function update_cuts(db, skipmed)
             cuts_cp.constants = constants
             cuts_cp.slopes = slopes
 
-            updatecuts!(db.cp.prob, cuts_cp)
+            TuLiPa.updatecuts!(db.cp.prob, cuts_cp)
         end
     end
 end
@@ -174,9 +174,9 @@ end
 
 function update_startstates_cp(db, stepnr, t)
     if stepnr == 1
-        set_startstates!(db.cp.prob, getstorages(getobjects(db.cp.prob)), db.startstates)
+        set_startstates!(db.cp.prob, TuLiPa.getstorages(TuLiPa.getobjects(db.cp.prob)), db.startstates)
     else
-        set_startstates!(db.cp.prob, getobjects(db.cp.prob), db.startstates)
+        set_startstates!(db.cp.prob, TuLiPa.getobjects(db.cp.prob), db.startstates)
     end
 end
 
@@ -184,13 +184,13 @@ end
 
 
 # TODO: Rename to update_startstates
-function get_startstates!(clearing::Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
-    startstates_ = get_states(getobjects(clearing))
-    getoutgoingstates!(clearing, startstates_)
+function get_startstates!(clearing::TuLiPa.Prob, detailedrescopl::Dict, enekvglobaldict::Dict, startstates::Dict{String, Float64})
+    startstates_ = get_states(TuLiPa.getobjects(clearing))
+    TuLiPa.getoutgoingstates!(clearing, startstates_)
     
     for var in keys(startstates_)
         value = round(startstates_[var], digits=10) # avoid approx 0 negative values, ignored by solvers so no problem?
-        startstates[getinstancename(first(getvarout(var)))] = value
+        startstates[TuLiPa.getinstancename(first(TuLiPa.getvarout(var)))] = value
     end
 
     for area in Set(values(detailedrescopl))

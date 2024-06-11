@@ -23,13 +23,13 @@ struct TwoStateIfmData
     end
 end
 
-length(x::TwoStateIfmData) = length(x.P)
+getndays(x::TwoStateIfmData) = length(x.P)
 
-const ONEDAY_MS_TIMEDELTA = MSTimeDelta(Day(1))
+const ONEDAY_MS_TIMEDELTA = TuLiPa.MsTimeDelta(Day(1))
 
 mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor, 
                                 U <: AbstractTwoStateIfmDataUpdater, 
-                                T1 <: TimeVector, T2 <: TimeVector, T3 <: TimeVector}
+                                T1 <: TuLiPa.TimeVector, T2 <: TuLiPa.TimeVector, T3 <: TuLiPa.TimeVector}
     predictor::P
 
     updater::U
@@ -49,7 +49,7 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
     data_obs::Union{TwoStateIfmData, Nothing}
     data_forecast::Union{TwoStateIfmData, Nothing}
 
-    prev_t::Union{ProbTime, Nothing}
+    prev_t::Union{TuLiPa.ProbTime, Nothing}
     ndays_forecast_used::Int
 
     function TwoStateIfmHandler(predictor, updater, basin_area, hist_P, hist_T, hist_Lday, 
@@ -57,11 +57,11 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         @assert ndays_forecast >= 0
         @assert ndays_pred >= ndays_forecast
         @assert ndays_obs > 0
-        isnothing(data_obs) || @assert ndays_obs == length(data_obs)
-        isnothing(data_forecast) || @assert ndays_forecast == length(data_forecast)
+        isnothing(data_obs) || @assert ndays_obs == getndays(data_obs)
+        isnothing(data_forecast) || @assert ndays_forecast == getndays(data_forecast)
         (ndays_forecast > 0) && @assert !isnothing(data_forecast)
         data_pred = TwoStateIfmData(ndays_pred)
-        m3s_per_mm = 1/((1000**3)/(basin_area*10**6)*86400)
+        m3s_per_mm = 1/((1000^3)/(basin_area*(10^6))*86400)
         P = typeof(predictor)
         U = typeof(updater)
         T1 = typeof(hist_P)
@@ -75,23 +75,23 @@ end
 
 # TODO: Use @inbounds in for loops
 
-function _initial_data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
+function _initial_data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     if isnothing(m.data_obs)
         m.data_obs = TwoStateIfmData(m.ndays_obs)
         for i in 1:m.ndays_obs
             ndays_back = m.ndays_obs + 1 - i
-            start = getdatatime(t) - Day(ndays_back)
-            m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
-            m.data_obs.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
-            m.data_obs.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
+            start = TuLiPa.getdatatime(t) - Day(ndays_back)
+            m.data_obs.P[i] = TuLiPa.getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
+            m.data_obs.T[i] = TuLiPa.getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
+            m.data_obs.Lday[i] = TuLiPa.getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         end
     end
 end
 
-function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
+function _data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     # calc ndays_update
-    diff_ndays_datatime = Day(getdatatime(t) - getdatatime(m.prev_t)).value
-    diff_ndays_scentime = Day(getscenariotime(t) - getscenariotime(m.prev_t)).value
+    diff_ndays_datatime = Day(TuLiPa.getdatatime(t) - TuLiPa.getdatatime(m.prev_t)).value
+    diff_ndays_scentime = Day(TuLiPa.getscenariotime(t) - TuLiPa.getscenariotime(m.prev_t)).value
     diff_ndays_max = max(diff_ndays_datatime, diff_ndays_scentime)
     ndays_update = min(m.ndays_obs, diff_ndays_max)
     
@@ -109,9 +109,9 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
     # use forecast for P and T if available
     m.ndays_forecast_used = 0
     if m.ndays_forecast > 0
-        startix = length(m.data_forecast) - m.ndays_forecast + 1
-        stopix = length(m.data_forecast) - m.ndays_forecast + ndays_update
-        stopix = min(stopix, length(m.data_forecast))
+        startix = getndays(m.data_forecast) - m.ndays_forecast + 1
+        stopix = getndays(m.data_forecast) - m.ndays_forecast + ndays_update
+        stopix = min(stopix, getndays(m.data_forecast))
         m.ndays_forecast_used = (stopix - startix) + 1
         j = m.ndays_obs - ndays_forecast_used + 1
         for i in startix:stopix
@@ -124,21 +124,21 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
     # update possible remaining values for P and T
     ndays_remaining = ndays_update - m.ndays_forecast_used
     if ndays_remaining > 0
-        start = getscenariotime(t) - Day(ndays_remaining + 1)
+        start = TuLiPa.getscenariotime(t) - Day(ndays_remaining + 1)
         i = m.ndays_obs - ndays_remaining + 1
         for __ in 1:ndays_remaining
-            m.data_obs.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
-            m.data_obs.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
+            m.data_obs.P[i] = TuLiPa.getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
+            m.data_obs.T[i] = TuLiPa.getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
             start += Day(1) 
             i += 1
         end
     end
 
     # always use hist to update Lday
-    start = getscenariotime(t) - Day(ndays_update + 1)
+    start = TuLiPa.getscenariotime(t) - Day(ndays_update + 1)
     i = m.ndays_obs - ndays_update + 1
     for __ in 1:ndays_update
-        m.data_obs.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
+        m.data_obs.Lday[i] = TuLiPa.getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         start += Day(1) 
         i += 1
     end
@@ -152,7 +152,7 @@ function _data_obs_update(m::TwoStateIfmHandler, t::ProbTime)
     return
 end
 
-function estimate_u0(m::TwoStateIfmHandler, t::ProbTime)
+function estimate_u0(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     if isnothing(m.prev_t)
         _initial_data_obs_update(m, t)
     else
@@ -160,7 +160,7 @@ function estimate_u0(m::TwoStateIfmHandler, t::ProbTime)
     end
 
     # do prediction from start of obs up until today
-    (S0, G0) = (Float32(0), Float32(0)) 
+    (S0, G0) = (Float32(0), Float32(0))
 
     # create interpolation input functions
     itp_method = SteffenMonotonicInterpolation()
@@ -168,16 +168,16 @@ function estimate_u0(m::TwoStateIfmHandler, t::ProbTime)
     itp_T = interpolate(m.data_obs.timepoints, m.data_obs.T, itp_method)
     itp_Lday = interpolate(m.data_obs.timepoints, m.data_obs.Lday, itp_method)
 
-    (__, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.data_obs.timepoints)
+    (__, OED_sol) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_obs.timepoints)
 
     # extract states
     est_S0 = Float64(last(OED_sol[1, :]))
     est_G0 = Float64(last(OED_sol[2, :]))
 
-    return (est_S0, est_G0)
+    return [est_S0, est_G0]
 end
 
-function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::ProbTime)
+function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::TuLiPa.ProbTime)
     update_prediction_data(m, m.updater, t)
 
     # create interpolation input functions
@@ -187,25 +187,24 @@ function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::ProbTime)
     itp_Lday = interpolate(m.data_pred.timepoints, m.data_pred.Lday, itp_method)
 
     (S0, G0) = u0
-    (Q, OED_sol) = m.predictor.predict(S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
+    (Q, OED_sol) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
 
     Q = Float64.(Q)
-    u = Float64.(OED_sol.u)
 
     Q .= Q .* m.m3s_per_mm
 
-    return (Q, u)
+    return Q
 end
 
 
 struct SimpleIfmDataUpdater <: AbstractTwoStateIfmDataUpdater
 end
 
-function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpdater, t::ProbTime)
+function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpdater, t::TuLiPa.ProbTime)
     if m.ndays_forecast > 0
         # use forecast for P and T if available
         ndays_before_estimate_u0_call = m.ndays_forecast + m.ndays_forecast_used
-        startix = length(m.data_forecast) - ndays_before_estimate_u0_call + 1
+        startix = getndays(m.data_forecast) - ndays_before_estimate_u0_call + 1
         stopix = startix + m.ndays_forecast_used
         for (i, j) in enumerate(startix:stopix)
             m.data_pred.P[i] = m.data_forecast.P[j]
@@ -213,16 +212,16 @@ function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpd
         end
         # always use hist to update Lday
         for i in 1:m.ndays_forecast_used
-                start = getscenariotime(t) + Day(i-1)
-                m.data_pred.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
+                start = TuLiPa.getscenariotime(t) + Day(i-1)
+                m.data_pred.Lday[i] = TuLiPa.getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         end
     end
     # use hist to update after forecast period
-    for i in (m.ndays_forecast_used + 1):m.pred_ndays
-        start = getscenariotime(t) + Day(i-1)
-        m.data_pred.P[i] = getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
-        m.data_pred.T[i] = getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
-        m.data_pred.Lday[i] = getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
+    for i in (m.ndays_forecast_used + 1):m.ndays_pred
+        start = TuLiPa.getscenariotime(t) + Day(i-1)
+        m.data_pred.P[i] = TuLiPa.getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
+        m.data_pred.T[i] = TuLiPa.getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
+        m.data_pred.Lday[i] = TuLiPa.getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
     end
     return
 end
@@ -236,7 +235,7 @@ function predict(m::TwoStateBucketIfmPredictor, S0, G0, itp_Lday, itp_P, itp_T, 
 end
 
 struct TwoStateBucketIfm{H} <: AbstractInflowModel
-    id::Id
+    id::TuLiPa.Id
     handler::H
 
     function TwoStateBucketIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
@@ -248,10 +247,12 @@ struct TwoStateBucketIfm{H} <: AbstractInflowModel
     end
 end
 
-estimate_u0(m::TwoStateBucketIfm, t::ProbTime) = estimate_u0(m.handler, t)
-predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
+TuLiPa.getid(m::TwoStateBucketIfm) = m.id
+TuLiPa.assemble!(m::TwoStateBucketIfm) = true
+estimate_u0(m::TwoStateBucketIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
+predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
 
-function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
     common_includeTwoStateIfm!(TwoStateBucketIfm, toplevel, lowlevel, elkey, value)
 end
 
@@ -283,7 +284,7 @@ function predict(m::TwoStateNeuralODEIfmPredictor, S0, G0, itp_Lday, itp_P, itp_
 end
 
 struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
-    id::Id
+    id::TuLiPa.Id
     handler::H
 
     function TwoStateNeuralODEIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
@@ -295,47 +296,58 @@ struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
     end
 end
 
-estimate_u0(m::TwoStateNeuralODEIfm, t::ProbTime) = estimate_u0(m.handler, t)
-predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::ProbTime) = predict(m.handler, u0, t)
+TuLiPa.getid(m::TwoStateNeuralODEIfm) = m.id
+TuLiPa.assemble!(m::TwoStateNeuralODEIfm) = true
 
-function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
-    checkkey(toplevel, elkey)
+estimate_u0(m::TwoStateNeuralODEIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
+predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
+
+function includeTwoStateNeuralODEIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
+    common_includeTwoStateIfm!(TwoStateNeuralODEIfm, toplevel, lowlevel, elkey, value)
+end
+
+function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
+    TuLiPa.checkkey(toplevel, elkey)
 
     OBSERVED_PERCIPITATION = "ObservedPercipitation"
     OBSERVED_TEMPERATURE = "ObservedTemperature"
     FORECASTED_PERCIPITATION = "ForecastedPercipitation"
     FORECASTED_TEMPERATURE = "ForecastedTemperature"
     
-    model_params = getdictvalue(value, "ModelParams", (Any, ), elkey)
-    if model_params isa String
-        model_params = JLD2.load_object(model_params)
+    model_params = TuLiPa.getdictvalue(value, "ModelParams", String, elkey)
+
+    hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation",   TuLiPa.TIMEVECTORPARSETYPES, elkey)
+    hist_T = TuLiPa.getdictvalue(value, "HistoricalTemperature", TuLiPa.TIMEVECTORPARSETYPES, elkey)
+    hist_Lday = TuLiPa.getdictvalue(value, "HistoricalDaylight", TuLiPa.TIMEVECTORPARSETYPES, elkey)
+
+    ndays_pred = TuLiPa.getdictvalue(value, "NDaysPred", Real, elkey)
+    try 
+        ndays_pred = Int(ndays_pred)
+        @assert ndays_pred >= 0
+    catch e
+        error("Value for key NDaysPred must be positive integer for $elkey")
     end
 
-    hist_P = getdictvalue(value, "HistoricalPercipitation",   TIMEVECTORPARSETYPES, elkey)
-    hist_T = getdictvalue(value, "HistoricalTemperature", TIMEVECTORPARSETYPES, elkey)
-    hist_Lday = getdictvalue(value, "HistoricalDaylight", TIMEVECTORPARSETYPES, elkey)
-
-    ndays_pred = getdictvalue(value, "NDaysPred", Int, elkey)
-    basin_area = getdictvalue(value, "BasinArea", Float64, elkey)
+    basin_area = TuLiPa.getdictvalue(value, "BasinArea", Float64, elkey)
 
     if haskey(value, OBSERVED_PERCIPITATION)
-        obs_P = getdictvalue(value, OBSERVED_PERCIPITATION,   Vector{Real}, elkey)
+        obs_P = TuLiPa.getdictvalue(value, OBSERVED_PERCIPITATION,   Vector{Real}, elkey)
     else
         obs_P = nothing
     end
     if haskey(value, OBSERVED_TEMPERATURE)
-        obs_T = getdictvalue(value, OBSERVED_TEMPERATURE,   Vector{Real}, elkey)
+        obs_T = TuLiPa.getdictvalue(value, OBSERVED_TEMPERATURE,   Vector{Real}, elkey)
     else
         obs_T = nothing
     end
     
     if haskey(value, FORECASTED_PERCIPITATION)
-        forecast_P = getdictvalue(value, FORECASTED_PERCIPITATION,   Vector{Real}, elkey)
+        forecast_P = TuLiPa.getdictvalue(value, FORECASTED_PERCIPITATION,   Vector{Real}, elkey)
     else
         forecast_P = nothing
     end
     if haskey(value, FORECASTED_TEMPERATURE)
-        forecast_T = getdictvalue(value, FORECASTED_TEMPERATURE,   Vector{Real}, elkey)
+        forecast_T = TuLiPa.getdictvalue(value, FORECASTED_TEMPERATURE,   Vector{Real}, elkey)
     else
         forecast_T = nothing
     end
@@ -346,39 +358,41 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     isnothing(obs_P) && (!isnothing(obs_T)) && error("Missing $FORECASTED_PERCIPITATION for $elkey")
     isnothing(obs_T) && (!isnothing(obs_P)) && error("Missing $FORECASTED_TEMPERATURE for $elkey")
 
-    deps = Id[]
+    deps = TuLiPa.Id[]
+    # errs = String[]
+
     all_ok = true
 
-    (id, percipitation, ok) = getdicttimevectorvalue(lowlevel, percipitation)    
+    (id, hist_P, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_P)    
     all_ok = all_ok && ok
-    _update_deps(deps, id, ok)
+    TuLiPa._update_deps(deps, id, ok)
     
-    (id, temperature, ok) = getdicttimevectorvalue(lowlevel, temperature)  
+    (id, hist_T, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_T)  
     all_ok = all_ok && ok
-    _update_deps(deps, id, ok)
+    TuLiPa._update_deps(deps, id, ok)
 
-    (id, daylight, ok) = getdicttimevectorvalue(lowlevel, daylight)  
+    (id, hist_Lday, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_Lday)  
     all_ok = all_ok && ok
-    _update_deps(deps, id, ok)
+    TuLiPa._update_deps(deps, id, ok)
 
     if all_ok == false
         return (false, deps)
+        # return (false, deps, errs)
     end
 
     if !(isnothing(obs_P) || isnothing(obs_T))
         dummy_Lday = zeros(eltype(obs_P), length(obs_P))
         data_obs = TwoStateIfmData(obs_P, obs_T, dummy_Lday)
-        ndays_obs == length(data_obs)
+        ndays_obs == getndays(data_obs)
     else
         data_obs = nothing
         ndays_obs = 365
     end
 
-
     if !(isnothing(forecast_P) || isnothing(forecast_T))
         dummy_Lday = zeros(eltype(forecast_P), length(forecast_P))
         data_forecast = TwoStateIfmData(forecast_P, forecast_T, dummy_Lday)
-        ndays_forecast = length(data_forecast)
+        ndays_forecast = getndays(data_forecast)
     else
         data_forecast = nothing
         ndays_forecast = 0
@@ -387,11 +401,14 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     # TODO: Maybe make this user input in future?
     updater = SimpleIfmDataUpdater()
 
-    id = getobjkey(elkey)
+    model_params = JLD2.load_object(model_params)
+
+    id = TuLiPa.getobjkey(elkey)
     toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
         ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
 
     return (true, deps)
+    # return (true, deps, errs)
 end
 
 
@@ -403,10 +420,14 @@ Create inflow models and store some of them locally according to db.dist_ifm
 function create_ifm()
     db = get_local_db()
     elements = get_ifm_elements(db)
-    modelobjects = getmodelobjects(elements)
+    t0 = time()
+    modelobjects = TuLiPa.getmodelobjects(elements)
+    t1 = time()
+    sec = t1 - t0
+    println("getmodelobjects(ifm_elements) took $sec")
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
-            id = Id(ABSTRACT_INFLOW_MODEL, inflow_name)
+            id = TuLiPa.Id(ABSTRACT_INFLOW_MODEL, inflow_name)
             db.ifm[inflow_name] = modelobjects[id]
         end
     end
@@ -430,18 +451,29 @@ function solve_ifm(t)
             u0 = estimate_u0(inflow_model, t)
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
-                (Q, u) = predict(inflow_model, u0, scentime)
+                Q = predict(inflow_model, u0, scentime)
                 Q .= Q .* normalize_factor
-                start = getscenariotime(scentime)
+                start = TuLiPa.getscenariotime(scentime)
                 if !haskey(db.ifm_output[inflow_name], scenix)
                     ix = [start + Day(i-1) for i in 1:length(Q)]
-                    db.ifm_output[inflow_name][scenix] = (ix, Q, u)
+                    db.ifm_output[inflow_name][scenix] = (ix, Q)
                 else
-                    (stored_ix, stored_Q, stored_u) = db.ifm_output[inflow_name][scenix]
-                    for in in 1:length(Q)
-                        stored_ix[i] = start + Day(i-1)
-                        stored_Q[i] = Q[i]
-                        stored_u[i] = u[i]
+                    (stored_ix, stored_Q) = db.ifm_output[inflow_name][scenix]
+                    if length(stored_Q) != length(Q)
+                        # ModeledInflowParam added empty vectors which it points to
+                        # Therefore, it is important not to replace the stored vectors, 
+                        # we therefore push values to it
+                        @assert length(stored_ix) == 0
+                        @assert length(stored_Q) == 0
+                        for i in 1:length(Q)
+                            push!(stored_ix, start + Day(i-1))
+                            push!(stored_Q, Q[i])
+                        end
+                    else
+                        for i in 1:length(Q)
+                            stored_ix[i] = start + Day(i-1)
+                            stored_Q[i] = Q[i]
+                        end
                     end
                 end
             end
@@ -456,10 +488,10 @@ A core holding output from an inflow model, copies the output to the local db on
 function synchronize_ifm_output()
     db = get_local_db()
     cores = get_cores(db)
-    @sync for (inflow_name, core) in db.dist_ifm
+    for (inflow_name, core) in db.dist_ifm
         if core == db.core
             data = db.ifm_output[inflow_name]
-            for other_core in cores
+            @sync for other_core in cores
                 if other_core != db.core
                     @spawnat other_core set_ifm_output(data, inflow_name)
                 end
@@ -489,11 +521,20 @@ function update_ifm_derived()
             fill!(derived_vals, 0.0)
             for (inflow_name, weight) in weights
                 (ix, vals) = db.ifm_output[inflow_name][scenix]
-                if do_ix
-                    derived_ix .= ix
-                    do_ix = false
+                if length(vals) != length(derived_vals)
+                    @assert length(derived_vals) == 0
+                    for (i, v) in enumerate(vals)
+                        push!(derived_vals, v)
+                        push!(derived_ix, ix[i])
+                        do_ix = false
+                    end
+                else
+                    if do_ix
+                        derived_ix .= ix
+                        do_ix = false
+                    end
+                    derived_vals .= derived_vals .+ weight .* vals
                 end
-                derived_vals .= derived_vals .+ weight .* vals
             end
         end
     end
@@ -505,29 +546,30 @@ ModeledInflowParam is actually a PrognosisSeriesParam under-the-hood,
 but where the prognosis part is created and managed by JulES and not 
 given as user input
 """
-function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
-    checkkey(lowlevel, elkey)
-
-    deps = Id[]
+function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
+    TuLiPa.checkkey(lowlevel, elkey)
+    
+    deps = TuLiPa.Id[]
+    all_ok = true
 
     # Not part of user input 
     # This info is added by JulES with add_scenix_to_ModeledInflowParam
     # See e.g. prob_stoch.get_elements_with_horizons
-    scenix = getdictvalue(value, "ScenarioIndex", Int, elkey)
+    scenix = TuLiPa.getdictvalue(value, "ScenarioIndex", Int, elkey)
 
-    hist_profile_name = getdictvalue(value, "HistoricalProfile", String, elkey)
-    hist_profile_key = Id(TIMEVECTOR_CONCEPT,  hist_profile_name)
-    push!(deps, hist_profile_key)
+    level = TuLiPa.getdictvalue(value, "Level", TuLiPa.TIMEVECTORPARSETYPES, elkey)
+    (id, level, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, level)
+    all_ok = all_ok && ok
+    TuLiPa._update_deps(deps, id, ok)
 
-    level_name = getdictvalue(value, "Level", String, elkey)
-    level_key = Id(TIMEVECTOR_CONCEPT,  level_name)
-    push!(deps, level_key)
+    hist_profile = TuLiPa.getdictvalue(value, "HistoricalProfile", TuLiPa.TIMEVECTORPARSETYPES, elkey)
+    (id, hist_profile, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_profile)
+    all_ok = all_ok && ok
+    TuLiPa._update_deps(deps, id, ok)
 
-    haskey(lowlevel, hist_profile_key)   || return (false, deps)
-    haskey(lowlevel, level_key)          || return (false, deps)
-
-    hist_profile = lowlevel[hist_profile_key]
-    level = lowlevel[level_key]
+    if all_ok == false
+        return (false, deps)
+    end
 
     # Creates an InfiniteTimeVector that refers to vectors stored in local db, 
     # which will be updated by JulES each step after running inflow models.
@@ -538,20 +580,27 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, v
     haskey(replacemap, elkey.instancename) || error("Instance name not found in replacemap for $elkey")
     inflow_name = replacemap[elkey.instancename]
     ifm_weights = get_ifm_weights(db)
+    ifm_names = get_ifm_names(db.input)
     if haskey(ifm_weights, inflow_name)
         d = db.ifm_derived
     else
+        @assert (inflow_name in ifm_names)
         d = db.ifm_output
+    end
+    if !haskey(d, inflow_name)
+        d[inflow_name] = Dict()
     end
     if !haskey(d[inflow_name], scenix)
         d[inflow_name][scenix] = (DateTime[], Float64[])
     end
     (ix, vals) = d[inflow_name][scenix]
-    prognosis_profile = InfiniteTimeVector(ix, vals)    
+    prognosis_profile = TuLiPa.InfiniteTimeVector(ix, vals)    
 
-    steps = 1   # use prognosis 100% when it applies
+    if elkey.instancename == "HALLINGDAL_hydro_reservoir"
+        println("Including $elkey")
+    end
 
-    lowlevel[getobjkey(elkey)] = PrognosisSeriesParam(level, hist_profile, prognosis_profile, steps)
+    lowlevel[TuLiPa.getobjkey(elkey)] = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile)
 
     return (true, deps)
 end
@@ -565,7 +614,7 @@ MixedInflowParam...
 #     ifmparam::P2
 #     ndays::Int
 # end
-# function includeMixedInflowParam!(::Dict, lowlevel::Dict, elkey::ElementKey, value::Dict)
+# function includeMixedInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
 # end
 # TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "MixedInflowParam")] = includeMixedInflowParam!
 
@@ -587,10 +636,10 @@ in ifm_replacemap in accordance with value of iprogtype
 """
 function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
     if iprogtype == "ifm"
-        elements1 = DataElement[]
+        elements1 = TuLiPa.DataElement[]
         for e in elements
             if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
-                new_e = DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
+                new_e = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
                     Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"]))
                 push!(elements1, new_e)
             else
@@ -601,12 +650,12 @@ function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
     elseif startswith(iprogtype, "mix")
         # TODO: Validate ndays > 0 in constructor of DefaultJulESInput
         ndays = parse(Int, iprogtype[4:end])
-        elements1 = DataElement[]
+        elements1 = TuLiPa.DataElement[]
         for e in elements
             if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
                 new_value = copy(e.value::Dict)
                 new_value["ndays"] = ndays
-                new_e = DataElement(e.conceptname, "MixedInflowParam", e.instancename, new_value)
+                new_e = TuLiPa.DataElement(e.conceptname, "MixedInflowParam", e.instancename, new_value)
                 push!(elements1, new_e)
             else
                 push!(elements1, e)
@@ -620,9 +669,3 @@ function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
 
     return elements1
 end
-
-# Register extentions to TuLiPa input system
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateBucketIfm")] = includeTwoStateBucketIfm!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateNeuralODEIfm")] = includeTwoStateNeuralODEIfm!
-TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!
-

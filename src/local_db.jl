@@ -40,7 +40,7 @@ mutable struct LocalDB
     
     input::Union{Nothing, AbstractJulESInput}
     output::Union{Nothing, AbstractJulESOutput}
-    horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}
+    horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}
 
     dummyobjects::Tuple
     dummyobjects_ppp::Tuple # TODO: Move dummyobjects, scenariogeneration and subsystems to io?
@@ -58,7 +58,7 @@ mutable struct LocalDB
 
     ifm::Dict{String, Union{AbstractInflowModel, Nothing}}
     ppp::Dict{ScenarioIx, PricePrognosisProblem}
-    prices_ppp::Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}
+    prices_ppp::Dict{Tuple{ScenarioIx, TermName, TuLiPa.Id}, Tuple{Int, Vector{Float64}}}
     evp::Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}
     mp::Dict{SubsystemIx, MasterProblem}
     sp::Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}
@@ -84,7 +84,7 @@ mutable struct LocalDB
         
             nothing,   # input
             nothing,   # output
-            Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}(),   # horizons
+            Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}(),   # horizons
 
             (),   # dummyobjects
             (),   # dummyobjects_ppp
@@ -102,7 +102,7 @@ mutable struct LocalDB
 
             Dict(), # ifm
             Dict{ScenarioIx, PricePrognosisProblem}(),                               # ppp
-            Dict{Tuple{ScenarioIx, TermName, Id}, Tuple{Int, Vector{Float64}}}(), # prices_ppp
+            Dict{Tuple{ScenarioIx, TermName, TuLiPa.Id}, Tuple{Int, Vector{Float64}}}(), # prices_ppp
             Dict{Tuple{ScenarioIx, SubsystemIx}, EndValueProblem}(),                 # evp
             Dict{SubsystemIx, MasterProblem}(),                                      # mp
             Dict{Tuple{ScenarioIx, SubsystemIx}, ScenarioProblem}(),                 # sp
