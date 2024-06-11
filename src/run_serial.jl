@@ -58,6 +58,26 @@ end
 
 
 """
+Add TuLiPa extensions on each core
+"""
+function init_tulipa_extensions(input::AbstractJulESInput)
+    cores = get_cores(input)
+    @sync for core in cores
+        @spawnat core add_local_tulipa_extensions()
+    end
+end
+
+"""
+Call all functions stored in JulES.TULIPA_EXTENSIONS
+"""
+function add_local_tulipa_extensions()
+    for f in JulES.TULIPA_EXTENSIONS
+        f()
+    end
+    return
+end
+
+"""
 Free local databases and clean-up temporary stuff in output-object
 """
 function cleanup_jules(input::DefaultJulESInput)
@@ -778,7 +798,7 @@ function step_jules(t, delta, stepnr, skipmed)
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
         # TODO: Remove update_scenmod_evp?
-        wait(@spawnat c update_scenmod_evp(t, skipmed))
+        wait(@spawnat firstcore update_scenmod_evp(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_evp(t, delta, stepnr, skipmed)

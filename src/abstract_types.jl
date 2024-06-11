@@ -7,7 +7,7 @@ abstract type AbstractScenarioModellingMethod end
 """
 Interface:
     getid(m::AbstractInflowModel) -> Id
-    
+
     estimate_u0(m::AbstractInflowModel, t::ProbTime) -> u0::Vector{Float64}
 
     predict(m::AbstractInflowModel, u0::::Vector{Float64}, t::ProbTime) -> (Q, u) 
