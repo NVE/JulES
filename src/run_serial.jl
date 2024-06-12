@@ -440,9 +440,10 @@ end
 
 function get_element_from_obj(dataelements::Vector{DataElement}, obj::Any)
     objid = getid(obj)
-    elkey = ElementKey(objid.conceptname, string(nameof(typeof(obj))), objid.instancename)
+    conceptname = objid.conceptname
+    instancename = objid.instancename
     for (i, dataelement) in enumerate(dataelements)
-        if getelkey(dataelement) == elkey
+        if (dataelement.conceptname == conceptname) && (dataelement.instancename == instancename)
             return (i, dataelement)
         end
     end
