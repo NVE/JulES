@@ -129,7 +129,7 @@ function solve_ppp(t, steplength, stepnr, skipmed)
             p = db.ppp[scenix]
             maintiming = p.div[MainTiming]
 
-            scentime = get_scentphasein(t, get_scenarios(db.scenmod_ppp)[scenix], db.input)
+            scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
             # TODO: Should scentime depend on Dynamic or Static RHSAHData
 
             if skipmed.value == 0

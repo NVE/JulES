@@ -300,28 +300,12 @@ function get_numscen_sim(input::AbstractJulESInput)
         return get_numscen_data(input)
     end
 end
-function get_numscen_ppp(input::AbstractJulESInput)
-    settings = get_settings(input)
-    if haskey(settings["scenariogeneration"], "prognosis")
-        return settings["scenariogeneration"]["prognosis"]["numscen"]
-    else
-        return get_numscen_sim(input)
-    end
-end
-function get_numscen_evp(input::AbstractJulESInput)
-    settings = get_settings(input)
-    if haskey(settings["scenariogeneration"], "endvalue")
-        return settings["scenariogeneration"]["endvalue"]["numscen"]
-    else
-        return get_numscen_ppp(input)
-    end
-end
 function get_numscen_stoch(input::AbstractJulESInput)
     settings = get_settings(input)
     if haskey(settings["scenariogeneration"], "stochastic")
         return settings["scenariogeneration"]["stochastic"]["numscen"]
     else
-        return get_numscen_evp(input)
+        return get_numscen_sim(input)
     end
 end
 
@@ -682,20 +666,23 @@ end
 
 function get_output_memory(output)
     db = get_local_db()
+    settings = get_settings(db)
 
-    names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_ppp", "scenmod_evp", "scenmod_stoch", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_cp", "div"]
-    df = DataFrame(DataFrame([[] for _ = names] , names))
-    cores = get_cores(db)
-    for core in cores # TODO: Do sync
-        f = @spawnat core get_output_memory_local()
-        push!(df, fetch(f))
+    if settings["results"]["memory"]
+        names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_cp", "div"]
+        df = DataFrame(DataFrame([[] for _ = names] , names))
+        cores = get_cores(db)
+        for core in cores # TODO: Do sync
+            f = @spawnat core get_output_memory_local()
+            push!(df, fetch(f))
+        end
+        df[!, :sum] = sum(eachcol(select(df, Not(:coreid, :sum_unique))))
+        df = permutedims(df, "coreid")
+        if length(cores) > 1
+            df[!, :sum] = sum(eachcol(select(df, Not(:coreid))))
+        end
+        println(df)
     end
-    df[!, :sum] = sum(eachcol(select(df, Not(:coreid, :sum_unique))))
-    df = permutedims(df, "coreid")
-    if length(cores) > 1
-        df[!, :sum] = sum(eachcol(select(df, Not(:coreid))))
-    end
-    println(df)
 end
 
 function get_output_memory_local()

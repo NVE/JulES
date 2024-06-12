@@ -1,3 +1,5 @@
+# TODO: This is not up to date
+
 main:
     inputpath: "data"
     numcores: 31 # per serie-kjøring
@@ -5,15 +7,15 @@ main:
     datayears: [2025]
     weatheryears: [1981]
     weekstart: 1
-    simulationyears: 1
-    extrasteps: 0 # see steplength_hours
+    # simulationyears: 1
+    # extrasteps: 0 # see steplength_hours
     
-    settings: fast # fast, threehour, sixhour
+    # settings: fast # fast, threehour, sixhour
 
-    # simulationyears: 0
-    # extrasteps: 16 # see steplength_hours
+    simulationyears: 0
+    extrasteps: 16 # see steplength_hours
     
-    # settings: threehour # fast, threehour, sixhour
+    settings: threehour # fast, threehour, sixhour
 
     outputformat: "juliadict" # hdf5 hvis du kjører gjennom JulESIO
     outputindex: scenarioyear # standard for series simulation

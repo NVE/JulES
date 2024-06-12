@@ -23,7 +23,7 @@ How price prognosis problems (ppp) are distributed on cores initially
 function get_dist_ppp(input::AbstractJulESInput)
     cores = get_cores(input)
     N = length(cores)
-    S = get_numscen_ppp(input)
+    S = get_numscen_sim(input)
     
     dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, S)
     
@@ -42,7 +42,7 @@ function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{Subsys
     cores = get_cores(input)
 
     N = length(cores)
-    S = get_numscen_evp(input)
+    S = get_numscen_sim(input)
     Y = length(subsystems)
 
     out = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, S*Y)
