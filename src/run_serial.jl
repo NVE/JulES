@@ -695,7 +695,6 @@ function step_jules(t, delta, stepnr, skipmed)
         if stepnr == 1 
             wait(@spawnat firstcore update_scenmod_sim())
         end
-        wait(@spawnat firstcore update_scenmod_ppp(t, skipmed))
     end
 
     print("Solve inflow models")
