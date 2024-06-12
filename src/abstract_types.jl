@@ -6,12 +6,10 @@ abstract type AbstractScenarioModellingMethod end
 
 """
 Interface:
-    getid(m::AbstractInflowModel) -> Id
-
+    TuLiPa.assemble!(m::AbstractInflowModel)
+    TuLiPa.getid(m::AbstractInflowModel) -> TuLiPa.Id
     estimate_u0(m::AbstractInflowModel, t::ProbTime) -> u0::Vector{Float64}
-
-    predict(m::AbstractInflowModel, u0::::Vector{Float64}, t::ProbTime) -> (Q, u) 
-        where Q::Vector{Float64} and u::Vector{Vector{Float64}}
+    predict(m::AbstractInflowModel, u0::::Vector{Float64}, t::ProbTime) -> Q::Vector{Float64}
 """
 abstract type AbstractInflowModel end
 const ABSTRACT_INFLOW_MODEL = "AbstractInflowModel"
