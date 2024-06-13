@@ -173,15 +173,14 @@ function update_startstates(stepnr, t)
 end
 
 function get_startstates_from_cp(startstates, core)
-    f = @spawnat core get_startstates_from_cp()
-    startstates_cp = fetch(f)
+    future = @spawnat core get_startstates_from_cp()
 
-    if startstates_cp isa RemoteException
-        f = @spawnat core ()->isnothing(get_endstates(get_local_db().cp))
-        res = fetch(f)
-        println("cp is nothing = $res")
-        showerror(stdout, startstates_cp)
+    ret = fetch(future)
+    if ret isa RemoteException
+        throw(ret)
     end
+
+    startstates_cp = ret
 
     for (k, v) in startstates_cp
         startstates[k] = v
