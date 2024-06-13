@@ -607,14 +607,14 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
         if stepnr == 1
-            db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
+            db.output.modelobjects = Dict(zip([TuLiPa.getid(obj) for obj in TuLiPa.getobjects(db.cp.prob)], TuLiPa.getobjects(db.cp.prob)))
             if settings["results"]["mainresults"] == "all"
-                resultobjects = getobjects(db.cp.prob) # collect results for all areas
+                resultobjects = TuLiPa.getobjects(db.cp.prob) # collect results for all areas
             else
-                resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
+                resultobjects = TuLiPa.getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
             end
 
-            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
+            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = TuLiPa.order_result_objects(resultobjects, true)
             db.output.powerbalances = powerbalances
             db.output.rhsterms = rhsterms
             db.output.rhstermbalances = rhstermbalances
@@ -645,7 +645,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
         powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
         hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
-        get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+        TuLiPa.get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 end
 
@@ -766,8 +766,12 @@ get_skipmed_impact(subix) = get_skipmed_impact(get_local_db().subsystems[subix])
 
 function get_output_main()
     db = get_local_db()
-    f = @spawnat db.core_cp get_output_cp_local()
-    return fetch(f)
+    future = @spawnat db.core_cp get_output_cp_local()
+    ret = fetch(future)
+    if ret isa RemoteException
+        throw(ret)
+    end
+    return ret
 end
 
 function get_timing_cp_local()
@@ -812,37 +816,37 @@ function get_output_cp_local()
         rhstermsupplyvalues = db.output.rhstermvalues[:,rhstermsupplyidx]
         rhstermdemandvalues = db.output.rhstermvalues[:,rhstermdemandidx]*-1
 
-        rhstermsupplynames = [getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermsupplyidx]]
-        rhstermsupplybalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermsupplyidx]]
-        rhstermdemandnames = [getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermdemandidx]]
-        rhstermdemandbalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermdemandidx]]
+        rhstermsupplynames = [TuLiPa.getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermsupplyidx]]
+        rhstermsupplybalancenames = [split(TuLiPa.getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermsupplyidx]]
+        rhstermdemandnames = [TuLiPa.getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermdemandidx]]
+        rhstermdemandbalancenames = [split(TuLiPa.getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermdemandidx]]
 
-        supplynames = [[getinstancename(plant) for plant in db.output.plants];rhstermsupplynames]
-        supplybalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in db.output.plantbalances];rhstermsupplybalancenames]
+        supplynames = [[TuLiPa.getinstancename(plant) for plant in db.output.plants];rhstermsupplynames]
+        supplybalancenames = [[split(TuLiPa.getinstancename(p), "PowerBalance_")[2] for p in db.output.plantbalances];rhstermsupplybalancenames]
         supplyvalues = hcat(db.output.production,rhstermsupplyvalues)
 
-        demandnames = [[getinstancename(demand) for demand in db.output.demands];rhstermdemandnames]
-        demandbalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in db.output.demandbalances];rhstermdemandbalancenames]
+        demandnames = [[TuLiPa.getinstancename(demand) for demand in db.output.demands];rhstermdemandnames]
+        demandbalancenames = [[split(TuLiPa.getinstancename(p), "PowerBalance_")[2] for p in db.output.demandbalances];rhstermdemandbalancenames]
         demandvalues = hcat(db.output.consumption, rhstermdemandvalues)
 
         # Prepare for plotting results
-        hydronames = [getinstancename(hydro) for hydro in db.output.hydrostorages]
-        batterynames = [getinstancename(battery) for battery in db.output.batterystorages]
-        powerbalancenames = [split(getinstancename(getid(powerbalance)), "PowerBalance_")[2] for powerbalance in db.output.powerbalances]
+        hydronames = [TuLiPa.getinstancename(hydro) for hydro in db.output.hydrostorages]
+        batterynames = [TuLiPa.getinstancename(battery) for battery in db.output.batterystorages]
+        powerbalancenames = [split(TuLiPa.getinstancename(TuLiPa.getid(powerbalance)), "PowerBalance_")[2] for powerbalance in db.output.powerbalances]
 
         # Convert reservoir filling to TWh
         hydrolevels1 = copy(db.output.hydrolevels)
         for (i,hydroname) in enumerate(hydronames)
-            if haskey(getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata, GLOBALENEQKEY)
-                hydrolevels1[:,i] .= hydrolevels1[:,i]*getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata[GLOBALENEQKEY]
+            if haskey(TuLiPa.getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata, TuLiPa.GLOBALENEQKEY)
+                hydrolevels1[:,i] .= hydrolevels1[:,i]*TuLiPa.getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata[TuLiPa.GLOBALENEQKEY]
             end
         end
 
         # Indexes
         dim = getoutputindex(mainconfig, get_datayear(db), get_weatheryear(db))
-        x1 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
-        x2 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
-        x3 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + steplength*(t-1) for t in 1:steps]; # state resolution
+        x1 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
+        x2 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
+        x3 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + steplength*(t-1) for t in 1:steps]; # state resolution
 
         outputformat = mainconfig["outputformat"]
         if outputformat != "juliadict"
