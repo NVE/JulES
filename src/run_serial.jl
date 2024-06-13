@@ -696,7 +696,7 @@ function step_jules(t, delta, stepnr, skipmed)
         end
     end
 
-    print("Solve inflow models")
+    println("Solve inflow models")
     @time begin
         @sync for core in cores
             @spawnat core solve_ifm(t)
