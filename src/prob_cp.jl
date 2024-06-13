@@ -194,7 +194,7 @@ function get_cutsdata(subix)
 end
 
 function update_startstates_cp(db, stepnr, t)
-    if stepnr == 1
+    if stepnr == 1 # Non storage startstates free in first step
         set_startstates!(db.cp.prob, TuLiPa.getstorages(TuLiPa.getobjects(db.cp.prob)), db.startstates)
     else
         set_startstates!(db.cp.prob, TuLiPa.getobjects(db.cp.prob), db.startstates)
