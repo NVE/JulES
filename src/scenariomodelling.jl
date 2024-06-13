@@ -195,7 +195,7 @@ function perform_scenmod!(scenmod::Union{InflowClusteringMethod{WeatherScenario}
     inflowfactors = get_inflowfactors(scenmod)
     inflowfactors[scenix] == 1.0 && return
     for obj in objects
-        if obj isa BaseBalance
+        if obj isa TuLiPa.BaseBalance
             if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
                 for rhsterm in TuLiPa.getrhsterms(obj)
                     if rhsterm.param isa TuLiPa.TwoProductParam
