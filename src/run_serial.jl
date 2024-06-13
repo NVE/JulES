@@ -81,6 +81,7 @@ as this makes it easy to kill a problem on one core, and re-build it on another 
 """
 function init_databases(input::AbstractJulESInput)
     cores = get_cores(input)
+    firstcore = first(cores)
 
     println("Add local dbs")
     @time begin
@@ -112,8 +113,7 @@ function init_databases(input::AbstractJulESInput)
 
     println("Add local subsystems")
     @time begin
-        c = first(cores)
-        wait(@spawnat c add_local_subsystems())
+        wait(@spawnat firstcore add_local_subsystems())
     end
 
     println("Add local scenmod")
@@ -127,7 +127,7 @@ function init_databases(input::AbstractJulESInput)
     # transfer this data to all other cores
     println("Add local problem distribution")
     @time begin
-        wait(@spawnat c add_local_problem_distribution())
+        wait(@spawnat firstcore add_local_problem_distribution())
     end
 
     println("Add local horizons")
@@ -424,11 +424,11 @@ end
 function get_term_ppp(horizons, commodities, duration)
     dummycommodity = commodities[1]
     horizon_short = horizons[(ShortTermName, dummycommodity)]
-    if duration < TuLiPa.getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
+    if duration <= TuLiPa.getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
         return ShortTermName
     end
     horizon_med = horizons[(MedTermName, dummycommodity)]
-    if duration < TuLiPa.getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
+    if duration <= TuLiPa.getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
         return MedTermName
     end
     horizon_long = horizons[(LongTermName, dummycommodity)]
@@ -639,7 +639,7 @@ end
 function add_local_cp()
     db = get_local_db()
     if db.core == db.core_cp
-        @spawnat db.core_cp create_cp()
+        create_cp()
     end
 end
 
@@ -689,9 +689,8 @@ function step_jules(t, delta, stepnr, skipmed)
         end
     end
     
-    # TODO: Remove update_scenmod_ppp?
-    println("Choose scenarios for price prognosis problems")
     @time begin
+        println("Choose scenarios for price prognosis problems in first step")
         if stepnr == 1 
             wait(@spawnat firstcore update_scenmod_sim())
         end
@@ -711,38 +710,6 @@ function step_jules(t, delta, stepnr, skipmed)
             @spawnat core update_ifm_derived()
         end
     end
-
-    println("")
-    elements_ppp = get_elements_ppp(db.input)
-    for e in elements_ppp
-        if e.typename == "ModeledInflowParam"
-            println(e.instancename)
-        end
-    end
-    println("")
-    ifm_weights = get_ifm_weights(db.input)
-    println("ifm_weights = $ifm_weights")
-    println("")
-    ifm_replacemap = get_ifm_replacemap(db.input)
-    println("ifm_replacemap = $ifm_replacemap")
-    println("")
-    function pick_one(x)
-        for i in x
-            return i
-        end
-    end
-    println("keys(db.ifm_output) = $(keys(db.ifm_output))")
-    println("")
-    println("keys(db.ifm_derived) = $(keys(db.ifm_derived))")
-    println("")
-    key = pick_one(keys(db.ifm_output))
-    println("ifm_output['$key'] = $(db.ifm_output[key])")
-    println("")
-    key = pick_one(keys(db.ifm_derived))
-    println("ifm_derived['$key'] = $(db.ifm_derived[key])")
-    println("")
-
-    return
 
     println("Solve price prognosis problems")
     @time begin
@@ -766,7 +733,7 @@ function step_jules(t, delta, stepnr, skipmed)
     println("Subsystem problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        wait(@spawnat c update_scenmod_stoch(t, skipmed))
+        wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
 
         @sync for core in cores
             @spawnat core solve_stoch(t, delta, stepnr, skipmed)
