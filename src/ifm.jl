@@ -80,25 +80,24 @@ function _initial_data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
         m.data_obs = TwoStateIfmData(m.ndays_obs)
         for i in 1:m.ndays_obs
             ndays_back = m.ndays_obs + 1 - i
-            start = TuLiPa.getdatatime(t) - Day(ndays_back)
+            start = TuLiPa.getscenariotime(t) - Day(ndays_back)
             m.data_obs.P[i] = TuLiPa.getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.T[i] = TuLiPa.getweightedaverage(m.hist_T, start, ONEDAY_MS_TIMEDELTA)
             m.data_obs.Lday[i] = TuLiPa.getweightedaverage(m.hist_Lday, start, ONEDAY_MS_TIMEDELTA)
         end
     end
+    return
 end
 
 function _data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     # calc ndays_update
-    diff_ndays_datatime = Day(TuLiPa.getdatatime(t) - TuLiPa.getdatatime(m.prev_t)).value
     diff_ndays_scentime = Day(TuLiPa.getscenariotime(t) - TuLiPa.getscenariotime(m.prev_t)).value
-    diff_ndays_max = max(diff_ndays_datatime, diff_ndays_scentime)
-    ndays_update = min(m.ndays_obs, diff_ndays_max)
+    ndays_update = min(m.ndays_obs, diff_ndays_scentime)
     
     # shift backwards to make room for ndays_update new values
-    i = m.ndays_obs - ndays_update + 1
-    j = m.ndays_obs - ndays_update * 2
-    for __ in 1:ndays_update
+    i = 1 + ndays_update
+    j = 1
+    for __ in 1:(m.ndays_obs - ndays_update)
         m.data_obs.P[j] = m.data_obs.P[i]
         m.data_obs.T[j] = m.data_obs.T[i]
         m.data_obs.Lday[j] = m.data_obs.Lday[i]
@@ -107,6 +106,7 @@ function _data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     end
 
     # use forecast for P and T if available
+    # TODO: Test this case
     m.ndays_forecast_used = 0
     if m.ndays_forecast > 0
         startix = getndays(m.data_forecast) - m.ndays_forecast + 1
@@ -124,7 +124,7 @@ function _data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     # update possible remaining values for P and T
     ndays_remaining = ndays_update - m.ndays_forecast_used
     if ndays_remaining > 0
-        start = TuLiPa.getscenariotime(t) - Day(ndays_remaining + 1)
+        start = TuLiPa.getscenariotime(t) - Day(ndays_remaining)
         i = m.ndays_obs - ndays_remaining + 1
         for __ in 1:ndays_remaining
             m.data_obs.P[i] = TuLiPa.getweightedaverage(m.hist_P, start, ONEDAY_MS_TIMEDELTA)
@@ -146,9 +146,6 @@ function _data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     # update struct state
     m.ndays_forecast -= m.ndays_forecast_used
     @assert m.ndays_forecast >= 0   # TODO: remove validation
-    
-    m.prev_t = t    
-
     return
 end
 
@@ -158,6 +155,7 @@ function estimate_u0(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
     else
         _data_obs_update(m, t)
     end
+    m.prev_t = t
 
     # do prediction from start of obs up until today
     (S0, G0) = (Float32(0), Float32(0))
@@ -279,8 +277,7 @@ function predict(m::TwoStateNeuralODEIfmPredictor, S0, G0, itp_Lday, itp_P, itp_
     norm_G = (G) -> (G.-m.mean_G)./m.std_G
     norm_P = (P) -> (P.-m.mean_P)./m.std_P
     norm_T = (T) -> (T.-m.mean_T)./m.std_T
-    NeuralODE_M100(m.nn_params, norm_S, norm_G, norm_P, norm_T, 
-        S0, G0, itp_Lday, itp_P, itp_T, timepoints, m.nn)
+    NeuralODE_M100(m.nn_params, norm_S, norm_G, norm_P, norm_T, itp_Lday, itp_P, itp_T, timepoints, m.nn; S_init = [S0, G0])
 end
 
 struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
@@ -290,8 +287,8 @@ struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
     function TwoStateNeuralODEIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
                                     ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
         predictor = TwoStateNeuralODEIfmPredictor(model_params)
-        handler = TwoStateIfmHandler(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
-                                        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)        
+        handler = TwoStateIfmHandler(predictor, updater, basin_area, hist_P, hist_T, hist_Lday, 
+                                    ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)  
         return new{typeof(handler)}(id, handler)
     end
 end
@@ -440,7 +437,7 @@ Each inflow model is solved for each scenario.
 function solve_ifm(t)
     db = get_local_db()
     normfactors = get_ifm_normfactors(db)
-    scenarios = get_scenarios(db.scenmod_ppp)
+    scenarios = get_scenarios(db.scenmod_sim)
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
             if !haskey(db.ifm_output, inflow_name)
@@ -465,12 +462,12 @@ function solve_ifm(t)
                         # we therefore push values to it
                         @assert length(stored_ix) == 0
                         @assert length(stored_Q) == 0
-                        for i in 1:length(Q)
+                        for i in eachindex(Q)
                             push!(stored_ix, start + Day(i-1))
                             push!(stored_Q, Q[i])
                         end
                     else
-                        for i in 1:length(Q)
+                        for i in eachindex(Q)
                             stored_ix[i] = start + Day(i-1)
                             stored_Q[i] = Q[i]
                         end
