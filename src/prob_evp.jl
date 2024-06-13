@@ -32,7 +32,7 @@ function solve_evp(t, delta, stepnr, skipmed)
                     update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
                     update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
 
-                    scentime = get_scentphasein(t, get_scenarios(db.scenmod_evp)[scenix], db.input)
+                    scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
                     maintiming[1] = @elapsed TuLiPa.update!(evp.prob, scentime)
                     # TODO: perform_scenmod()
                     maintiming[2] = @elapsed TuLiPa.solve!(evp.prob)
@@ -66,7 +66,7 @@ end
 function update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem)
     endvaluemethod_ev = get_endvaluemethod_evp(subsystem)
 
-    storages = getstorages(getobjects(evp.prob))
+    storages = TuLiPa.getstorages(TuLiPa.getobjects(evp.prob))
     if endvaluemethod_ev == "startequalstop"
         TuLiPa.setendstates!(evp.prob, storages, startstates)
     elseif endvaluemethod_ev == "ppp"
