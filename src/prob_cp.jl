@@ -19,11 +19,15 @@ function create_cp()
         end
     end
     modelobjects = TuLiPa.getmodelobjects(elements)
-    TuLiPa.add_PowerUpperSlack!(modelobjects)
+    add_PowerUpperSlack!(modelobjects)
 
     for (subix, core) in db.dist_mp # or get list of cuts from each core?
         future = @spawnat core get_lightcuts(subix)
-        cuts = deepcopy(fetch(future))
+        ret = fetch(future)
+        if ret isa RemoteException
+            throw(ret)
+        end
+        cuts = deepcopy(ret)
 
         # Change statevars so that they represents clearing version of objects
         for i in 1:length(cuts.statevars)
@@ -55,9 +59,9 @@ function solve_cp(t, delta, stepnr, skipmed)
             update_cuts(db, skipmed)
             update_nonstoragestates_cp(db)
             update_statedependent_cp(db, stepnr, t)
-            timing[stepnr, 1] = @elapsed update!(db.cp.prob, t)
+            timing[stepnr, 1] = @elapsed TuLiPa.update!(db.cp.prob, t)
             set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
-            timing[stepnr, 2] = @elapsed solve!(db.cp.prob)
+            timing[stepnr, 2] = @elapsed TuLiPa.solve!(db.cp.prob)
             get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
         end
     end
@@ -106,7 +110,12 @@ function update_statedependent_cp(db, stepnr, t)
     if get_headlosscost(settings["problems"]["clearing"])
         for (_subix, _core) in db.dist_mp
             future = @spawnat _core get_headlosscost_data_from_mp(_subix, t)
-            headlosscost_data = fetch(future)
+
+            ret = fetch(future)
+            if ret isa RemoteException
+                throw(ret)
+            end
+            headlosscost_data = ret
 
             for (resid, headlosscost, T) in headlosscost_data
                 obj = find_obj_by_id(TuLiPa.getobjects(db.cp.prob), resid)
@@ -123,7 +132,7 @@ function get_headlosscost_data_from_mp(subix, t) # TODO: get method from config
 
     mp = db.mp[subix]
 
-    return get_headlosscost_data(TuLiPa.ReservoirCurveSlopeMethod(), mp.prob, t)
+    return TuLiPa.get_headlosscost_data(TuLiPa.ReservoirCurveSlopeMethod(), mp.prob, t)
 end
 
 function update_nonstoragestates_cp(db)
@@ -132,7 +141,13 @@ function update_nonstoragestates_cp(db)
     for (_scenix, _core) in db.dist_ppp
         if scenix == _scenix
             future = @spawnat _core get_nonstoragestates_short(scenix)
-            nonstoragestates_short = fetch(future)
+
+            ret = fetch(future)
+            if ret isa RemoteException
+                throw(ret)
+            end
+
+            nonstoragestates_short = ret
             TuLiPa.setoutgoingstates!(db.cp.prob, nonstoragestates_short)
         end
     end
@@ -148,9 +163,15 @@ function update_cuts(db, skipmed)
     for (_subix, _core) in db.dist_mp
         if skipmed_check(_subix, skipmed)
             future = @spawnat _core get_cutsdata(_subix)
-            (cutid, constants, slopes) = fetch(future)
 
-            cuts_cp = find_obj_by_id(getobjects(db.cp.prob), cutid)
+            ret = fetch(future)
+            if ret isa RemoteException
+                throw(ret)
+            end
+
+            (cutid, constants, slopes) = ret
+
+            cuts_cp = find_obj_by_id(TuLiPa.getobjects(db.cp.prob), cutid)
             cuts_cp.constants = constants
             cuts_cp.slopes = slopes
 
@@ -162,7 +183,7 @@ end
 function get_lightcuts(subix)
     db = get_local_db()
     cuts = db.mp[subix].cuts
-    return getlightweightself(cuts)
+    return TuLiPa.getlightweightself(cuts)
 end
 
 function get_cutsdata(subix)
