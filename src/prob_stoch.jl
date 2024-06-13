@@ -330,7 +330,7 @@ function update_endconditions_sp(scenix, subix)
 
     endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
 
-    storages = getstorages(getobjects(sp.prob))
+    storages = TuLiPa.getstorages(TuLiPa.getobjects(sp.prob))
     if endvaluemethod_sp == "monthly_price"
         exogenprice = findfirstprice(TuLiPa.getobjects(sp.prob))
         scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
@@ -481,18 +481,18 @@ function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
     return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_replacemap(db.input))
 end
 
-function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
+function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
     subhorizon = horizons[(scenix, term, commodity)]
     if startduration.value == 0
         startperiod = 1
     else
         startperiod = TuLiPa.getendperiodfromduration(subhorizon, startduration) + 1
     end
-    endperiod = getendperiodfromduration(subhorizon, endduration)
-    shortenedhorizon = ShortenedHorizon(subhorizon, startperiod, endperiod)
+    endperiod = TuLiPa.getendperiodfromduration(subhorizon, endduration)
+    shortenedhorizon = TuLiPa.ShortenedHorizon(subhorizon, startperiod, endperiod)
     if stochastic && (numscen_sim != numscen_stoch)
         # TODO: Could replace this with functionality that ignores mustupdate and shrinkatleast if scenario has changed between steps
-        shortenedhorizon = IgnoreMustupdateMayshiftfromHorizon(shortenedhorizon)
+        shortenedhorizon = TuLiPa.IgnoreMustupdateMayshiftfromHorizon(shortenedhorizon)
     end
     return shortenedhorizon
 end
