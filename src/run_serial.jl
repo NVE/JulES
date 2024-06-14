@@ -58,11 +58,15 @@ function add_local_extensions()
 end
 
 """
-Free local databases and clean-up temporary stuff in output-object
+Free local databases and clean-up temporary stuff.
+Call gc on each core before returning.
 """
-function cleanup_jules(input::DefaultJulESInput)
+function cleanup_jules(input::AbstractJulESInput)
     @sync for core in get_cores(input)
         @spawnat core free_local_db()
+    end
+    @sync for core in cores
+        @spawnat core GC.gc()
     end
     return
 end
