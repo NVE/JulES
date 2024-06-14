@@ -109,8 +109,6 @@ get_ifm_elements(input::DefaultJulESInput) = input.dataset["ifm_elements"]
 function get_ifm_names(input::DefaultJulESInput)
     s1 = Set(input.dataset["ifm_names"])
     s2 = Set([e.instancename for e in input.dataset["ifm_elements"] if e.conceptname == ABSTRACT_INFLOW_MODEL])
-    missing_names = setdiff(s2, s1)
-    missing_models = setdiff(s1, s2)
     return String[i for i in intersect(s1, s2)]
 end
 
@@ -156,7 +154,7 @@ function get_ifm_weights(input::DefaultJulESInput)
             delete!(w[k], station)
         end
     end
-    for (k, weights) in w
+    for (__, weights) in w
         @assert isapprox(round(sum(values(weights)); digits=4), 1.0)
     end
 
