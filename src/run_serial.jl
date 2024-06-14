@@ -62,7 +62,8 @@ Free local databases and clean-up temporary stuff.
 Call gc on each core before returning.
 """
 function cleanup_jules(input::AbstractJulESInput)
-    @sync for core in get_cores(input)
+    cores = get_cores(input)
+    @sync for core in cores
         @spawnat core free_local_db()
     end
     @sync for core in cores
