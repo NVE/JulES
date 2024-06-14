@@ -497,9 +497,37 @@ function synchronize_ifm_output()
     end
 end
 
+"""
+Write content of data to stored vectors in local ifm_output slot
+Make sure to reuse existing vectors, since other objects hold
+pointers to them, and expect them to be hold in sync by this code
+"""
 function set_ifm_output(data, inflow_name)
     db = get_local_db()
-    db.ifm_output[inflow_name] = data
+    for scenix in keys(data)
+        if !haskey(db.ifm_output, inflow_name)
+            db.ifm_output[inflow_name] = Dict()
+        end
+        if !haskey(db.ifm_output[inflow_name], scenix)
+            db.ifm_output[inflow_name][scenix] = (DateTime[], Float64[])
+        end
+        (incoming_ix, incoming_vals) = data[scenix]
+        (stored_ix, stored_vals) = db.ifm_output[inflow_name][scenix]
+        @assert length(stored_ix) == length(stored_vals)
+        @assert length(incoming_ix) == length(incoming_vals)
+        if length(incoming_ix) != length(stored_ix)
+            @assert length(stored_ix) == 0
+            for i in eachindex(incoming_ix)
+                push!(stored_ix, incoming_ix[i])
+                push!(stored_vals, incoming_vals[i])
+            end
+        else
+            for i in eachindex(incoming_ix)
+                stored_ix[i] = incoming_ix[i]
+                stored_vals[i] = incoming_vals[i]
+            end
+        end
+    end
     return
 end
 
