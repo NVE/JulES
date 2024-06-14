@@ -629,9 +629,9 @@ function add_local_horizons()
     for (scenarioix, ownercore) in db.dist_ppp
         for ((term, commodity), horizon) in horizons
             if ownercore != db.core
-                horizon = getlightweightself(horizon)
+                horizon = TuLiPa.getlightweightself(horizon)
                 horizon = deepcopy(horizon)
-                externalhorizon = ExternalHorizon(horizon)
+                externalhorizon = TuLiPa.ExternalHorizon(horizon)
                 d[(scenarioix, term, commodity)] = externalhorizon
             else
                 horizon = deepcopy(horizon) # TODO: Only deepcopy parts of horizon
