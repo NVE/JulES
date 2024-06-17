@@ -621,10 +621,6 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
     (ix, vals) = d[inflow_name][scenix]
     prognosis_profile = TuLiPa.InfiniteTimeVector(ix, vals)    
 
-    if elkey.instancename == "HALLINGDAL_hydro_reservoir"
-        println("Including $elkey")
-    end
-
     lowlevel[TuLiPa.getobjkey(elkey)] = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile)
 
     return (true, deps)
