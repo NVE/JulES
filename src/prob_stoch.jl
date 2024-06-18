@@ -395,12 +395,12 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
 
     modelobjects = getmodelobjects(subelements, validate=false)
 
-    if master
-        # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
+    if master && (get_horizonterm_stoch(subsystem) == ShortTermName) 
+        # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem. TODO: Find better solution
         for id in keys(modelobjects)
             instance = getinstancename(id)
             if occursin("Spill", instance) && occursin("_PHS_", instance)
-                delete!(modelobjects, id)
+                pop!(modelobjects, id)
             end
         end
     end
@@ -474,7 +474,11 @@ function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
 end
 
 function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
-    subhorizon = horizons[(scenix, term, commodity)]
+    if commodity == "Battery"
+        subhorizon = horizons[(scenix, term, "Power")]
+    else
+        subhorizon = horizons[(scenix, term, commodity)]
+    end
     if startduration.value == 0
         startperiod = 1
     else

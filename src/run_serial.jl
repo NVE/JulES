@@ -195,7 +195,7 @@ function add_local_dummyobjects()
     (dummyobjects, dummydeps) = getmodelobjects(elements, validate=true, deps=true)
     aggzonedict = Dict()
     for (k,v) in get_aggzone(get_settings(db))
-        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [modelobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [dummyobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
     end
     aggzone!(dummyobjects, aggzonedict)
     db.dummyobjects = (dummyobjects, dummydeps)
@@ -256,15 +256,14 @@ function create_subsystems(db)
             shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
             println("Number of shortterm storagesystems $(length(shorttermstoragesystems))")
             for storagesystem in shorttermstoragesystems
+                commodities = get_commodities_from_storagesystem(storagesystem)
                 main = Set()
                 all = Set()
                 for obj in storagesystem
                     i, element = get_element_from_obj(elements, obj)
-                    for dep in deep_dependencies[element]
-                        # println(getelkey(elements[i]))
-                        push!(main, i)
-                        push!(all, i)
-                    end
+                    # println(getelkey(elements[i]))
+                    push!(main, i)
+                    push!(all, i)
                 end
 
                 for (_i, _element) in enumerate(elements)
@@ -290,11 +289,11 @@ function create_subsystems(db)
                 # println(length(all))
 
                 shortstochduration = parse_duration(settings["subsystems"], "shortstochduration")
-                horizonterm_stoch = get_term_ppp(get_horizons(db), commodities, shortstochduration)
+                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, shortstochduration)
 
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = false
-                subsystem = StochSubsystem(commodities, priceareas, unique(subsystemdeps), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
+                subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
 
@@ -321,11 +320,9 @@ function create_subsystems(db)
                 all = Set()
                 for obj in storagesystem
                     i, element = get_element_from_obj(elements, obj)
-                    for dep in deep_dependencies[element]
-                        # println(getelkey(elements[i]))
-                        push!(main, i)
-                        push!(all, i)
-                    end
+                    # println(getelkey(elements[i]))
+                    push!(main, i)
+                    push!(all, i)
                 end
 
                 for (_i, _element) in enumerate(elements)

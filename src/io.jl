@@ -676,6 +676,7 @@ function get_output_timing_local(data, steplength, skipmax)
     end
 
     display(df_evp2)
+    display(timings_evp)
 
     if settings["results"]["times"]
         if haskey(settings["problems"], "prognosis") 
