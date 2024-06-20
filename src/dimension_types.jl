@@ -3,6 +3,7 @@ Here we define some id/key-like types, that will make it easier to understand
 the dimensions of the code, eg. understanding vectors and dicts in LocalDB
 """
 
+# TODO: Also have type in alias
 const ScenarioIx = Int
 const SubsystemIx = Int
 const TermName = String

@@ -37,8 +37,6 @@ function solve_evp(t, delta, stepnr, skipmed)
                     # TODO: perform_scenmod(), also for ppp?
                     maintiming[2] = @elapsed solve!(evp.prob)
                 end
-            else
-                fill!(maintiming, 0.0)
             end
         end
     end
