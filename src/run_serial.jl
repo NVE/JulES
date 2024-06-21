@@ -16,29 +16,29 @@ Design goals
 
 
 function run_serial(input::AbstractJulESInput)
-    (t, N, delta, skipmed, skipmax) = init_jules(input)
-    totaltime = @elapsed for stepnr in 1:N
-        step_jules(t, delta, stepnr, skipmed)
-        t += delta
-        skipmed += Millisecond(delta)
+    (t, steps, steplength, skipmed, skipmax) = init_jules(input)
+    totaltime = @elapsed for stepnr in 1:steps
+        step_jules(t, steplength, stepnr, skipmed)
+        t += steplength
+        skipmed += Millisecond(steplength)
         if skipmed > skipmax
             skipmed = Millisecond(0)
         end
     end
     println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
-    println(string("Time usage per simulation step: ", round(totaltime/N; digits=2), " seconds\n"))
+    println(string("Time usage per simulation step: ", round(totaltime/steps; digits=2), " seconds\n"))
 
-    output = get_output_final(delta, skipmax)
+    output = get_output_final(steplength, skipmax)
     cleanup_jules(input)
     return output
 end
 
 function init_jules(input::AbstractJulESInput)
-    (t, N, delta, skipmed, skipmax) = get_simperiod(input)
+    (t, steps, steplength, skipmed, skipmax) = get_simperiod(input)
 
     init_databases(input)
     
-    return (t, N, delta, skipmed, skipmax)
+    return (t, steps, steplength, skipmed, skipmax)
 end
 
 """
@@ -657,7 +657,7 @@ function add_local_problems()
 end
 
 # TODO: Use or remove delta
-function step_jules(t, delta, stepnr, skipmed)
+function step_jules(t, steplength, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
 	
@@ -682,7 +682,7 @@ function step_jules(t, delta, stepnr, skipmed)
             wait(@spawnat c update_scenmod_sim())
         end
         @sync for core in cores
-            @spawnat core solve_ppp(t, delta, stepnr, skipmed)
+            @spawnat core solve_ppp(t, steplength, stepnr, skipmed)
         end
 
         @sync for core in cores
@@ -694,7 +694,7 @@ function step_jules(t, delta, stepnr, skipmed)
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
         @sync for core in cores
-            @spawnat core solve_evp(t, delta, stepnr, skipmed)
+            @spawnat core solve_evp(t, stepnr, skipmed)
         end
     end
 
@@ -704,14 +704,14 @@ function step_jules(t, delta, stepnr, skipmed)
         wait(@spawnat c update_scenmod_stoch(t, skipmed))
 
         @sync for core in cores
-            @spawnat core solve_stoch(t, delta, stepnr, skipmed)
+            @spawnat core solve_stoch(t, stepnr, skipmed)
         end
     end
 
     println("Clearing problem")
     @time begin
         @sync for core in cores
-            @spawnat core solve_cp(t, delta, stepnr, skipmed)
+            @spawnat core solve_cp(t, stepnr, skipmed)
         end
     end
 

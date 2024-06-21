@@ -46,7 +46,7 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
-function solve_stoch(t, delta, stepnr, skipmed)
+function solve_stoch(t, stepnr, skipmed)
     db = get_local_db()
 
     for (subix, core) in db.dist_mp

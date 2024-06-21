@@ -17,7 +17,7 @@ function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
-function solve_evp(t, delta, stepnr, skipmed)
+function solve_evp(t, stepnr, skipmed)
     db = get_local_db()
 
     for (scenix, subix, core) in db.dist_evp

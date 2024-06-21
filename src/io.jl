@@ -243,11 +243,11 @@ end
 function get_simperiod(input::AbstractJulESInput)
     t = get_simstarttime(input)
     N = get_steps(input)
-    delta = get_steplength(input)
+    steplength = get_steplength(input)
     skipmed = Millisecond(Hour(0))
-    skipmax = Millisecond(Hour(delta*(input.settings["time"]["skipmax"]-1)))
+    skipmax = Millisecond(Hour(steplength*(input.settings["time"]["skipmax"]-1)))
 
-    return (t, N, delta, skipmed, skipmax)
+    return (t, N, steplength, skipmed, skipmax)
 end
 
 function get_aggzone(settings::Dict)
