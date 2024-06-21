@@ -10,6 +10,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     datayear::Int
     weatheryear::Int
     onlysubsystemmodel::Bool # TODO: can probably remove this
+    
 
     steps::Int
     steplength::Millisecond
@@ -29,6 +30,7 @@ struct DefaultJulESInput <: AbstractJulESInput
         settings = config[mainconfig["settings"]]
         numcores = mainconfig["numcores"]
         cores = collect(1:numcores)
+       
 
         onlysubsystemmodel = false
         if !haskey(settings["problems"], "prognosis") && !haskey(settings["problems"], "endvalue") && haskey(settings["problems"], "stochastic") && !haskey(settings["problems"], "clearing")
@@ -94,6 +96,8 @@ get_phaseindelta(input::DefaultJulESInput) = input.phaseindelta
 get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
+
+get_distribution_method(input::DefaultJulESInput) = get_mainconfig(input)["distribution_method"]
 
 function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
     # Standard time for market clearing - perfect information so simple time type
