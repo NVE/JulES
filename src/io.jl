@@ -729,11 +729,13 @@ function get_output_timing_local(data, steplength, skipmax)
     # TODO: df_sp_scen
 
     df_subix = outerjoin(df_evp_subix, df_mp, df_sp_subix, on = :subix)
+    df_subix = coalesce.(df_subix, 0.0)
     df_subix[!, :tot] = df_subix[!, :evp_tot] + df_subix[!, :mp_tot] + df_subix[!, :sp_tot]
     df_subix = sort(df_subix, :tot, rev=true)
     df_subix = df_subix[!, [:subix, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
 
     df_core = outerjoin(df_evp_core, df_mp_core, df_sp_core, on = :core)
+    df_core = coalesce.(df_core, 0.0)
     df_core[!, :tot] = df_core[!, :evp_tot] + df_core[!, :mp_tot] + df_core[!, :sp_tot]
     df_core = sort(df_core, :tot, rev=true)
     df_core = df_core[!, [:core, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
