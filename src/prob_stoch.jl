@@ -18,7 +18,10 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     probmethod = parse_methods(settings["problems"]["stochastic"]["master"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
-    db.mp[subix] = MasterProblem(prob, cuts, states, Dict())
+    div = Dict()
+    div[MainTiming] = zeros(4)
+
+    db.mp[subix] = MasterProblem(prob, cuts, states, div)
 
     return
 end
@@ -35,7 +38,10 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
     prob = buildprob(probmethod, modelobjects)
 
-    db.sp[(scenix, subix)] = ScenarioProblem(prob, zeros(length(states)), -1.0, Dict())
+    div = Dict()
+    div[MainTiming] = zeros(3)
+
+    db.sp[(scenix, subix)] = ScenarioProblem(prob, zeros(length(states)), -1.0, div)
 
     return
 end
@@ -48,19 +54,22 @@ function solve_stoch(t, delta, stepnr, skipmed)
             subsystem = db.subsystems[subix]
             if skipmed_check(subsystem, skipmed)
                 mp = db.mp[subix]
+                maintiming = mp.div[MainTiming]
 
-                update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
-                set_startstates!(mp.prob, getstorages(getobjects(mp.prob)), db.startstates)
-                update_prices_mp(stepnr, subix)
-                update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, get_settings(db))
-                update!(mp.prob, t)
+                maintiming[4] = @elapsed begin
+                    update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
+                    set_startstates!(mp.prob, getstorages(getobjects(mp.prob)), db.startstates)
+                    update_prices_mp(stepnr, subix)
+                    update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, get_settings(db))
+                end
+                maintiming[1] = @elapsed update!(mp.prob, t)
 
                 @sync for _core in get_cores(db)
                     @spawnat _core update_sps(t, stepnr, subix)
                 end
                     
                 solve_benders(stepnr, subix)
-                final_solve_mp(t, mp.prob)
+                maintiming[3] = @elapsed final_solve_mp(t, mp.prob)
             end
         end
     end
@@ -71,10 +80,13 @@ function update_sps(t, stepnr, subix)
 
     for (_scenix, _subix, _core) in db.dist_sp
         if (_core == db.core) && (subix == _subix)
-            update_endconditions_sp(_scenix, subix)
-            perform_scenmod_sp(_scenix, subix)
-            update_prices_sp(stepnr, _scenix, subix)
-            update_sp(t, _scenix, subix)
+            maintiming = db.sp[(_scenix, subix)].div[MainTiming]
+            maintiming[3] = @elapsed begin
+                update_endconditions_sp(_scenix, subix)
+                perform_scenmod_sp(_scenix, subix)
+                update_prices_sp(stepnr, _scenix, subix)
+            end
+            maintiming[1] = @elapsed update_sp(t, _scenix, subix)
         end
     end
 end
@@ -97,6 +109,7 @@ function solve_benders(stepnr, subix)
     settings = get_settings(db)
 
     mp = db.mp[subix]
+    maintiming = mp.div[MainTiming]
 
     count = 0
     cutreuse = true
@@ -110,75 +123,77 @@ function solve_benders(stepnr, subix)
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
         count == 0 && setwarmstart!(mp.prob, false)
 
-        if cutreuse # try to reuse cuts from last time step
-            try
+        maintiming[2] += @elapsed begin
+            if cutreuse # try to reuse cuts from last time step
+                try
+                    solve!(mp.prob)
+                catch
+                    count == 0 && println("Retrying first iteration without cuts from last time step")
+                    count > 0 && println("Restarting iterations without cuts from last time step")
+                    clearcuts!(mp.prob, mp.cuts)
+                    solve!(mp.prob)
+                    cutreuse = false
+                end
+            else
                 solve!(mp.prob)
-            catch
-                count == 0 && println("Retrying first iteration without cuts from last time step")
-                count > 0 && println("Restarting iterations without cuts from last time step")
-                clearcuts!(mp.prob, mp.cuts)
-                solve!(mp.prob)
-                cutreuse = false
             end
-        else
-            solve!(mp.prob)
         end
 
-        lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
-        ub = 0.0
+        maintiming[4] += @elapsed begin
+            lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
+            ub = 0.0
 
-        count == 0 && setwarmstart!(mp.prob, true)
-        (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
-        
-        getoutgoingstates!(mp.prob, mp.states)
-        cutix = getcutix(mp.cuts) + 1
-        if cutix > getmaxcuts(mp.cuts)
-            cutix = 1
+            count == 0 && setwarmstart!(mp.prob, true)
+            (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
+            
+            getoutgoingstates!(mp.prob, mp.states)
+            cutix = getcutix(mp.cuts) + 1
+            if cutix > getmaxcuts(mp.cuts)
+                cutix = 1
+            end
         end
 
+        futures = []
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
-                @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                push!(futures, f)
             end
         end
 
-        for (_scenix, _subix, _core) in db.dist_sp # TODO: Do sync
-            if _subix == subix
-                future = @spawnat _core get_data_sp(_scenix, _subix)
-                objectivevalue, scenslopes, scenconstant = fetch(future)
+        maintiming[4] += @elapsed begin
+            for future in futures
+                scenix, objectivevalue, scenslopes, scenconstant = fetch(future)
 
-                ub += objectivevalue*mp.cuts.probabilities[_scenix]
-                mp.cuts.scenslopes[_scenix, cutix, :] .= scenslopes
-                mp.cuts.scenconstants[_scenix, cutix] = scenconstant
+                ub += objectivevalue*mp.cuts.probabilities[scenix]
+                mp.cuts.scenslopes[scenix, cutix, :] .= scenslopes
+                mp.cuts.scenconstants[scenix, cutix] = scenconstant
             end
+        
+            updatecutparameters!(mp.prob, mp.cuts)
+            updatelastcut!(mp.prob, mp.cuts)
+            count += 1
         end
-
-        updatecutparameters!(mp.prob, mp.cuts)
-        updatelastcut!(mp.prob, mp.cuts)
-        count += 1
     end
     return
-end
-
-function get_data_sp(scenix, subix)
-    db = get_local_db()
-
-    sp = db.sp[(scenix, subix)]
-
-    objectivevalue = getobjectivevalue(sp.prob)
-    scenslopes = sp.scenslopes
-    scenconstant = sp.scenconstant
-
-    return (objectivevalue, scenslopes, scenconstant)
 end
 
 function solve_sp(scenix, subix, states)
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
-    setingoingstates!(sp.prob, states)
-    solve!(sp.prob)
-    get_scencutparameters!(sp, states)
+    maintiming = sp.div[MainTiming]
+
+    maintiming[3] += @elapsed setingoingstates!(sp.prob, states)
+    maintiming[2] += @elapsed solve!(sp.prob)
+    maintiming[3] += @elapsed begin
+        get_scencutparameters!(sp, states)
+
+        objectivevalue = getobjectivevalue(sp.prob)
+        scenslopes = sp.scenslopes
+        scenconstant = sp.scenconstant
+    end
+    return (scenix, objectivevalue, scenslopes, scenconstant)
 end
 
 # TODO: Simplify TuLiPa version of getscencutparameters?
@@ -395,12 +410,12 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
 
     modelobjects = getmodelobjects(subelements, validate=false)
 
-    if master
-        # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem
+    if master && (get_horizonterm_stoch(subsystem) == ShortTermName) 
+        # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem. TODO: Find better solution
         for id in keys(modelobjects)
             instance = getinstancename(id)
             if occursin("Spill", instance) && occursin("_PHS_", instance)
-                delete!(modelobjects, id)
+                pop!(modelobjects, id)
             end
         end
     end
@@ -474,7 +489,11 @@ function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
 end
 
 function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
-    subhorizon = horizons[(scenix, term, commodity)]
+    if commodity == "Battery"
+        subhorizon = horizons[(scenix, term, "Power")]
+    else
+        subhorizon = horizons[(scenix, term, commodity)]
+    end
     if startduration.value == 0
         startperiod = 1
     else

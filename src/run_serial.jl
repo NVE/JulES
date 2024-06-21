@@ -14,6 +14,7 @@ Design goals
 
 # TODO: setup docstrings for automatic documentation
 
+
 function run_serial(input::AbstractJulESInput)
     (t, N, delta, skipmed, skipmax) = init_jules(input)
     totaltime = @elapsed for stepnr in 1:N
@@ -194,7 +195,7 @@ function add_local_dummyobjects()
     (dummyobjects, dummydeps) = getmodelobjects(elements, validate=true, deps=true)
     aggzonedict = Dict()
     for (k,v) in get_aggzone(get_settings(db))
-        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [modelobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [dummyobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
     end
     aggzone!(dummyobjects, aggzonedict)
     db.dummyobjects = (dummyobjects, dummydeps)
@@ -255,15 +256,14 @@ function create_subsystems(db)
             shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
             println("Number of shortterm storagesystems $(length(shorttermstoragesystems))")
             for storagesystem in shorttermstoragesystems
+                commodities = get_commodities_from_storagesystem(storagesystem)
                 main = Set()
                 all = Set()
                 for obj in storagesystem
                     i, element = get_element_from_obj(elements, obj)
-                    for dep in deep_dependencies[element]
-                        # println(getelkey(elements[i]))
-                        push!(main, i)
-                        push!(all, i)
-                    end
+                    # println(getelkey(elements[i]))
+                    push!(main, i)
+                    push!(all, i)
                 end
 
                 for (_i, _element) in enumerate(elements)
@@ -289,11 +289,11 @@ function create_subsystems(db)
                 # println(length(all))
 
                 shortstochduration = parse_duration(settings["subsystems"], "shortstochduration")
-                horizonterm_stoch = get_term_ppp(get_horizons(db), commodities, shortstochduration)
+                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, shortstochduration)
 
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = false
-                subsystem = StochSubsystem(commodities, priceareas, unique(subsystemdeps), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
+                subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
 
@@ -320,11 +320,9 @@ function create_subsystems(db)
                 all = Set()
                 for obj in storagesystem
                     i, element = get_element_from_obj(elements, obj)
-                    for dep in deep_dependencies[element]
-                        # println(getelkey(elements[i]))
-                        push!(main, i)
-                        push!(all, i)
-                    end
+                    # println(getelkey(elements[i]))
+                    push!(main, i)
+                    push!(all, i)
                 end
 
                 for (_i, _element) in enumerate(elements)
@@ -440,9 +438,10 @@ end
 
 function get_element_from_obj(dataelements::Vector{DataElement}, obj::Any)
     objid = getid(obj)
-    elkey = ElementKey(objid.conceptname, string(nameof(typeof(obj))), objid.instancename)
+    conceptname = objid.conceptname
+    instancename = objid.instancename
     for (i, dataelement) in enumerate(dataelements)
-        if getelkey(dataelement) == elkey
+        if (dataelement.conceptname == conceptname) && (dataelement.instancename == instancename)
             return (i, dataelement)
         end
     end
@@ -661,9 +660,14 @@ end
 function step_jules(t, delta, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
-
+	
+    if mod(stepnr, 20) == 0
+        @sync for core in cores
+            @spawnat core GC.gc()
+        end
+    end
+    
     println(t)
-
     println("Startstates")
     @time begin
         @sync for core in cores
@@ -685,7 +689,7 @@ function step_jules(t, delta, stepnr, skipmed)
             @spawnat core synchronize_horizons(skipmed)
         end
     end
-
+	
     println("End value problems")
     @time begin
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -715,7 +719,7 @@ function step_jules(t, delta, stepnr, skipmed)
     @time begin
         wait(@spawnat db.core_cp update_output(t, stepnr))
     end
-
+	
     # do dynamic load balancing here
     return
 end

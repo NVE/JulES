@@ -128,7 +128,7 @@ threehour:
         storagevalues: true
 
 #############################################################
-fast: # 24 hour steps, 7 static scenarios, aggregated hydro, shrinkablehorizon, no phasein, 1 year long, 18 week med, 2 day short
+fast:
     time:
         scenarioyearstart: 1991
         scenarioyearstop: 2021

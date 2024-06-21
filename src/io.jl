@@ -508,13 +508,13 @@ function init_local_output()
         db.output.timing_evp[(scenix, subix)] = zeros(steps, 3)
     end
 
-    # for (subix, core) in db.dist_mp
-    #     db.output.timing_mp[subix] = zeros(steps, 5)
-    # end
+    for (subix, core) in db.dist_mp
+        db.output.timing_mp[subix] = zeros(steps, 4)
+    end
 
-    # for (scenix, subix, core) in db.dist_sp
-    #     db.output.timing_sp[(scenix, subix)] = zeros(steps, 5)
-    # end
+    for (scenix, subix, core) in db.dist_sp
+        db.output.timing_sp[(scenix, subix)] = zeros(steps, 3)
+    end
 
     db.output.timing_cp = zeros(steps, 3)
 end
@@ -527,11 +527,25 @@ function update_output(t::ProbTime, stepnr::Int)
     for (scenix, core) in db.dist_ppp
         f = @spawnat core get_maintiming_ppp(scenix)
         db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
+        @spawnat core reset_maintiming_ppp(scenix)
     end
 
     for (scenix, subix, core) in db.dist_evp
         f = @spawnat core get_maintiming_evp(scenix, subix)
         db.output.timing_evp[(scenix, subix)][stepnr, :] .= fetch(f)
+        @spawnat core reset_maintiming_evp(scenix, subix)
+    end
+
+    for (subix, core) in db.dist_mp
+        f = @spawnat core get_maintiming_mp(subix)
+        db.output.timing_mp[subix][stepnr, :] .= fetch(f)
+        @spawnat core reset_maintiming_mp(subix)
+    end
+
+    for (scenix, subix, core) in db.dist_sp
+        f = @spawnat core get_maintiming_sp(scenix, subix)
+        db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
+        @spawnat core reset_maintiming_sp(scenix, subix)
     end
 
     if haskey(settings["results"], "mainresults")
@@ -588,6 +602,13 @@ get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
 
 get_maintiming_ppp(scenix) = get_local_db().ppp[scenix].div[MainTiming]
 get_maintiming_evp(scenix, subix) = get_local_db().evp[(scenix, subix)].div[MainTiming]
+get_maintiming_mp(subix) = get_local_db().mp[subix].div[MainTiming]
+get_maintiming_sp(scenix, subix) = get_local_db().sp[(scenix, subix)].div[MainTiming]
+
+reset_maintiming_ppp(scenix) = fill!(get_local_db().ppp[scenix].div[MainTiming], 0.0)
+reset_maintiming_evp(scenix, subix) = fill!(get_local_db().evp[(scenix, subix)].div[MainTiming], 0.0)
+reset_maintiming_mp(subix) = fill!(get_local_db().mp[subix].div[MainTiming], 0.0)
+reset_maintiming_sp(scenix, subix) = fill!(get_local_db().sp[(scenix, subix)].div[MainTiming], 0.0)
 
 function get_output_final(steplength, skipmax)
     output = get_output_main()
@@ -659,13 +680,67 @@ function get_output_timing_local(data, steplength, skipmax)
         f = @spawnat core get_skipmed_impact(subix)
         push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
     end
+    df_evp[!, :other] = df_evp[!, :total] - df_evp[!, :solve] - df_evp[!, :update]
     df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .* skipfactor
-    df_evp1 = combine(groupby(df_evp, [:subix]), 
-    :update => sum, 
-    :solve => sum, 
-    :total => sum)
-    df_evp2 = sort(df_evp1, :total_sum, rev=true)
-    timings_evp = mean.(eachcol(select(df_evp1, Not([:subix]))))
+    df_evp_subix = combine(groupby(df_evp, [:subix]), 
+    :update => sum => :evp_u, 
+    :solve => sum => :evp_s, 
+    :other => sum => :evp_o,
+    :total => sum => :evp_tot)
+    timings_evp = mean.(eachcol(select(df_evp_subix, Not([:subix, :evp_o]))))
+    df_evp_core = combine(groupby(df_evp, [:core]), 
+    :update => sum => :evp_u, 
+    :solve => sum => :evp_s, 
+    :other => sum => :evp_o,
+    :total => sum => :evp_tot)
+    # TODO: df_evp_scen
+
+    df_mp = DataFrame([name => [] for name in ["subix", "mp_u", "mp_s", "mp_fin", "mp_o", "core", "skipmed"]])
+    for (subix, core) in db.dist_mp
+        values = dropdims(mean(db.output.timing_mp[(subix)], dims=1), dims=1)
+        f = @spawnat core get_skipmed_impact(subix)
+        push!(df_mp, [subix, values[1], values[2], values[3], values[4], core, fetch(f)])
+    end
+    df_mp[!, :mp_tot] = df_mp[!, :mp_s] + df_mp[!, :mp_u] + df_mp[!, :mp_fin] + df_mp[!, :mp_o]
+    df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot]] .= df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot]] .* skipfactor
+    timings_mp = mean.(eachcol(select(df_mp, Not([:subix, :core, :skipmed, :mp_fin, :mp_o]))))
+    df_mp_core = combine(groupby(df_mp, [:core]), 
+    :mp_u => sum => :mp_u, 
+    :mp_s => sum => :mp_s, 
+    :mp_fin => sum => :mp_fin,
+    :mp_o => sum => :mp_o,
+    :mp_tot => sum => :mp_tot)
+
+    df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
+    for (scenix, subix, core) in db.dist_sp
+        values = dropdims(mean(db.output.timing_sp[(scenix, subix)], dims=1), dims=1)
+        f = @spawnat core get_skipmed_impact(subix)
+        push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+    end
+    df_sp[!, :total] = df_sp[!, :solve] + df_sp[!, :update] + df_sp[!, :other]
+    df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .= df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .* skipfactor
+    df_sp_subix = combine(groupby(df_sp, [:subix]), 
+    :update => sum => :sp_u, 
+    :solve => sum => :sp_s, 
+    :other => sum => :sp_o,
+    :total => sum => :sp_tot)
+    timings_sp = mean.(eachcol(select(df_sp_subix, Not([:subix, :sp_o]))))
+    df_sp_core = combine(groupby(df_sp, [:core]), 
+    :update => sum => :sp_u, 
+    :solve => sum => :sp_s, 
+    :other => sum => :sp_o,
+    :total => sum => :sp_tot)
+    # TODO: df_sp_scen
+
+    df_subix = outerjoin(df_evp_subix, df_mp, df_sp_subix, on = :subix)
+    df_subix[!, :tot] = df_subix[!, :evp_tot] + df_subix[!, :mp_tot] + df_subix[!, :sp_tot]
+    df_subix = sort(df_subix, :tot, rev=true)
+    df_subix = df_subix[!, [:subix, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
+
+    df_core = outerjoin(df_evp_core, df_mp_core, df_sp_core, on = :core)
+    df_core[!, :tot] = df_core[!, :evp_tot] + df_core[!, :mp_tot] + df_core[!, :sp_tot]
+    df_core = sort(df_core, :tot, rev=true)
+    df_core = df_core[!, [:core, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
 
     if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing")
         factors = [skipfactor,skipfactor,1]
@@ -673,13 +748,14 @@ function get_output_timing_local(data, steplength, skipmax)
         dims = (dims..., length(timings_ppp))
         timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
         timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
-        all = vcat(timings_ppp2, reshape(timings_evp,1,3), mean(timing_cp, dims=1))
-        df = DataFrame(model=["long","med","short","evp","clearing"], update=all[:,1], solve=all[:,2], total=all[:,3])
+        all = vcat(timings_ppp2, reshape(timings_evp,1,3), reshape(timings_mp,1,3), reshape(timings_sp,1,3), mean(timing_cp, dims=1))
+        df = DataFrame(model=["long","med","short","evp","mp","sp","clearing"], update=all[:,1], solve=all[:,2], total=all[:,3])
         df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
         display(df[!, [1, 2, 3, 5, 4]])
     end
 
-    display(df_evp2)
+    display(df_core)
+    display(df_subix)
 
     if settings["results"]["times"]
         if haskey(settings["problems"], "prognosis") 
@@ -688,9 +764,10 @@ function get_output_timing_local(data, steplength, skipmax)
         if haskey(settings["problems"], "endvalue") 
             data["endvaluetimes"] = db.output.timing_evp
         end
-        # if haskey(settings["problems"], "stochastic") 
-        #     data["stochastictimes"] = st1
-        # end
+        if haskey(settings["problems"], "endvalue") 
+            data["mptimes"] = db.output.timing_mp
+            data["sptimes"] = db.output.timing_sp
+        end
         if haskey(settings["problems"], "clearing")
             data["clearingtimes"] = timing_cp
         end

@@ -34,11 +34,9 @@ function solve_evp(t, delta, stepnr, skipmed)
 
                     scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
                     maintiming[1] = @elapsed update!(evp.prob, scentime)
-                    # TODO: perform_scenmod()
+                    # TODO: perform_scenmod(), also for ppp?
                     maintiming[2] = @elapsed solve!(evp.prob)
                 end
-            else
-                fill!(maintiming, 0.0)
             end
         end
     end
