@@ -760,11 +760,11 @@ function get_output_timing_local(data, steplength, skipmax)
             data["prognosistimes"] = timings_ppp1
         end
         if haskey(settings["problems"], "endvalue") 
-            data["endvaluetimes"] = db.output.timing_evp
+            data["endvaluetimes"] = Matrix{Float64}(df_evp)
         end
-        if haskey(settings["problems"], "endvalue") 
-            data["mptimes"] = db.output.timing_mp
-            data["sptimes"] = db.output.timing_sp
+        if haskey(settings["problems"], "stochastic") 
+            data["mptimes"] = Matrix{Float64}(df_mp)
+            data["sptimes"] = Matrix{Float64}(df_sp)
         end
         if haskey(settings["problems"], "clearing")
             data["clearingtimes"] = timing_cp
