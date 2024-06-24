@@ -267,8 +267,10 @@ struct TwoStateNeuralODEIfmPredictor{P, NN} <: AbstractTwoStateIfmPredictor
     std_T::Float32
     function TwoStateNeuralODEIfmPredictor(model_params)
         (nn, __) = initialize_NN_model()
-        (nn_params, moments) = model_params
-        return new{typeof(nn_params), typeof(nn)}(nn_params, nn, moments...)
+        (nn_params, d) = model_params
+        return new{typeof(nn_params), typeof(nn)}(nn_params, nn, 
+            d["mean_S"], d["mean_G"], d["mean_P"], d["mean_T"], 
+            d["std_S"], d["std_G"], d["std_P"], d["std_T"])
     end
 end
 
@@ -310,8 +312,13 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     OBSERVED_TEMPERATURE = "ObservedTemperature"
     FORECASTED_PERCIPITATION = "ForecastedPercipitation"
     FORECASTED_TEMPERATURE = "ForecastedTemperature"
-    
+
     model_params = TuLiPa.getdictvalue(value, "ModelParams", String, elkey)
+
+    moments = nothing
+    if haskey(value, "Moments")
+        moments = TuLiPa.getdictvalue(value, "Moments", String, elkey)
+    end
 
     hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation",   TuLiPa.TIMEVECTORPARSETYPES, elkey)
     hist_T = TuLiPa.getdictvalue(value, "HistoricalTemperature", TuLiPa.TIMEVECTORPARSETYPES, elkey)
@@ -399,6 +406,11 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     updater = SimpleIfmDataUpdater()
 
     model_params = JLD2.load_object(model_params)
+
+    if !isnothing(moments)
+        moments = JLD2.load_object(moments)
+        model_params = (model_params, moments)
+    end
 
     id = TuLiPa.getobjkey(elkey)
     toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
