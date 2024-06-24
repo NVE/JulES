@@ -97,7 +97,7 @@ get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
 
-get_distribution_method(input::DefaultJulESInput) = get_mainconfig(input)["distribution_method"]
+get_distribution_method(input::DefaultJulESInput) = get_settings(input)["problems"]["stochastic"]["distribution_method"]
 
 function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
     # Standard time for market clearing - perfect information so simple time type
@@ -887,6 +887,8 @@ function get_output_cp_local()
         data["demandvalues"] = demandvalues
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
+
+        #data[]
     end
 
     return data
