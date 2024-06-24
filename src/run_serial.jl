@@ -686,7 +686,7 @@ function step_jules(t, delta, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
     firstcore = first(cores)
-	
+
     if mod(stepnr, 20) == 0
         @sync for core in cores
             @spawnat core GC.gc()
