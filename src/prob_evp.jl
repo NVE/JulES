@@ -17,7 +17,7 @@ function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     return
 end
 
-function solve_evp(t, delta, stepnr, skipmed)
+function solve_evp(t, stepnr, skipmed)
     db = get_local_db()
 
     for (scenix, subix, core) in db.dist_evp
@@ -34,11 +34,9 @@ function solve_evp(t, delta, stepnr, skipmed)
 
                     scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
                     maintiming[1] = @elapsed TuLiPa.update!(evp.prob, scentime)
-                    # TODO: perform_scenmod()
+                    # TODO: perform_scenmod(), also for ppp?
                     maintiming[2] = @elapsed TuLiPa.solve!(evp.prob)
                 end
-            else
-                fill!(maintiming, 0.0)
             end
         end
     end

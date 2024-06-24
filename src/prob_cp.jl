@@ -49,7 +49,7 @@ function create_cp()
     return
 end
 
-function solve_cp(t, delta, stepnr, skipmed)
+function solve_cp(t, stepnr, skipmed)
     db = get_local_db()
 
     if db.core_cp == db.core

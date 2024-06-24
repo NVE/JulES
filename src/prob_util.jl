@@ -199,10 +199,10 @@ function get_startstates!(startstates::Dict, problemconfig::Dict, dataset::Dict,
     if startstorages["function"] == "percentages"
         shorttermstorages = TuLiPa.getshorttermstorages(collect(values(objects)), Hour(problemconfig["shorttermstoragecutoff_hours"]))
         longtermstorages = setdiff(storages, shorttermstorages)
-        merge!(startstates, getstartstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
-        merge!(startstates, getstartstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
+        merge!(startstates, get_startstoragepercentage(shorttermstorages, tnormal, startstorages["shortpercentage"]))
+        merge!(startstates, get_startstoragepercentage(longtermstorages, tnormal, startstorages["longpercentage"]))
     elseif startstorages["function"] == "percentage"
-        merge!(startstates, getstartstoragepercentage(storages, tnormal, startstorages["percentage"]))
+        merge!(startstates, get_startstoragepercentage(storages, tnormal, startstorages["percentage"]))
     elseif haskey(dataset, startstorages["function"])
         merge!(startstates, dataset[startstorages["function"]])
     end
