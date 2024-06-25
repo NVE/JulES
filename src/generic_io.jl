@@ -109,6 +109,8 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
         dist_mp = _distribute_subsystems_elements_greedy!(subsystems, cores)
     elseif distribution_method == "storage"
         dist_mp = _distribute_subsystems_storage_greedy!(input, subsystems, cores)
+    elseif distribution_method == "size_pairing"
+        dist_mp = _distribute_subsystems_big_small!(subsystems, cores)
     end
     
     N = get_numscen_stoch(input)
@@ -125,14 +127,40 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
 end
 
 
-function _distribute_subsystems_big_small!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
+function _distribute_subsystems_big_small!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
+    sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems)
+    
+    N = length(cores)
     dist = Tuple{SubsystemIx, CoreId}[]
 
+    while length(sorted_subsystems) > 0
+        K = length(sorted_subsystems)
+        M = min(K, N)
 
+        for i in 1:M
+            if length(sorted_subsystems) == 0
+                break
+            end
+            
+            # Assign the smallest subsystem to the current core
+            push!(dist, (sorted_subsystems[1], cores[i]))
+            deleteat!(sorted_subsystems, 1)
+            
+            if length(sorted_subsystems) == 0
+                break
+            end
+            
+            # Assign the largest subsystem to the same core
+            push!(dist, (sorted_subsystems[end], cores[i]))
+            deleteat!(sorted_subsystems, length(sorted_subsystems))
+        end
+    end
 
     return dist
-
 end
+     
+    
+
         
 
 function _distribute_subsystems_randomly!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
