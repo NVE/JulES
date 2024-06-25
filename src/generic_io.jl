@@ -5,6 +5,12 @@ Generic fallbacks for AbstractJulESInput and AbstractJulESOutput
 """
 How price prognosis problems (ppp) are distributed on cores initially
 """
+
+
+function testing()
+    println("test")
+end
+
 function get_dist_ppp(input::AbstractJulESInput)
     cores = get_cores(input)
     N = length(cores)
@@ -228,8 +234,6 @@ function _distribute_subsystems_storage_greedy!(input::AbstractJulESInput, subsy
     dist = Tuple{SubsystemIx, CoreId}[]
 
     num_cores = length(cores)
-
-    println("Number of subsystems: ", length(subsystems))
 
     has_storage = Tuple{SubsystemIx, AbstractSubsystem, Int}[]
     not_storage = Tuple{SubsystemIx, AbstractSubsystem, Int}[]
