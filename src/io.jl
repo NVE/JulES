@@ -671,7 +671,6 @@ function get_output_storagevalues(output, steplength, skipmax)
     
     if settings["results"]["storagevalues"]
         f = @spawnat db.core_cp get_output_storagevalues_local(output, steplength, skipmax)
-        println(fetch(f))
         storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
         
         output[StorageValues] = cat(storagevalues..., dims=3)
