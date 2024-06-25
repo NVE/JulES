@@ -1,6 +1,5 @@
 function create_mp(db::LocalDB, subix::SubsystemIx)
     scenix = 1 # TODO: Which scenario should be represented in the master problem? Not important due to phasein?
-    subsystem = get_subsystems(db)[subix]
     settings = get_settings(db)
 
     startduration = Millisecond(0)
@@ -20,6 +19,14 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
 
     div = Dict()
     div[MainTiming] = zeros(4)
+    if settings["results"]["storagevalues"]
+        if get_headlosscost(settings["problems"]["stochastic"]["master"])
+            num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+        else
+            num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+        end
+        div[StorageValues] = zeros(num_storagevalues, length(states))
+    end
 
     db.mp[subix] = MasterProblem(prob, cuts, states, div)
 
@@ -48,6 +55,7 @@ end
 
 function solve_stoch(t, stepnr, skipmed)
     db = get_local_db()
+    settings = get_settings(db)
 
     for (subix, core) in db.dist_mp
         if core == db.core
@@ -60,7 +68,7 @@ function solve_stoch(t, stepnr, skipmed)
                     update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
                     set_startstates!(mp.prob, getstorages(getobjects(mp.prob)), db.startstates)
                     update_prices_mp(stepnr, subix)
-                    update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, get_settings(db))
+                    update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, settings)
                 end
                 maintiming[1] = @elapsed update!(mp.prob, t)
 
@@ -69,7 +77,8 @@ function solve_stoch(t, stepnr, skipmed)
                 end
                     
                 solve_benders(stepnr, subix)
-                maintiming[3] = @elapsed final_solve_mp(t, mp.prob)
+                maintiming[4] += @elapsed save_storagevalues(mp.prob, mp.cuts, mp.div[StorageValues])
+                maintiming[3] = @elapsed final_solve_mp(t, mp.prob, mp.cuts, mp.div[StorageValues], settings)
             end
         end
     end
@@ -91,18 +100,61 @@ function update_sps(t, stepnr, subix)
     end
 end
 
-# Util functions for solve_mp ----------------------------------------------------------------------------------------------
+# Util functions for solve_stoch ----------------------------------------------------------------------------------------------
 
-function final_solve_mp(t::ProbTime, prob)
-    db = get_local_db()
-    settings = get_settings(db)
-
+function final_solve_mp(t::ProbTime, prob, cuts, storagevalues, settings)
     if get_headlosscost(settings["problems"]["stochastic"]["master"])
         updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
         solve!(prob)
         resetheadlosscosts!(prob)
+        settings["results"]["storagevalues"] && final_save_storagevalues(prob, cuts, storagevalues, settings)
     end
-end    
+end 
+
+function final_save_storagevalues(prob, cuts, storagevalues, settings)
+    if settings["results"]["storagevalues"]
+        for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
+            obj = get_obj_from_id(cuts.objects, first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+            balance = getbalance(obj)
+
+            storagevalues[length(cuts.probabilities)*2 + 2, j] = getcondual(prob, getid(balance), getnumperiods(gethorizon(balance)))
+            if haskey(balance.metadata, GLOBALENEQKEY)
+                storagevalues[length(cuts.probabilities)*2 + 2, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[GLOBALENEQKEY]
+            end
+        end
+    end
+    return
+end
+
+
+function save_storagevalues(prob, cuts, storagevalues)
+    for (j, statevar) in enumerate(cuts.statevars)
+        obj = get_obj_from_id(cuts.objects, first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+        balance = getbalance(obj)
+        for i in 1:length(cuts.probabilities) # scenario storage values
+            minslope = 0
+            maxslope = -1e9
+            for k in 1:getnumcuts(cuts)
+                val = cuts.scenslopes[i,k,j]
+                minslope = min(minslope, val)
+                maxslope = max(maxslope, val)
+            end
+            if haskey(balance.metadata, GLOBALENEQKEY)
+                minslope = minslope / balance.metadata[GLOBALENEQKEY]
+                maxslope = maxslope / balance.metadata[GLOBALENEQKEY]
+            end
+            storagevalues[(i-1)*2+1, j] = minslope
+            storagevalues[(i-1)*2+2, j] = maxslope
+        end
+
+        # master / operative water values
+        storagevalues[length(cuts.probabilities)*2 + 1, j] = getcondual(prob, getid(balance), getnumperiods(gethorizon(balance)))
+        if haskey(balance.metadata, GLOBALENEQKEY)
+            storagevalues[length(cuts.probabilities)*2 + 1, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[GLOBALENEQKEY]
+        end
+    end
+    return
+end
 
 function solve_benders(stepnr, subix)
     db = get_local_db()
@@ -533,5 +585,3 @@ function getcutobjects(modelobjects::Vector)
     end
     return cutobjects
 end
-
-

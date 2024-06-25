@@ -458,6 +458,8 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     timing_sp::Dict
     timing_cp::Array
 
+    storagevalues::Dict
+
     # TODO: info on scenix -> scenario for each step
 
     prices::Array{Float64}
@@ -484,7 +486,10 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     statematrix::Array{Float64} # end states after each step
 
     function DefaultJulESOutput(input)
-        return new(Dict(),Dict(),Dict(),Dict(),[],[],[],[],[],[],[],Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
+        return new(Dict(),Dict(),Dict(),Dict(),[],
+        Dict(),
+        [],[],[],[],[],[],
+        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
     end
 end
 
@@ -492,6 +497,7 @@ get_cores(output::DefaultJulESOutput) = output.cores
 
 function init_local_output()
     db = get_local_db()
+    settings = get_settings(db)
     db.output = get_output_from_input(db.input)
 
     steps = get_steps(db)
@@ -506,6 +512,18 @@ function init_local_output()
 
     for (subix, core) in db.dist_mp
         db.output.timing_mp[subix] = zeros(steps, 4)
+        if settings["results"]["storagevalues"]
+            if get_headlosscost(settings["problems"]["stochastic"]["master"])
+                num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+            else
+                num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+            end
+            if haskey(settings["problems"], "clearing")
+                num_storagevalues += 1
+            end
+            f = @spawnat core get_numstates(subix)
+            db.output.storagevalues[subix] = zeros(steps, num_storagevalues, fetch(f))
+        end
     end
 
     for (scenix, subix, core) in db.dist_sp
@@ -513,6 +531,12 @@ function init_local_output()
     end
 
     db.output.timing_cp = zeros(steps, 3)
+
+end
+
+function get_numstates(subix)
+    db = get_local_db()
+    return length(db.mp[subix].states)
 end
 
 function update_output(t::ProbTime, stepnr::Int)
@@ -536,6 +560,27 @@ function update_output(t::ProbTime, stepnr::Int)
         f = @spawnat core get_maintiming_mp(subix)
         db.output.timing_mp[subix][stepnr, :] .= fetch(f)
         @spawnat core reset_maintiming_mp(subix)
+
+        if settings["results"]["storagevalues"]
+            f = @spawnat core get_storagevalues_stoch(subix)
+            storagevalues_stoch = fetch(f)
+            dim = (size(storagevalues_stoch, 1))
+            db.output.storagevalues[subix][stepnr, 1:dim, :] .= storagevalues_stoch
+
+            if haskey(settings["problems"], "clearing")
+                cutid = fetch(@spawnat core get_cutsid(subix))
+                cuts = get_obj_from_id(getobjects(db.cp.prob), cutid)
+                for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
+                    obj = get_obj_from_id(getobjects(db.cp.prob), first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+                    balance = getbalance(obj)
+
+                    db.output.storagevalues[subix][stepnr, dim+1, j] = getcondual(db.cp.prob, getid(balance), getnumperiods(gethorizon(balance)))
+                    if haskey(balance.metadata, GLOBALENEQKEY)
+                        db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[GLOBALENEQKEY]
+                    end
+                end
+            end
+        end
     end
 
     for (scenix, subix, core) in db.dist_sp
@@ -606,14 +651,80 @@ reset_maintiming_evp(scenix, subix) = fill!(get_local_db().evp[(scenix, subix)].
 reset_maintiming_mp(subix) = fill!(get_local_db().mp[subix].div[MainTiming], 0.0)
 reset_maintiming_sp(scenix, subix) = fill!(get_local_db().sp[(scenix, subix)].div[MainTiming], 0.0)
 
+get_storagevalues_stoch(subix) = get_local_db().mp[subix].div[StorageValues]
+
 function get_output_final(steplength, skipmax)
     output = get_output_main()
 
     get_output_timing(output, steplength, skipmax)
 
+    get_output_storagevalues(output, steplength, skipmax)
+
     get_output_memory(output) # TODO: Find problem
 
     return output
+end
+
+function get_output_storagevalues(output, steplength, skipmax)
+    db = get_local_db()
+    settings = get_settings(db)
+    
+    if settings["results"]["storagevalues"]
+        f = @spawnat db.core_cp get_output_storagevalues_local(output, steplength, skipmax)
+        println(fetch(f))
+        storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
+        
+        output[StorageValues] = cat(storagevalues..., dims=3)
+        output["storagenames"] = storagenames
+        output["shorts"] = shorts
+        output["scenarionames"] = scenarionames
+        output["skipfactor"] = skipfactor
+    end
+end
+
+function get_output_storagevalues_local(output, steplength, skipmax)
+    db = get_local_db()
+    settings = get_settings(db)
+
+    storagevalues = []
+    storagenames = []
+    shorts = []
+    for (subix, core) in get_dist_mp(db)
+        push!(storagevalues, db.output.storagevalues[subix])
+        substoragenames = fetch(@spawnat core get_storagenames_from_subix(subix))
+        storagenames = vcat(storagenames, substoragenames)
+        short = !get_skipmed_impact(db.subsystems[subix])
+        for substoragename in storagenames
+            push!(shorts, short)
+        end
+    end
+
+    scenarionames = String[]
+    for i in 1:get_numscen_stoch(db.input)
+        push!(scenarionames, string(i) * " min")
+        push!(scenarionames, string(i) * " max")
+    end
+    push!(scenarionames, "Operative master")
+    if get_headlosscost(settings["problems"]["stochastic"]["master"])
+        push!(scenarionames, "Operative master after")
+    end
+    if haskey(settings["problems"], "clearing")
+        push!(scenarionames, "Operative clearing")
+    end
+
+    skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
+
+    return (storagenames, storagevalues, shorts, scenarionames, skipfactor)
+end
+
+function get_storagenames_from_subix(subix)
+    db = get_local_db()
+    
+    storagenames = []
+    for (j, statevar) in enumerate(db.mp[subix].cuts.statevars)
+        push!(storagenames, getinstancename(first(getvarout(statevar))))
+    end
+    return storagenames
 end
 
 function get_output_memory(output)
@@ -889,4 +1000,3 @@ function get_output_cp_local()
 
     return data
 end
-
