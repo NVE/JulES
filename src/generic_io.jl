@@ -124,7 +124,14 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
 end
 
 
+function _distribute_subsystems_big_small!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
+    dist = Tuple{SubsystemIx, CoreId}[]
 
+
+
+    return dist
+
+end
         
 
 function _distribute_subsystems_randomly!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
@@ -178,55 +185,8 @@ function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores:
 end
 
  
-# elements = get_elements(input)
-# elements_ix_in_subsystem = get_dataelements(s)
-# elements_in_subsystem = elements[elements_ix_in_subsystem]
-# for element in elements_in_subsystem
-#     if element.conceptname == "Storage"
 
-# function _distribute_subsystems_storage_greedy!(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
 
-#     elements = get_elements(input)
-
-#     dist = Tuple{SubsystemIx, CoreId}[]
-
-#     num_cores = length(cores)
-
-#     println(length(subsystems))
-
-#     has_storage = Tuple{SubsystemIx, AbstractSubsystem}[]
-#     not_storage = Tuple{SubsystemIx, AbstractSubsystem}[]
-
-#     # Initialize an array to hold the load (number of data elements) for each core
-#     core_loads = fill(0, num_cores)
-
-#     for (ix, s) in subsystems
-#         elements_ix_in_subsystem = get_dataelements(s)
-#         elements_in_subsystem = elements[elements_ix_in_subsystem]
-#         println("subsystem $ix")
-#         #println("elements: $elements_in_subsystem")
-#         storage = false
-#         for element in elements_in_subsystem
-#             println("element: $element")
-#             if element.conceptname == "Storage"
-#                 storage = true
-#             end
-#         end
-#         if storage == true
-#             push!(has_storage, (ix, s))
-#         else
-#             push!(not_storage, (ix,s))
-#         end
-        
-#     end
-    
-    
-   
-
-   
-
-#     return dist
-# end
 
 function _distribute_subsystems_storage_greedy!(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     elements = get_elements(input)
