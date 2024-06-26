@@ -38,7 +38,7 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     states = get_states(modelobjects) # different order than mp.cuts.statevars, so only use length
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
-    prob = buildprob(probmethod, modelobjects)
+    prob = TuLiPa.buildprob(probmethod, modelobjects)
 
     div = Dict()
     div[MainTiming] = zeros(3)
