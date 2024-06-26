@@ -13,7 +13,7 @@ struct DefaultJulESInput <: AbstractJulESInput
 
     steps::Int
     steplength::Millisecond
-    simstarttime::ProbTime
+    simstarttime::TuLiPa.ProbTime
     scenmod_data::AbstractScenarioModellingMethod
 
     tnormaltype::String
@@ -22,7 +22,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     phaseindelta::Millisecond
     phaseinsteps::Int
 
-    horizons::Dict{Tuple{TermName, CommodityName}, Horizon}
+    horizons::Dict{Tuple{TermName, CommodityName}, TuLiPa.Horizon}
 
     function DefaultJulESInput(config, dataset, datayear, weatheryear)
         mainconfig = config["main"]
@@ -49,10 +49,17 @@ struct DefaultJulESInput <: AbstractJulESInput
                 add_scenariotimeperiod_int!(elements_ppp, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
             end
 
+            iprogtype = get(dataset, "iprogtype", "direct")
+            useifm = iprogtype != "direct"
+            if useifm
+                ifm_elements = dataset["ifm_elements"]
+                add_scenariotimeperiod_int!(ifm_elements, settings["time"]["weatheryearstart"], settings["time"]["weatheryearstop"])
+            end
+
             enekvglobaldict = Dict{String,Float64}()
             if !onlysubsystemmodel
                 for element in elements
-                    if element.typename == GLOBALENEQKEY
+                    if element.typename == TuLiPa.GLOBALENEQKEY
                         enekvglobaldict[split(element.instancename,"GlobalEneq_")[2]] = element.value["Value"]
                     end
                 end
@@ -95,16 +102,76 @@ get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
 
+get_iprogtype(input::DefaultJulESInput) = input.dataset["iprogtype"]
+get_ifm_normfactors(input::DefaultJulESInput) = input.dataset["ifm_normfactors"]
+get_ifm_elements(input::DefaultJulESInput) = input.dataset["ifm_elements"]
+
+function get_ifm_names(input::DefaultJulESInput)
+    s1 = Set(input.dataset["ifm_names"])
+    s2 = Set([e.instancename for e in input.dataset["ifm_elements"] if e.conceptname == ABSTRACT_INFLOW_MODEL])
+    return String[i for i in intersect(s1, s2)]
+end
+
+function get_ifm_replacemap(input::DefaultJulESInput) 
+    names = Set(get_ifm_names(input))
+    aggnames = Set(keys(get_ifm_weights(input)))
+    d = Dict{String, String}()
+    for (k, v) in input.dataset["ifm_replacemap"]
+        if (v in names) || (v in aggnames)
+            d[k] = v
+        end
+    end
+    return d
+end
+
+function get_ifm_weights(input::DefaultJulESInput)
+    w = input.dataset["ifm_weights"]
+
+    # remove stations from w that does not exist
+    # and update weights accordingly
+    names = get_ifm_names(input)
+    missings_dict = Dict()
+    for k in keys(w)
+        for station in keys(w[k])
+            if !(station in names)
+                if haskey(missings_dict, k) == false
+                    missings_dict[k] = Set()
+                end
+                push!(missings_dict[k], station)
+            end
+        end
+    end
+    for k in keys(missings_dict)
+        sum_nonmissing = sum(weight for (station, weight) in w[k] if !(station in missings_dict[k]))
+        for (station, weight) in w[k]
+            if !(station in missings_dict[k])
+                w[k][station] = weight / sum_nonmissing
+            end
+        end
+    end
+    for k in keys(missings_dict)
+        for station in missings_dict[k]
+            delete!(w[k], station)
+        end
+    end
+    for (__, weights) in w
+        @assert isapprox(round(sum(values(weights)); digits=4), 1.0)
+    end
+
+    return w
+end 
+
+
 function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
     # Standard time for market clearing - perfect information so simple time type
-    datasimtime = getisoyearstart(datayear) + Week(weekstart-1)
-    weathersimtime = getisoyearstart(weatheryear) + Week(weekstart-1)
+    datasimtime = TuLiPa.getisoyearstart(datayear) + Week(weekstart-1)
+    weathersimtime = TuLiPa.getisoyearstart(weatheryear) + Week(weekstart-1)
     simtime = get_tnormal(simtimetype, datasimtime, weathersimtime)
 
     # Make scenariooffset for all uncertainty scenarios
     datascenarios = Vector{WeatherScenario}(undef, datanumscen)
     for scen in 1:datanumscen
-        weatherscenariotime = getisoyearstart(weatheryear + scen - 1) + Week(weekstart-1)
+        weatherscenariotime = TuLiPa.getisoyearstart(weatheryear + scen - 1) + Week(weekstart-1)
         weatheroffset = weatherscenariotime - weathersimtime
         datascenarios[scen] = WeatherScenario(weatheroffset, 1/datanumscen, scen)
     end
@@ -122,7 +189,7 @@ function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weather
     simulationyears = mainconfig["simulationyears"]
     extrasteps = mainconfig["extrasteps"]
     steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
-    steps = Int(ceil((getisoyearstart(datayear + simulationyears) - getisoyearstart(datayear)).value/steplength.value) + extrasteps);
+    steps = Int(ceil((TuLiPa.getisoyearstart(datayear + simulationyears) - TuLiPa.getisoyearstart(datayear)).value/steplength.value) + extrasteps);
     
     # Phasein settings
     phaseinoffset = steplength # phase in straight away from second stage scenarios
@@ -139,49 +206,49 @@ end
 
 function get_tnormal(type::String, datatime::DateTime, scenariotime::DateTime)
     if type == "PrognosisTime"
-        return PrognosisTime(datatime, datatime, scenariotime)
+        return TuLiPa.PrognosisTime(datatime, datatime, scenariotime)
     elseif type == "FixedDataTwoTime"
-        return FixedDataTwoTime(datatime, scenariotime)
+        return TuLiPa.FixedDataTwoTime(datatime, scenariotime)
     else
         error("$type not implementet in get_normal-function")
     end
 end
 
-function get_scentime(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput, timetype::String)
+function get_scentime(simtime::TuLiPa.ProbTime, scenario::AbstractScenario, input::AbstractJulESInput, timetype::String)
     phaseinoffset = get_phaseinoffset(input)
     phaseindelta = get_phaseindelta(input)
     phaseinsteps = get_phaseinsteps(input)
-    datasimtime = getdatatime(simtime)
-    weathersimtime = getscenariotime(simtime)
-    weatherscenariotime = getscenariotime(simtime) + scenario.weatheroffset
+    datasimtime = TuLiPa.getdatatime(simtime)
+    weathersimtime = TuLiPa.getscenariotime(simtime)
+    weatherscenariotime = TuLiPa.getscenariotime(simtime) + scenario.weatheroffset
 
     if timetype == "PrognosisTime"
-        return PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
+        return TuLiPa.PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
     elseif timetype == "FixedDataTwoTime"
-        return FixedDataTwoTime(datasimtime, weatherscenariotime)
+        return TuLiPa.FixedDataTwoTime(datasimtime, weatherscenariotime)
     elseif timetype == "PhaseinPrognosisTime"
-        return PhaseinPrognosisTime(datasimtime, datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+        return TuLiPa.PhaseinPrognosisTime(datasimtime, datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif timetype == "PhaseinFixedDataTwoTime"
-        return PhaseinFixedDataTwoTime(datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
+        return TuLiPa.PhaseinFixedDataTwoTime(datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif timetype == "PrognosisTime"
-        return PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
+        return TuLiPa.PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
     elseif timetype == "FixedDataTwoTime"
-        return FixedDataTwoTime(datasimtime, weatherscenariotime)
+        return TuLiPa.FixedDataTwoTime(datasimtime, weatherscenariotime)
     else
         error("$timetype not implementet in getscenariotime-function")
     end
 end
 
-function add_scenariotimeperiod_int!(elements::Vector{DataElement}, start::Int, stop::Int)
-    push!(elements, getelement(TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
-            ("Start", getisoyearstart(start)), ("Stop", getisoyearstart(stop))))
+function add_scenariotimeperiod_int!(elements::Vector{TuLiPa.DataElement}, start::Int, stop::Int)
+    push!(elements, TuLiPa.getelement(TuLiPa.TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
+            ("Start", TuLiPa.getisoyearstart(start)), ("Stop", TuLiPa.getisoyearstart(stop))))
 end
 
-function get_scentnormal(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
+function get_scentnormal(simtime::TuLiPa.ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
     timetype = get_tnormaltype(input)
     return get_scentime(simtime, scenario, input, timetype)
 end
-function get_scentphasein(simtime::ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
+function get_scentphasein(simtime::TuLiPa.ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
     timetype = get_tphaseintype(input)
     return get_scentime(simtime, scenario, input, timetype)
 end
@@ -192,7 +259,7 @@ function get_scenmod(allscenarios::Vector, problem::Dict, numscen::Int64, object
     if method == "InflowClusteringMethod"
         scenarios = Vector{eltype(allscenarios)}(undef, numscen)
         parts = problem["parts"] # divide scendelta into this many parts, calculate sum inflow for each part of the inflow series, then use clustering algorithm
-        scendelta = MsTimeDelta(parse_duration(problem, "scendelta"))
+        scendelta = TuLiPa.MsTimeDelta(parse_duration(problem, "scendelta"))
         return InflowClusteringMethod(scenarios, objects, parts, scendelta)
     elseif method == "SumInflowQuantileMethod"
         scenarios = Vector{eltype(allscenarios)}(undef, numscen)
@@ -200,7 +267,7 @@ function get_scenmod(allscenarios::Vector, problem::Dict, numscen::Int64, object
         b = problem["b"]
         c = problem["c"]
         maxquantile = problem["maxquantile"]
-        scendelta = MsTimeDelta(parse_duration(problem, "scendelta"))
+        scendelta = TuLiPa.MsTimeDelta(parse_duration(problem, "scendelta"))
         usedensity = problem["usedensity"]
         return SumInflowQuantileMethod(scenarios, objects, maxquantile, a, b, c, scendelta, usedensity=usedensity)
     else
@@ -211,15 +278,15 @@ end
 # Parse methods (alternative to eval(Meta.parse))
 function parse_methods(s::String)
     if s == "HiGHS_Prob()"
-        return HiGHS_Prob()
+        return TuLiPa.HiGHS_Prob()
     elseif s == "HighsSimplexMethod()"
-        return HighsSimplexMethod()
+        return TuLiPa.HighsSimplexMethod()
     elseif s == "HighsSimplexMethod(warmstart=false)"
-        return HighsSimplexMethod(warmstart=false)
+        return TuLiPa.HighsSimplexMethod(warmstart=false)
     elseif s == "HighsSimplexSIPMethod(warmstart=false)"
-        return HighsSimplexSIPMethod(warmstart=false)
+        return TuLiPa.HighsSimplexSIPMethod(warmstart=false)
     elseif s == "KMeansAHMethod()"
-        return KMeansAHMethod()
+        return TuLiPa.KMeansAHMethod()
     end
 end
 
@@ -315,11 +382,11 @@ end
 function getrhsdata(rhsdata::Dict, datayear::Int64, weatheryearstart::Int64, weatheryearstop::Int64)
     method = rhsdata["function"]
     if method == "DynamicExogenPriceAHData"
-        return DynamicExogenPriceAHData(Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
+        return TuLiPa.DynamicExogenPriceAHData(TuLiPa.Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
     elseif method == "StaticRHSAHData"
-        return StaticRHSAHData("Power", datayear, weatheryearstart, weatheryearstop)
+        return TuLiPa.StaticRHSAHData("Power", datayear, weatheryearstart, weatheryearstop)
     elseif method == "DynamicRHSAHData"
-        return DynamicRHSAHData("Power")
+        return TuLiPa.DynamicRHSAHData("Power")
     else
         error("$method not supported")
     end
@@ -328,7 +395,7 @@ end
 # -------------------------------------------------------------------------------------------
 
 function get_horizons(settings, datayear)
-    horizons = Dict{Tuple{TermName, CommodityName}, Horizon}()
+    horizons = Dict{Tuple{TermName, CommodityName}, TuLiPa.Horizon}()
     commoditites = settings["horizons"]["commodities"]
     n_durations = Dict{Tuple{TermName, CommodityName}, Tuple{Int, Millisecond}}()
 
@@ -351,13 +418,13 @@ function get_horizons(settings, datayear)
 end
 
 function build_sequentialhorizon(term, commodity, settings, n_durations)
-    horizon = SequentialHorizon(n_durations...)
+    horizon = TuLiPa.SequentialHorizon(n_durations...)
 
     if get_shrinkable(settings["horizons"][term])
         startafter = parse_duration(settings["horizons"]["shrinkable"], "startafter")
         shrinkatleast = parse_duration(settings["horizons"]["shrinkable"], "shrinkatleast")
         minperiod = parse_duration(settings["horizons"]["clearing"], "termduration")
-        horizon = ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
+        horizon = TuLiPa.ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
     end
 
     return horizon
@@ -371,13 +438,13 @@ function build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
     clusters = settings["horizons"][term][commodity]["clusters"]
     unitduration = Millisecond(Hour(settings["horizons"][term][commodity]["unitduration_hours"]))
 
-    horizon = AdaptiveHorizon(clusters, unitduration, rhsdata, rhsmethod, n_durations...)
+    horizon = TuLiPa.AdaptiveHorizon(clusters, unitduration, rhsdata, rhsmethod, n_durations...)
 
     if get_shrinkable(settings["horizons"][term])
         startafter = parse_duration(settings["horizons"]["shrinkable"], "startafter")
         shrinkatleast = parse_duration(settings["horizons"]["shrinkable"], "shrinkatleast")
         minperiod = parse_duration(settings["horizons"]["clearing"], "termduration")
-        horizon = ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
+        horizon = TuLiPa.ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
     end
 
     return horizon
@@ -539,7 +606,7 @@ function get_numstates(subix)
     return length(db.mp[subix].states)
 end
 
-function update_output(t::ProbTime, stepnr::Int)
+function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     db = get_local_db()
     settings = get_settings(db)
     steps = get_steps(db)
@@ -569,14 +636,14 @@ function update_output(t::ProbTime, stepnr::Int)
 
             if haskey(settings["problems"], "clearing")
                 cutid = fetch(@spawnat core get_cutsid(subix))
-                cuts = get_obj_from_id(getobjects(db.cp.prob), cutid)
+                cuts = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), cutid)
                 for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
-                    obj = get_obj_from_id(getobjects(db.cp.prob), first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
-                    balance = getbalance(obj)
+                    obj = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+                    balance = TuLiPa.getbalance(obj)
 
-                    db.output.storagevalues[subix][stepnr, dim+1, j] = getcondual(db.cp.prob, getid(balance), getnumperiods(gethorizon(balance)))
-                    if haskey(balance.metadata, GLOBALENEQKEY)
-                        db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[GLOBALENEQKEY]
+                    db.output.storagevalues[subix][stepnr, dim+1, j] = TuLiPa.getcondual(db.cp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+                    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+                        db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
                     end
                 end
             end
@@ -597,14 +664,14 @@ function update_output(t::ProbTime, stepnr::Int)
         numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
         if stepnr == 1
-            db.output.modelobjects = Dict(zip([getid(obj) for obj in getobjects(db.cp.prob)],getobjects(db.cp.prob)))
+            db.output.modelobjects = Dict(zip([TuLiPa.getid(obj) for obj in TuLiPa.getobjects(db.cp.prob)], TuLiPa.getobjects(db.cp.prob)))
             if settings["results"]["mainresults"] == "all"
-                resultobjects = getobjects(db.cp.prob) # collect results for all areas
+                resultobjects = TuLiPa.getobjects(db.cp.prob) # collect results for all areas
             else
-                resultobjects = getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
+                resultobjects = TuLiPa.getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
             end
 
-            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = order_result_objects(resultobjects, true)
+            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = TuLiPa.order_result_objects(resultobjects, true)
             db.output.powerbalances = powerbalances
             db.output.rhsterms = rhsterms
             db.output.rhstermbalances = rhstermbalances
@@ -635,7 +702,7 @@ function update_output(t::ProbTime, stepnr::Int)
 
         powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
         hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
-        get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+        TuLiPa.get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 end
 
@@ -886,8 +953,12 @@ get_skipmed_impact(subix) = get_skipmed_impact(get_local_db().subsystems[subix])
 
 function get_output_main()
     db = get_local_db()
-    f = @spawnat db.core_cp get_output_cp_local()
-    return fetch(f)
+    future = @spawnat db.core_cp get_output_cp_local()
+    ret = fetch(future)
+    if ret isa RemoteException
+        throw(ret)
+    end
+    return ret
 end
 
 function get_timing_cp_local()
@@ -932,37 +1003,37 @@ function get_output_cp_local()
         rhstermsupplyvalues = db.output.rhstermvalues[:,rhstermsupplyidx]
         rhstermdemandvalues = db.output.rhstermvalues[:,rhstermdemandidx]*-1
 
-        rhstermsupplynames = [getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermsupplyidx]]
-        rhstermsupplybalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermsupplyidx]]
-        rhstermdemandnames = [getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermdemandidx]]
-        rhstermdemandbalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermdemandidx]]
+        rhstermsupplynames = [TuLiPa.getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermsupplyidx]]
+        rhstermsupplybalancenames = [split(TuLiPa.getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermsupplyidx]]
+        rhstermdemandnames = [TuLiPa.getinstancename(rhsterm) for rhsterm in db.output.rhsterms[rhstermdemandidx]]
+        rhstermdemandbalancenames = [split(TuLiPa.getinstancename(r), "PowerBalance_")[2] for r in db.output.rhstermbalances[rhstermdemandidx]]
 
-        supplynames = [[getinstancename(plant) for plant in db.output.plants];rhstermsupplynames]
-        supplybalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in db.output.plantbalances];rhstermsupplybalancenames]
+        supplynames = [[TuLiPa.getinstancename(plant) for plant in db.output.plants];rhstermsupplynames]
+        supplybalancenames = [[split(TuLiPa.getinstancename(p), "PowerBalance_")[2] for p in db.output.plantbalances];rhstermsupplybalancenames]
         supplyvalues = hcat(db.output.production,rhstermsupplyvalues)
 
-        demandnames = [[getinstancename(demand) for demand in db.output.demands];rhstermdemandnames]
-        demandbalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in db.output.demandbalances];rhstermdemandbalancenames]
+        demandnames = [[TuLiPa.getinstancename(demand) for demand in db.output.demands];rhstermdemandnames]
+        demandbalancenames = [[split(TuLiPa.getinstancename(p), "PowerBalance_")[2] for p in db.output.demandbalances];rhstermdemandbalancenames]
         demandvalues = hcat(db.output.consumption, rhstermdemandvalues)
 
         # Prepare for plotting results
-        hydronames = [getinstancename(hydro) for hydro in db.output.hydrostorages]
-        batterynames = [getinstancename(battery) for battery in db.output.batterystorages]
-        powerbalancenames = [split(getinstancename(getid(powerbalance)), "PowerBalance_")[2] for powerbalance in db.output.powerbalances]
+        hydronames = [TuLiPa.getinstancename(hydro) for hydro in db.output.hydrostorages]
+        batterynames = [TuLiPa.getinstancename(battery) for battery in db.output.batterystorages]
+        powerbalancenames = [split(TuLiPa.getinstancename(TuLiPa.getid(powerbalance)), "PowerBalance_")[2] for powerbalance in db.output.powerbalances]
 
         # Convert reservoir filling to TWh
         hydrolevels1 = copy(db.output.hydrolevels)
         for (i,hydroname) in enumerate(hydronames)
-            if haskey(getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata, GLOBALENEQKEY)
-                hydrolevels1[:,i] .= hydrolevels1[:,i]*getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata[GLOBALENEQKEY]
+            if haskey(TuLiPa.getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata, TuLiPa.GLOBALENEQKEY)
+                hydrolevels1[:,i] .= hydrolevels1[:,i]*TuLiPa.getbalance(db.output.modelobjects[db.output.hydrostorages[i]]).metadata[TuLiPa.GLOBALENEQKEY]
             end
         end
 
         # Indexes
         dim = getoutputindex(mainconfig, get_datayear(db), get_weatheryear(db))
-        x1 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
-        x2 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
-        x3 = [getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + steplength*(t-1) for t in 1:steps]; # state resolution
+        x1 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
+        x2 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
+        x3 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + steplength*(t-1) for t in 1:steps]; # state resolution
 
         outputformat = mainconfig["outputformat"]
         if outputformat != "juliadict"

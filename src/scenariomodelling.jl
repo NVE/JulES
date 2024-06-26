@@ -9,7 +9,7 @@ mutable struct InflowClusteringMethod{T <: AbstractScenario} <: AbstractScenario
     inflowfactors::Vector{Float64}
     objects::Vector
     parts::Int
-    scendelta::MsTimeDelta
+    scendelta::TuLiPa.MsTimeDelta
 
     function InflowClusteringMethod(scenarios, objects, parts, scendelta)
         inflowfactors = Vector{Float64}(undef, length(scenarios))
@@ -27,7 +27,7 @@ mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenari
     b::Float64 # parameter
     c::Float64 # parameter
     usedensity::Bool # parameter
-    scendelta::MsTimeDelta # parameter
+    scendelta::TuLiPa.MsTimeDelta # parameter
     function SumInflowQuantileMethod(scenarios, objects, maxquantile, a, b, c, scendelta; usedensity=false)
         inflowfactors = Vector{Float64}(undef, length(scenarios))
         return new{eltype(scenarios)}(scenarios, inflowfactors, objects, maxquantile, a, b, c, scendelta, usedensity)
@@ -61,7 +61,7 @@ end
 get_inflowfactors(scenmod::AbstractScenarioModellingMethod) = [1/length(scenmod.scenarios) for s in 1:length(scenmod.scenarios)]
 get_inflowfactors(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = scenmod.inflowfactors
 
-function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
+function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::TuLiPa.ProbTime, input::AbstractJulESInput)
     numscen = length(scenmod.scenarios)
     scenariooptions = get_scenarios(scenmodmethodoptions)
     weightsoptions = [get_probability(scenario) for scenario in scenariooptions]
@@ -71,15 +71,15 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     totalsumenergyinflow = zeros(length(scenariooptions))
     for obj in scenmod.objects
         if obj isa Balance
-            if getinstancename(getid(getcommodity(obj))) == "Hydro"
+            if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
-                if haskey(obj.metadata, GLOBALENEQKEY)
-                    enekvglobal = obj.metadata[GLOBALENEQKEY]
+                if haskey(obj.metadata, TuLiPa.GLOBALENEQKEY)
+                    enekvglobal = obj.metadata[TuLiPa.GLOBALENEQKEY]
                 end
-                for rhsterm in getrhsterms(obj)
+                for rhsterm in TuLiPa.getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
                         time = get_scentnormal(simtime, scenario, input)
-                        totalsumenergyinflow[i] += getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*factoroptions[i]
+                        totalsumenergyinflow[i] += TuLiPa.getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*factoroptions[i]
                     end
                 end
             end
@@ -117,7 +117,7 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     return
 end
 
-function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::ProbTime, input::AbstractJulESInput)
+function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::TuLiPa.ProbTime, input::AbstractJulESInput)
     numscen = length(scenmod.scenarios)
     scenariooptions = get_scenarios(scenmodmethodoptions)
     weightsoptions = [get_probability(scenario) for scenario in scenariooptions]
@@ -131,18 +131,18 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
 	parts = scenmod.parts
 
     for obj in scenmod.objects
-        if obj isa Balance
-            if getinstancename(getid(getcommodity(obj))) == "Hydro"
+        if obj isa TuLiPa.Balance
+            if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
-                if haskey(obj.metadata, GLOBALENEQKEY)
-                    enekvglobal = obj.metadata[GLOBALENEQKEY]
+                if haskey(obj.metadata, TuLiPa.GLOBALENEQKEY)
+                    enekvglobal = obj.metadata[TuLiPa.GLOBALENEQKEY]
                 end
-                for rhsterm in getrhsterms(obj)
+                for rhsterm in TuLiPa.getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
                         time = get_scentnormal(simtime, scenario, input)
-                        sumenergyinflow[i] += getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*inflowfactoroptions[i]
+                        sumenergyinflow[i] += TuLiPa.getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*inflowfactoroptions[i]
                         for j in 1:parts
-                            partsumenergyinflow[j,i] += getparamvalue(rhsterm, time + scendeltapart*(j-1), scendeltapart)*enekvglobal*inflowfactoroptions[i]
+                            partsumenergyinflow[j,i] += TuLiPa.getparamvalue(rhsterm, time + scendeltapart*(j-1), scendeltapart)*enekvglobal*inflowfactoroptions[i]
                         end
                     end
                 end
@@ -195,13 +195,13 @@ function perform_scenmod!(scenmod::Union{InflowClusteringMethod{WeatherScenario}
     inflowfactors = get_inflowfactors(scenmod)
     inflowfactors[scenix] == 1.0 && return
     for obj in objects
-        if obj isa BaseBalance
-            if getinstancename(getid(getcommodity(obj))) == "Hydro"
-                for rhsterm in getrhsterms(obj)
-                    if rhsterm.param isa TwoProductParam
-                        rhsterm.param = TwoProductParam(rhsterm.param.param1, ConstantParam(inflowfactors[scenix]))
+        if obj isa TuLiPa.BaseBalance
+            if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
+                for rhsterm in TuLiPa.getrhsterms(obj)
+                    if rhsterm.param isa TuLiPa.TwoProductParam
+                        rhsterm.param = TuLiPa.TwoProductParam(rhsterm.param.param1, TuLiPa.ConstantParam(inflowfactors[scenix]))
                     else
-                        rhsterm.param = TwoProductParam(rhsterm.param, ConstantParam(inflowfactors[scenix]))
+                        rhsterm.param = TuLiPa.TwoProductParam(rhsterm.param, TuLiPa.ConstantParam(inflowfactors[scenix]))
                     end
                 end
             end

@@ -4,6 +4,8 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
 
     startduration = Millisecond(0)
     endduration = parse_duration(settings["horizons"]["clearing"], "termduration")
+
+    # TODO: Not use ifm here as in clearnig?
     modelobjects = make_modelobjects_stochastic(db, scenix, subix, startduration, endduration, true)
 
     maxcuts = settings["problems"]["stochastic"]["maxcuts"] # preallocate fixed number of cuts, no cut selection
@@ -15,7 +17,7 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     cuts.statevars = [var for (var, value) in states] # TODO: Find better way of getting same order in states and cuts.statevars
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["master"]["solver"])
-    prob = buildprob(probmethod, modelobjects)
+    prob = TuLiPa.buildprob(probmethod, modelobjects)
 
     div = Dict()
     div[MainTiming] = zeros(4)
@@ -43,7 +45,7 @@ function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     states = get_states(modelobjects) # different order than mp.cuts.statevars, so only use length
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
-    prob = buildprob(probmethod, modelobjects)
+    prob = TuLiPa.buildprob(probmethod, modelobjects)
 
     div = Dict()
     div[MainTiming] = zeros(3)
@@ -66,11 +68,11 @@ function solve_stoch(t, stepnr, skipmed)
 
                 maintiming[4] = @elapsed begin
                     update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
-                    set_startstates!(mp.prob, getstorages(getobjects(mp.prob)), db.startstates)
+                    set_startstates!(mp.prob, TuLiPa.getstorages(TuLiPa.getobjects(mp.prob)), db.startstates)
                     update_prices_mp(stepnr, subix)
                     update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, settings)
                 end
-                maintiming[1] = @elapsed update!(mp.prob, t)
+                maintiming[1] = @elapsed TuLiPa.update!(mp.prob, t)
 
                 @sync for _core in get_cores(db)
                     @spawnat _core update_sps(t, stepnr, subix)
@@ -102,11 +104,11 @@ end
 
 # Util functions for solve_stoch ----------------------------------------------------------------------------------------------
 
-function final_solve_mp(t::ProbTime, prob, cuts, storagevalues, settings)
+function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
     if get_headlosscost(settings["problems"]["stochastic"]["master"])
-        updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
-        solve!(prob)
-        resetheadlosscosts!(prob)
+        TuLiPa.updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
+        TuLiPa.solve!(prob)
+        TuLiPa.resetheadlosscosts!(prob)
         settings["results"]["storagevalues"] && final_save_storagevalues(prob, cuts, storagevalues, settings)
     end
 end 
@@ -114,12 +116,12 @@ end
 function final_save_storagevalues(prob, cuts, storagevalues, settings)
     if settings["results"]["storagevalues"]
         for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
-            obj = get_obj_from_id(cuts.objects, first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
-            balance = getbalance(obj)
+            obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+            balance = TuLiPa.getbalance(obj)
 
-            storagevalues[length(cuts.probabilities)*2 + 2, j] = getcondual(prob, getid(balance), getnumperiods(gethorizon(balance)))
-            if haskey(balance.metadata, GLOBALENEQKEY)
-                storagevalues[length(cuts.probabilities)*2 + 2, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[GLOBALENEQKEY]
+            storagevalues[length(cuts.probabilities)*2 + 2, j] = TuLiPa.getcondual(prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+            if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+                storagevalues[length(cuts.probabilities)*2 + 2, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
             end
         end
     end
@@ -129,28 +131,28 @@ end
 
 function save_storagevalues(prob, cuts, storagevalues)
     for (j, statevar) in enumerate(cuts.statevars)
-        obj = get_obj_from_id(cuts.objects, first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
-        balance = getbalance(obj)
+        obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+        balance = TuLiPa.getbalance(obj)
         for i in 1:length(cuts.probabilities) # scenario storage values
             minslope = 0
             maxslope = -1e9
-            for k in 1:getnumcuts(cuts)
+            for k in 1:TuLiPa.getnumcuts(cuts)
                 val = cuts.scenslopes[i,k,j]
                 minslope = min(minslope, val)
                 maxslope = max(maxslope, val)
             end
-            if haskey(balance.metadata, GLOBALENEQKEY)
-                minslope = minslope / balance.metadata[GLOBALENEQKEY]
-                maxslope = maxslope / balance.metadata[GLOBALENEQKEY]
+            if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+                minslope = minslope / balance.metadata[TuLiPa.GLOBALENEQKEY]
+                maxslope = maxslope / balance.metadata[TuLiPa.GLOBALENEQKEY]
             end
             storagevalues[(i-1)*2+1, j] = minslope
             storagevalues[(i-1)*2+2, j] = maxslope
         end
 
         # master / operative water values
-        storagevalues[length(cuts.probabilities)*2 + 1, j] = getcondual(prob, getid(balance), getnumperiods(gethorizon(balance)))
-        if haskey(balance.metadata, GLOBALENEQKEY)
-            storagevalues[length(cuts.probabilities)*2 + 1, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[GLOBALENEQKEY]
+        storagevalues[length(cuts.probabilities)*2 + 1, j] = TuLiPa.getcondual(prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+        if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+            storagevalues[length(cuts.probabilities)*2 + 1, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
         end
     end
     return
@@ -173,34 +175,34 @@ function solve_benders(stepnr, subix)
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-        count == 0 && setwarmstart!(mp.prob, false)
+        count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
 
         maintiming[2] += @elapsed begin
             if cutreuse # try to reuse cuts from last time step
                 try
-                    solve!(mp.prob)
+                    TuLiPa.solve!(mp.prob)
                 catch
                     count == 0 && println("Retrying first iteration without cuts from last time step")
                     count > 0 && println("Restarting iterations without cuts from last time step")
-                    clearcuts!(mp.prob, mp.cuts)
-                    solve!(mp.prob)
+                    TuLiPa.clearcuts!(mp.prob, mp.cuts)
+                    TuLiPa.solve!(mp.prob)
                     cutreuse = false
                 end
             else
-                solve!(mp.prob)
+                TuLiPa.solve!(mp.prob)
             end
         end
 
         maintiming[4] += @elapsed begin
-            lb = getvarvalue(mp.prob, getfuturecostvarid(mp.cuts), 1)
+            lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
             ub = 0.0
 
-            count == 0 && setwarmstart!(mp.prob, true)
-            (count == 0 && cutreuse) && clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
+            count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
+            (count == 0 && cutreuse) && TuLiPa.clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
             
-            getoutgoingstates!(mp.prob, mp.states)
-            cutix = getcutix(mp.cuts) + 1
-            if cutix > getmaxcuts(mp.cuts)
+            TuLiPa.getoutgoingstates!(mp.prob, mp.states)
+            cutix = TuLiPa.getcutix(mp.cuts) + 1
+            if cutix > TuLiPa.getmaxcuts(mp.cuts)
                 cutix = 1
             end
         end
@@ -222,8 +224,8 @@ function solve_benders(stepnr, subix)
                 mp.cuts.scenconstants[scenix, cutix] = scenconstant
             end
         
-            updatecutparameters!(mp.prob, mp.cuts)
-            updatelastcut!(mp.prob, mp.cuts)
+            TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
+            TuLiPa.updatelastcut!(mp.prob, mp.cuts)
             count += 1
         end
     end
@@ -236,12 +238,12 @@ function solve_sp(scenix, subix, states)
     sp = db.sp[(scenix, subix)]
     maintiming = sp.div[MainTiming]
 
-    maintiming[3] += @elapsed setingoingstates!(sp.prob, states)
-    maintiming[2] += @elapsed solve!(sp.prob)
+    maintiming[3] += @elapsed TuLiPa.setingoingstates!(sp.prob, states)
+    maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
         get_scencutparameters!(sp, states)
 
-        objectivevalue = getobjectivevalue(sp.prob)
+        objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
         scenslopes = sp.scenslopes
         scenconstant = sp.scenconstant
     end
@@ -249,12 +251,12 @@ function solve_sp(scenix, subix, states)
 end
 
 # TODO: Simplify TuLiPa version of getscencutparameters?
-function get_scencutparameters!(sp::ScenarioProblem, states::Dict{StateVariableInfo, Float64})
-    sp.scenconstant = getobjectivevalue(sp.prob)
+function get_scencutparameters!(sp::ScenarioProblem, states::Dict{TuLiPa.StateVariableInfo, Float64})
+    sp.scenconstant = TuLiPa.getobjectivevalue(sp.prob)
 
     for (i, (statevar, value)) in enumerate(states)
-        (id, ix) = getvarin(statevar)
-        slope = getfixvardual(sp.prob, id, ix)
+        (id, ix) = TuLiPa.getvarin(statevar)
+        slope = TuLiPa.getfixvardual(sp.prob, id, ix)
         sp.scenconstant -= slope * value
         sp.scenslopes[i] = slope
     end
@@ -267,7 +269,7 @@ function update_sp(t, scenix, subix)
 
     sp = db.sp[(scenix, subix)]
     scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
-    update!(sp.prob, scentime)
+    TuLiPa.update!(sp.prob, scentime)
     return
 end
 
@@ -277,8 +279,8 @@ function update_statedependent_mp(stepnr, subsystem, prob, startstates, settings
         init = true
     end
 
-    get_statedependentprod(settings["problems"]["stochastic"]["master"]) && statedependentprod!(prob, startstates, init=init)
-    get_statedependentpump(settings["problems"]["stochastic"]["master"]) && statedependentpump!(prob, startstates)
+    get_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=init)
+    get_statedependentpump(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentpump!(prob, startstates)
     return
 end
 
@@ -289,7 +291,7 @@ function update_prices_mp(stepnr, subix)
     scenix = 1 # Which price to use for master problem?
 
     term_ppp = get_horizonterm_stoch(subsystem)
-    for obj in getobjects(mp.prob)
+    for obj in TuLiPa.getobjects(mp.prob)
         update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
     end
     return
@@ -301,16 +303,16 @@ function update_prices_sp(stepnr, scenix, subix)
     sp = db.sp[(scenix, subix)]
               
     term_ppp = get_horizonterm_stoch(subsystem)
-    for obj in getobjects(sp.prob)
+    for obj in TuLiPa.getobjects(sp.prob)
         update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
     end
     return
 end
 
 function update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
-    if obj isa ExogenBalance
-        periods = getperiods(gethorizon(obj))
-        bid = getid(obj)
+    if obj isa TuLiPa.ExogenBalance
+        periods = TuLiPa.getperiods(TuLiPa.gethorizon(obj))
+        bid = TuLiPa.getid(obj)
 
         isupdated = isupdated_prices(db, scenix, term_ppp, bid, stepnr)
         !isupdated && update_local_price(db, scenix, term_ppp, bid)
@@ -347,9 +349,9 @@ function isupdated_prices(db, scenix, term_ppp, bid, stepnr)
     end
 end
 
-function find_obj_by_id(objects::Any, bid::Id)
+function find_obj_by_id(objects::Any, bid::TuLiPa.Id)
     for obj in objects
-        if getid(obj) == bid
+        if TuLiPa.getid(obj) == bid
             return obj
         end
     end
@@ -362,9 +364,9 @@ function get_prices_from_core(scenix, term_ppp, bid)
     ppp = get_ppp_term(db.ppp[scenix], term_ppp)
 
     obj = find_obj_by_id(ppp.objects, bid)
-    horizon = gethorizon(obj)
+    horizon = TuLiPa.gethorizon(obj)
 
-    return [-getcondual(ppp, bid, t) for t in 1:getnumperiods(horizon)]
+    return [-TuLiPa.getcondual(ppp, bid, t) for t in 1:TuLiPa.getnumperiods(horizon)]
 end
 
 function get_ppp_term(ppp, term::TermName)
@@ -383,7 +385,7 @@ function perform_scenmod_sp(scenix, subix)
     sp = db.sp[(scenix, subix)]
 
     scenmod_stoch = get_scenmod_stoch(db)
-    perform_scenmod!(scenmod_stoch, scenix, getobjects(sp.prob))
+    perform_scenmod!(scenmod_stoch, scenix, TuLiPa.getobjects(sp.prob))
     return
 end
 
@@ -395,34 +397,34 @@ function update_endconditions_sp(scenix, subix)
 
     endvaluemethod_sp = get_endvaluemethod_sp(subsystem)
 
-    storages = getstorages(getobjects(sp.prob))
+    storages = TuLiPa.getstorages(TuLiPa.getobjects(sp.prob))
     if endvaluemethod_sp == "monthly_price"
-        exogenprice = findfirstprice(getobjects(sp.prob))
+        exogenprice = findfirstprice(TuLiPa.getobjects(sp.prob))
         scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
-        scenprice = getparamvalue(exogenprice, scentime + getduration(gethorizon(storages[1])), MsTimeDelta(Week(4))) 
+        scenprice = TuLiPa.getparamvalue(exogenprice, scentime + TuLiPa.getduration(TuLiPa.gethorizon(storages[1])), TuLiPa.MsTimeDelta(Week(4))) 
 
         for obj in storages
-            enddual = scenprice * getbalance(obj).metadata[GLOBALENEQKEY]
-            T = getnumperiods(gethorizon(getbalance(obj)))
-            setobjcoeff!(sp.prob, getid(obj), T, -enddual)
+            enddual = scenprice * TuLiPa.getbalance(obj).metadata[TuLiPa.GLOBALENEQKEY]
+            T = TuLiPa.getnumperiods(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
+            TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), T, -enddual)
         end
     elseif endvaluemethod_sp == "startequalstop"
-        setendstates!(sp.prob, storages, db.startstates)
+        TuLiPa.setendstates!(sp.prob, storages, db.startstates)
     elseif endvaluemethod_sp == "evp" # TODO: Store bid and period in sp (or subsystem?)
         core_evp = get_core_evp(db, scenix, subix)
         for obj in storages
-            commodityname = getinstancename(getid(getcommodity(getbalance(obj))))
-            horizon_sp = gethorizon(getbalance(obj))
-            duration_stoch = getdurationtoend(horizon_sp)
+            commodityname = TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(TuLiPa.getbalance(obj))))
+            horizon_sp = TuLiPa.gethorizon(TuLiPa.getbalance(obj))
+            duration_stoch = TuLiPa.getdurationtoend(horizon_sp)
             term_evp = get_horizonterm_evp(subsystem)
             horizon_evp = db.horizons[(scenix, term_evp, commodityname)]
-            period_evp = getendperiodfromduration(horizon_evp, duration_stoch)
-            bid = getid(getbalance(obj))
+            period_evp = TuLiPa.getendperiodfromduration(horizon_evp, duration_stoch)
+            bid = TuLiPa.getid(TuLiPa.getbalance(obj))
             future = @spawnat core_evp get_balancedual_evp(scenix, subix, bid, period_evp)
             dual_evp = fetch(future)
 
-            period_sp = getnumperiods(horizon_sp)
-            setobjcoeff!(sp.prob, getid(obj), period_sp, dual_evp)
+            period_sp = TuLiPa.getnumperiods(horizon_sp)
+            TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), period_sp, dual_evp)
         end
     end # TODO: Endvalue from ppp
 
@@ -441,7 +443,7 @@ function get_balancedual_evp(scenix, subix, bid, period)
     db = get_local_db()
 
     evp = db.evp[(scenix, subix)]
-    dual_evp = getcondual(evp.prob, bid, period)
+    dual_evp = TuLiPa.getcondual(evp.prob, bid, period)
     return dual_evp
 end
 
@@ -460,12 +462,12 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
 
     add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
 
-    modelobjects = getmodelobjects(subelements, validate=false)
+    modelobjects = TuLiPa.getmodelobjects(subelements, validate=false)
 
     if master && (get_horizonterm_stoch(subsystem) == ShortTermName) 
         # Removes spills from upper and lower storages in PHS, to avoid emptying reservoirs in master problem. TODO: Find better solution
         for id in keys(modelobjects)
-            instance = getinstancename(id)
+            instance = TuLiPa.getinstancename(id)
             if occursin("Spill", instance) && occursin("_PHS_", instance)
                 pop!(modelobjects, id)
             end
@@ -476,7 +478,7 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
-function change_elements!(elements::Vector{DataElement}; aggzonecopl::Dict=Dict()) # TODO: Replace with more user settings    
+function change_elements!(elements::Vector{TuLiPa.DataElement}; aggzonecopl::Dict=Dict()) # TODO: Replace with more user settings    
     delix = []
     powerbasebalances = []
     for (i,element) in enumerate(elements)
@@ -486,7 +488,7 @@ function change_elements!(elements::Vector{DataElement}; aggzonecopl::Dict=Dict(
             if element.value["Balance"] in keys(aggzonecopl)
                 value = copy(element.value)
                 value["Balance"] = aggzonecopl[element.value["Balance"]]
-                elements[i] = DataElement(element.conceptname, element.typename, element.instancename, value)
+                elements[i] = TuLiPa.DataElement(element.conceptname, element.typename, element.instancename, value)
             end
         end
 
@@ -508,10 +510,10 @@ function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
             pricearea = aggzonecopl[element.value["Balance"]]
         end
 
-        push!(elements, getelement(BALANCE_CONCEPT, "ExogenBalance", pricearea, 
-        (COMMODITY_CONCEPT, "Power"),
-        (PRICE_CONCEPT, "Price_" * pricearea)))
-        push!(elements, getelement(PRICE_CONCEPT, "VectorPrice", "Price_" * pricearea,
+        push!(elements, TuLiPa.getelement(TuLiPa.BALANCE_CONCEPT, "ExogenBalance", pricearea, 
+        (TuLiPa.COMMODITY_CONCEPT, "Power"),
+        (TuLiPa.PRICE_CONCEPT, "Price_" * pricearea)))
+        push!(elements, TuLiPa.getelement(TuLiPa.PRICE_CONCEPT, "VectorPrice", "Price_" * pricearea,
         ("Vector", zeros(Float64, numperiods_powerhorizon))))
     end
     return 
@@ -528,19 +530,25 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
         horizon = get_shortenedhorizon(horizons, scenix, term_ppp, commodity, startduration, endduration, stochastic, numscen_sim, numscen_stoch)
         set_horizon!(subelements, commodity, horizon)
         if commodity == "Power"
-            numperiods_powerhorizon = getnumperiods(horizon)
+            numperiods_powerhorizon = TuLiPa.getnumperiods(horizon)
         end
     end
+
+    add_scenix_to_InflowParam(subelements, scenix)
+
     return subelements, numperiods_powerhorizon
 end
 
-get_subelements(db, subsystem::ExogenSubsystem) = copy(get_elements(db.input))
-function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
-    elements = get_elements(db.input)
-    return copy(elements[subsystem.dataelements])
+function get_subelements(db, subsystem::ExogenSubsystem)
+    return copy_elements_iprogtype(get_elements(db.input), get_iprogtype(db.input), get_ifm_replacemap(db.input))
 end
 
-function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
+function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
+    elements = get_elements(db.input)
+    return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_replacemap(db.input))
+end
+
+function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)
     if commodity == "Battery"
         subhorizon = horizons[(scenix, term, "Power")]
     else
@@ -549,25 +557,25 @@ function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, Commodi
     if startduration.value == 0
         startperiod = 1
     else
-        startperiod = getendperiodfromduration(subhorizon, startduration) + 1
+        startperiod = TuLiPa.getendperiodfromduration(subhorizon, startduration) + 1
     end
-    endperiod = getendperiodfromduration(subhorizon, endduration)
-    shortenedhorizon = ShortenedHorizon(subhorizon, startperiod, endperiod)
+    endperiod = TuLiPa.getendperiodfromduration(subhorizon, endduration)
+    shortenedhorizon = TuLiPa.ShortenedHorizon(subhorizon, startperiod, endperiod)
     if stochastic && (numscen_sim != numscen_stoch)
         # TODO: Could replace this with functionality that ignores mustupdate and shrinkatleast if scenario has changed between steps
-        shortenedhorizon = IgnoreMustupdateMayshiftfromHorizon(shortenedhorizon)
+        shortenedhorizon = TuLiPa.IgnoreMustupdateMayshiftfromHorizon(shortenedhorizon)
     end
     return shortenedhorizon
 end
 
 function initialize_cuts!(modelobjects::Vector, cutobjects::Vector, maxcuts::Int, lb::Float64, numscen::Int)
     # Make a cutid
-    cutname = getinstancename(getid(cutobjects[1]))
-    cutid = Id(BOUNDARYCONDITION_CONCEPT,"StorageCuts" * cutname)
+    cutname = TuLiPa.getinstancename(TuLiPa.getid(cutobjects[1]))
+    cutid = TuLiPa.Id(TuLiPa.BOUNDARYCONDITION_CONCEPT,"StorageCuts" * cutname)
     
     # Make cut modelobject
     probabilities = [1/numscen for i in 1:numscen]
-    cuts = SimpleSingleCuts(cutid, cutobjects, probabilities, maxcuts, lb)
+    cuts = TuLiPa.SimpleSingleCuts(cutid, cutobjects, probabilities, maxcuts, lb)
     push!(modelobjects, cuts)
     return cuts
 end
@@ -575,8 +583,8 @@ end
 function getcutobjects(modelobjects::Vector)
     cutobjects = Vector{Any}()
     for obj in modelobjects
-        if hasstatevariables(obj)
-            if length(getstatevariables(obj)) > 1
+        if TuLiPa.hasstatevariables(obj)
+            if length(TuLiPa.getstatevariables(obj)) > 1
                 error("Not supported") # TODO
             else
                 push!(cutobjects,obj)

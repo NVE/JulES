@@ -7,7 +7,7 @@ function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
     modelobjects = make_modelobjects_evp(db, scenix, subix, startduration, endduration)
 
     probmethod = parse_methods(settings["problems"]["endvalue"]["solver"])
-    prob = buildprob(probmethod, modelobjects)
+    prob = TuLiPa.buildprob(probmethod, modelobjects)
 
     div = Dict()
     div[MainTiming] = zeros(3)
@@ -28,14 +28,14 @@ function solve_evp(t, stepnr, skipmed)
             if skipmed_check(subsystem, skipmed)
                 maintiming[3] = @elapsed begin
                     # TODO: set nonstorage startstates
-                    set_startstates!(evp.prob, getstorages(getobjects(evp.prob)), db.startstates)
+                    set_startstates!(evp.prob, TuLiPa.getstorages(TuLiPa.getobjects(evp.prob)), db.startstates)
                     update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
                     update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem) # TODO: Do not input db
 
                     scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
-                    maintiming[1] = @elapsed update!(evp.prob, scentime)
+                    maintiming[1] = @elapsed TuLiPa.update!(evp.prob, scentime)
                     # TODO: perform_scenmod(), also for ppp?
-                    maintiming[2] = @elapsed solve!(evp.prob)
+                    maintiming[2] = @elapsed TuLiPa.solve!(evp.prob)
                 end
             end
         end
@@ -54,7 +54,7 @@ end
 
 function update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem)
     term_ppp = get_horizonterm_evp(subsystem)
-    for obj in getobjects(evp.prob)
+    for obj in TuLiPa.getobjects(evp.prob)
         update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
     end
 
@@ -64,22 +64,22 @@ end
 function update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem)
     endvaluemethod_ev = get_endvaluemethod_evp(subsystem)
 
-    storages = getstorages(getobjects(evp.prob))
+    storages = TuLiPa.getstorages(TuLiPa.getobjects(evp.prob))
     if endvaluemethod_ev == "startequalstop"
-        setendstates!(evp.prob, storages, startstates)
+        TuLiPa.setendstates!(evp.prob, storages, startstates)
     elseif endvaluemethod_ev == "ppp"
         detailedrescopl = get_dataset(db)["detailedrescopl"]
         enekvglobaldict = get_dataset(db)["enekvglobaldict"]
         for obj in storages
-            balance = getbalance(obj)
-            commodityname = getinstancename(getid(getcommodity(balance)))
-            bid = getid(balance)
-            instancename = split(getinstancename(bid), "Balance_")
+            balance = TuLiPa.getbalance(obj)
+            commodityname = TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(balance)))
+            bid = TuLiPa.getid(balance)
+            instancename = split(TuLiPa.getinstancename(bid), "Balance_")
             if haskey(detailedrescopl, instancename[2])
                 balancename = detailedrescopl[instancename[2]]
-                bid = Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
+                bid = TuLiPa.Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
             end
-            endperiod = gethorizon(getbalance(obj)).ix_stop
+            endperiod = TuLiPa.gethorizon(TuLiPa.getbalance(obj)).ix_stop
             term_ppp = get_horizonterm_evp(subsystem)
             core_ppp = get_core_ppp(db, scenix)
             future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, endperiod, term_ppp)
@@ -88,7 +88,7 @@ function update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem)
                 dual_ppp *= enekvglobaldict[instancename[2]]
             end
 
-            setobjcoeff!(evp.prob, getid(obj), endperiod, dual_ppp)
+            TuLiPa.setobjcoeff!(evp.prob, TuLiPa.getid(obj), endperiod, dual_ppp)
         end
     end
 
@@ -100,11 +100,11 @@ function get_balancedual_ppp(scenix, bid, period, term_ppp)
 
     ppp = db.ppp[scenix]
     if term_ppp == LongTermName
-        return getcondual(ppp.longprob, bid, period)
+        return TuLiPa.getcondual(ppp.longprob, bid, period)
     elseif term_ppp == MedTermName
-        return getcondual(ppp.medprob, bid, period)
+        return TuLiPa.getcondual(ppp.medprob, bid, period)
     elseif term_ppp == ShortTermName
-        return getcondual(ppp.shortprob, bid, period)
+        return TuLiPa.getcondual(ppp.shortprob, bid, period)
     end
 end
 
@@ -119,7 +119,7 @@ function make_modelobjects_evp(db, scenix, subix, startduration, endduration)
 
     add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
 
-    modelobjects = getmodelobjects(subelements, validate=false)
+    modelobjects = TuLiPa.getmodelobjects(subelements, validate=false)
 
     return modelobjects
 end
