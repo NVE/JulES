@@ -481,9 +481,9 @@ function get_commodities_from_dataelements(elements::Vector{TuLiPa.DataElement})
     return commodities
 end
 
-function get_obj_from_id(objects::Vector, id::Id)
+function get_obj_from_id(objects::Vector, id::TuLiPa.Id)
     for obj in objects
-        if getid(obj) == id
+        if TuLiPa.getid(obj) == id
             return obj
         end
     end

@@ -104,11 +104,11 @@ end
 
 # Util functions for solve_stoch ----------------------------------------------------------------------------------------------
 
-function final_solve_mp(t::ProbTime, prob, cuts, storagevalues, settings)
+function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
     if get_headlosscost(settings["problems"]["stochastic"]["master"])
-        updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
-        solve!(prob)
-        resetheadlosscosts!(prob)
+        TuLiPa.updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
+        TuLiPa.solve!(prob)
+        TuLiPa.resetheadlosscosts!(prob)
         settings["results"]["storagevalues"] && final_save_storagevalues(prob, cuts, storagevalues, settings)
     end
 end 
