@@ -193,6 +193,13 @@ function get_cutsdata(subix)
     return (cuts.id, cuts.constants, cuts.slopes)
 end
 
+function get_cutsid(subix)
+    db = get_local_db()
+
+    cuts = db.mp[subix].cuts
+    return cuts.id
+end
+
 function update_startstates_cp(db, stepnr, t)
     if stepnr == 1 # Non storage startstates free in first step
         set_startstates!(db.cp.prob, TuLiPa.getstorages(TuLiPa.getobjects(db.cp.prob)), db.startstates)

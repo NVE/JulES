@@ -481,6 +481,14 @@ function get_commodities_from_dataelements(elements::Vector{TuLiPa.DataElement})
     return commodities
 end
 
+function get_obj_from_id(objects::Vector, id::Id)
+    for obj in objects
+        if getid(obj) == id
+            return obj
+        end
+    end
+end
+
 function get_commodities_from_storagesystem(storagesystem::Vector)
     commodities = Set{CommodityName}()
     for obj in storagesystem
