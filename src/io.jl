@@ -636,14 +636,14 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
             if haskey(settings["problems"], "clearing")
                 cutid = fetch(@spawnat core get_cutsid(subix))
-                cuts = get_obj_from_id(getobjects(db.cp.prob), cutid)
+                cuts = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), cutid)
                 for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
-                    obj = get_obj_from_id(getobjects(db.cp.prob), first(getvarout(statevar))) # TODO: OK to assume objid = varoutid?
-                    balance = getbalance(obj)
+                    obj = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+                    balance = TuLiPa.getbalance(obj)
 
-                    db.output.storagevalues[subix][stepnr, dim+1, j] = getcondual(db.cp.prob, getid(balance), getnumperiods(gethorizon(balance)))
-                    if haskey(balance.metadata, GLOBALENEQKEY)
-                        db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[GLOBALENEQKEY]
+                    db.output.storagevalues[subix][stepnr, dim+1, j] = TuLiPa.getcondual(db.cp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+                    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+                        db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
                     end
                 end
             end
