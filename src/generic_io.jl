@@ -7,10 +7,6 @@ How price prognosis problems (ppp) are distributed on cores initially
 """
 
 
-function testing()
-    println("test")
-    println("Hei maria")
-end
 
 function get_dist_ppp(input::AbstractJulESInput)
     cores = get_cores(input)
