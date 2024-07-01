@@ -426,7 +426,29 @@ function update_endconditions_sp(scenix, subix)
             period_sp = TuLiPa.getnumperiods(horizon_sp)
             TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), period_sp, dual_evp)
         end
-    end # TODO: Endvalue from ppp
+    elseif endvaluemethod_sp == "ppp"
+        detailedrescopl = get_dataset(db)["detailedrescopl"]
+        enekvglobaldict = get_dataset(db)["enekvglobaldict"]
+        for obj in storages
+            balance = TuLiPa.getbalance(obj)
+            bid = TuLiPa.getid(balance)
+            instancename = split(TuLiPa.getinstancename(bid), "Balance_")
+            if haskey(detailedrescopl, instancename[2])
+                balancename = detailedrescopl[instancename[2]]
+                bid = TuLiPa.Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
+            end
+            endperiod = TuLiPa.getlastperiod(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
+            term_ppp = get_horizonterm_stoch(subsystem)
+            core_ppp = get_core_ppp(db, scenix)
+            future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, endperiod, term_ppp)
+            dual_ppp = fetch(future)
+            if haskey(enekvglobaldict, instancename[2])
+                dual_ppp *= enekvglobaldict[instancename[2]]
+            end
+
+            TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), endperiod, dual_ppp)
+        end
+    end
 
     return
 end

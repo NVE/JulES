@@ -298,8 +298,8 @@ function create_subsystems(db)
                     if _add
                         for _dep in _deps
                             if !(_dep in all)
-                                elkey = getelkey(elements[_dep])
-                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                elkey = TuLiPa.getelkey(elements[_dep])
+                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
                                     # println(elkey)
                                     push!(all, _dep)
                                 end
@@ -403,16 +403,20 @@ function create_subsystems(db)
                 #     end
                 # end
                 # println(length(completed))
-                    
-                longevduration = parse_duration(settings["subsystems"], "longevduration")
-                horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
 
                 longstochduration = parse_duration(settings["subsystems"], "longstochduration")
                 horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
 
                 priceareas = get_priceareas(storagesystem)
-                skipmed_impact = true
-                subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                skipmed_impact = true    
+                if haskey(settings["subsystems"], "longevduration")
+                    longevduration = parse_duration(settings["subsystems"], "longevduration")
+                    horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
+
+                    subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                else
+                    subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                end
                 push!(subsystems, subsystem)
             end
         else
