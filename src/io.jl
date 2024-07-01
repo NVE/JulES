@@ -760,7 +760,7 @@ function get_output_storagevalues_local(output, steplength, skipmax)
         substoragenames = fetch(@spawnat core get_storagenames_from_subix(subix))
         storagenames = vcat(storagenames, substoragenames)
         short = !get_skipmed_impact(db.subsystems[subix])
-        for substoragename in storagenames
+        for substoragename in substoragenames
             push!(shorts, short)
         end
     end
@@ -788,7 +788,7 @@ function get_storagenames_from_subix(subix)
     
     storagenames = []
     for (j, statevar) in enumerate(db.mp[subix].cuts.statevars)
-        push!(storagenames, getinstancename(first(getvarout(statevar))))
+        push!(storagenames, TuLiPa.getinstancename(first(TuLiPa.getvarout(statevar))))
     end
     return storagenames
 end
@@ -855,17 +855,23 @@ function get_output_timing_local(data, steplength, skipmax)
     end
     df_evp[!, :other] = df_evp[!, :total] - df_evp[!, :solve] - df_evp[!, :update]
     df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .* skipfactor
-    df_evp_subix = combine(groupby(df_evp, [:subix]), 
-    :update => sum => :evp_u, 
-    :solve => sum => :evp_s, 
-    :other => sum => :evp_o,
-    :total => sum => :evp_tot)
-    timings_evp = mean.(eachcol(select(df_evp_subix, Not([:subix, :evp_o]))))
-    df_evp_core = combine(groupby(df_evp, [:core]), 
-    :update => sum => :evp_u, 
-    :solve => sum => :evp_s, 
-    :other => sum => :evp_o,
-    :total => sum => :evp_tot)
+    if nrow(df_evp) != 0
+        df_evp_subix = combine(groupby(df_evp, [:subix]), 
+        :update => sum => :evp_u, 
+        :solve => sum => :evp_s, 
+        :other => sum => :evp_o,
+        :total => sum => :evp_tot)
+        timings_evp = mean.(eachcol(select(df_evp_subix, Not([:subix, :evp_o]))))
+        df_evp_core = combine(groupby(df_evp, [:core]), 
+        :update => sum => :evp_u, 
+        :solve => sum => :evp_s, 
+        :other => sum => :evp_o,
+        :total => sum => :evp_tot)
+    else
+        df_evp_subix = DataFrame([name => [] for name in ["subix", "evp_u", "evp_s", "evp_o", "evp_tot"]])
+        timings_evp = [0.0, 0.0, 0.0]
+        df_evp_core = DataFrame([name => [] for name in ["core", "evp_u", "evp_s", "evp_o", "evp_tot"]])
+    end
     # TODO: df_evp_scen
 
     df_mp = DataFrame([name => [] for name in ["subix", "mp_u", "mp_s", "mp_fin", "mp_o", "core", "skipmed"]])

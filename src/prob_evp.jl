@@ -45,11 +45,11 @@ end
 
 function skipmed_check(subsystem, skipmed)
     if get_skipmed_impact(subsystem)
-        if skipmed.value == 0
-            return true
+        if skipmed.value != 0
+            return false
         end
     end
-    return false
+    return true
 end
 
 function update_prices_evp(stepnr, skipmed, db, scenix, subix, evp, subsystem)
@@ -72,7 +72,6 @@ function update_endstates_evp(skipmed, db, scenix, subix, evp, subsystem)
         enekvglobaldict = get_dataset(db)["enekvglobaldict"]
         for obj in storages
             balance = TuLiPa.getbalance(obj)
-            commodityname = TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(balance)))
             bid = TuLiPa.getid(balance)
             instancename = split(TuLiPa.getinstancename(bid), "Balance_")
             if haskey(detailedrescopl, instancename[2])
