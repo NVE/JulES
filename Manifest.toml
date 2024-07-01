@@ -1512,7 +1512,9 @@ version = "1.4.0"
 
 [[deps.TuLiPa]]
 deps = ["CSV", "Clustering", "DataFrames", "Dates", "HiGHS", "Interpolations", "JSON", "JuMP", "PrecompileTools", "Random", "Statistics", "Test"]
-path = "X:\\Prosjekter\\2022_FoU_markedsmodell_julia\\Brukere\\haen\\TuLiPa"
+git-tree-sha1 = "07d71461a1305a91d96e9e2dffea61779a562295"
+repo-rev = "redesign_JulES"
+repo-url = "https://github.com/NVE/TuLiPa.git"
 uuid = "970f5c25-cd7d-4f04-b50d-7a4fe2af6639"
 version = "0.1.0"
 
