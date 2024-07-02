@@ -752,7 +752,7 @@ function get_output_storagevalues_local(output, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
 
-    storagevalues = Float64[]
+    storagevalues = []
     storagenames = String[]
     shorts = Bool[]
     for (subix, core) in get_dist_mp(db)
@@ -786,7 +786,7 @@ end
 function get_storagenames_from_subix(subix)
     db = get_local_db()
     
-    storagenames = []
+    storagenames = String[]
     for (j, statevar) in enumerate(db.mp[subix].cuts.statevars)
         push!(storagenames, TuLiPa.getinstancename(first(TuLiPa.getvarout(statevar))))
     end
