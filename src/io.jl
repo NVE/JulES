@@ -754,7 +754,7 @@ function get_output_storagevalues_local(output, steplength, skipmax)
 
     storagevalues = []
     storagenames = []
-    shorts = []
+    shorts = Bool[]
     for (subix, core) in get_dist_mp(db)
         push!(storagevalues, db.output.storagevalues[subix])
         substoragenames = fetch(@spawnat core get_storagenames_from_subix(subix))
