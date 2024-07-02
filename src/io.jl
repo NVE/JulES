@@ -752,8 +752,8 @@ function get_output_storagevalues_local(output, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
 
-    storagevalues = []
-    storagenames = []
+    storagevalues = Float64[]
+    storagenames = String[]
     shorts = Bool[]
     for (subix, core) in get_dist_mp(db)
         push!(storagevalues, db.output.storagevalues[subix])
