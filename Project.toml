@@ -18,6 +18,7 @@ Lux = "b2108857-7c20-44ae-9111-449ecde12c47"
 OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TuLiPa = "970f5c25-cd7d-4f04-b50d-7a4fe2af6639"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
