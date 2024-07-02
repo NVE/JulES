@@ -97,8 +97,10 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     distribution_method = get_distribution_method(input)
    
 
-    if distribution_method == "random"
-        dist_mp = _distribute_subsystems_randomly!(subsystems_desc, cores)
+    if distribution_method == "randdumb"
+        dist_mp = _distribute_subsystems_randdumb!(subsystems_desc, cores)
+    elseif distribution_method == "random"
+        dist_mp = _distribute_subsystems_random!(subsystems_desc, cores)
     elseif distribution_method == "by_size"
         dist_mp = _distribute_subsystems_by_size!(subsystems_desc, cores)
     elseif distribution_method == "greedy"
@@ -159,7 +161,7 @@ end
 
         
 
-function _distribute_subsystems_randomly!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
+function _distribute_subsystems_randdumb!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
    
     
     dist = Tuple{SubsystemIx, CoreId}[]
@@ -176,6 +178,32 @@ function _distribute_subsystems_randomly!(subsystems::Vector{SubsystemIx}, cores
     return dist
 end
 
+#Random but on different cores
+function _distribute_subsystems_random!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
+   
+    
+    dist = Tuple{SubsystemIx, CoreId}[]
+
+    corelist = copy(cores)
+
+    #print(corelist)
+    
+    for sub_ix in subsystems
+        if isempty(corelist)
+            corelist = copy(cores)
+        end
+        #for i in 1:length(cores)
+            # Randomly select a core
+        core = rand(corelist)
+        filter!(x -> x != core, corelist)  # Remove the selected core from the list
+        print(corelist)
+        # Assign the subsystem to the randomly selected core
+        push!(dist, (sub_ix, core))
+        
+    end
+
+    return dist
+end
 
 
 function _distribute_subsystems_by_size!(subsystems::Vector{SubsystemIx}, cores::Vector{CoreId})
