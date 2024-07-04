@@ -408,8 +408,8 @@ function create_subsystems(db)
                 horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
 
                 priceareas = get_priceareas(storagesystem)
-                skipmed_impact = true    
-                if haskey(settings["subsystems"], "longevduration")
+                skipmed_impact = true  
+                if has_longevduration(settings)
                     longevduration = parse_duration(settings["subsystems"], "longevduration")
                     horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
 
@@ -424,6 +424,15 @@ function create_subsystems(db)
         end
     end
     return subsystems
+end
+
+function has_longevduration(settings)
+    for key in keys(settings["subsystems"])
+        if startswith(key, "longevduration")
+            return true
+        end
+    end
+    return false  
 end
 
 # Which time resolution (short, med, long) should we use horizons and prices from
