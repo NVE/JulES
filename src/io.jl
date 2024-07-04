@@ -527,6 +527,14 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
 
     storagevalues::Dict
 
+    prices_balances::Vector{TuLiPa.Id}
+    prices_long::Array{Float64}
+    deltas_long::Array{Float64}
+    prices_med::Array{Float64}
+    deltas_med::Array{Float64}
+    prices_short::Array{Float64}
+    deltas_short::Array{Float64}
+
     # TODO: info on scenix -> scenario for each step
 
     prices::Array{Float64}
@@ -555,6 +563,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     function DefaultJulESOutput(input)
         return new(Dict(),Dict(),Dict(),Dict(),[],
         Dict(),
+        [],[],[],[],[],[],[],
         [],[],[],[],[],[],
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
     end
@@ -599,6 +608,48 @@ function init_local_output()
 
     db.output.timing_cp = zeros(steps, 3)
 
+    if haskey(settings["results"], "prices_ppp")
+        collect_interval = settings["results"]["prices_ppp"]
+        collect_steps = div(steps, collect_interval) + 1
+
+        for (id, obj) in first(get_dummyobjects_ppp(db))
+            if obj isa TuLiPa.BaseBalance
+                if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Power"
+                    push!(db.output.prices_balances, id)
+                end
+            end
+        end
+        num_balances = length(db.output.prices_balances)
+
+        numperiods_long = TuLiPa.getnumperiods(get_horizons(db.input)[(LongTermName, "Power")])
+        db.output.prices_long = zeros(collect_steps, num_balances, get_numscen_stoch(db.input), numperiods_long)
+        db.output.deltas_long = zeros(collect_steps, numperiods_long)
+
+        numperiods_med = TuLiPa.getnumperiods(get_horizons(db.input)[(MedTermName, "Power")])
+        db.output.prices_med = zeros(collect_steps, num_balances, get_numscen_stoch(db.input), numperiods_med)
+        db.output.deltas_med = zeros(collect_steps, numperiods_med)
+
+        numperiods_short = TuLiPa.getnumperiods(get_horizons(db.input)[(ShortTermName, "Power")])
+        db.output.prices_short = zeros(collect_steps, num_balances, get_numscen_stoch(db.input), numperiods_short)
+        db.output.deltas_short = zeros(collect_steps, numperiods_short)
+
+        @sync for (scenix, core) in db.dist_ppp
+            @spawnat core init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
+        end
+    end
+end
+
+function init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
+    db = get_local_db()
+
+    div = db.ppp[scenix].div
+    div["prices_long"] = zeros(num_balances, numperiods_long)
+    div["prices_med"] = zeros(num_balances, numperiods_med)
+    div["prices_short"] = zeros(num_balances, numperiods_short)
+    div["deltas_long"] = zeros(numperiods_long)
+    div["deltas_med"] = zeros(numperiods_med)
+    div["deltas_short"] = zeros(numperiods_short)
+    return
 end
 
 function get_numstates(subix)
@@ -663,7 +714,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
         numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
-        if stepnr == 1
+        if stepnr == 1 # TODO: move to init
             db.output.modelobjects = Dict(zip([TuLiPa.getid(obj) for obj in TuLiPa.getobjects(db.cp.prob)], TuLiPa.getobjects(db.cp.prob)))
             if settings["results"]["mainresults"] == "all"
                 resultobjects = TuLiPa.getobjects(db.cp.prob) # collect results for all areas
@@ -704,6 +755,97 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
         TuLiPa.get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
+
+    if haskey(settings["results"], "prices_ppp")
+        collect_interval = settings["results"]["prices_ppp"]
+        if (stepnr-1) % collect_interval == 0
+            collect_step = div((stepnr-1), collect_interval) + 1
+
+            futures = []
+            stoch_scenixs = [scenario.parentscenario for scenario in db.scenmod_stoch.scenarios]
+            @sync for (scenix, core) in get_dist_ppp(db)
+                if scenix in stoch_scenixs
+                    f = @spawnat core get_ppp_prices(scenix, db.output.prices_balances)
+                    push!(futures, f)
+                end
+            end
+
+            for (i, f) in enumerate(futures)
+                pl, dl, pm, dm, ps, ds = fetch(f)
+
+                db.output.prices_long[collect_step, :, i, :] .= pl
+                db.output.deltas_long[collect_step, :] .= dl
+
+                db.output.prices_med[collect_step, :, i, :] .= pm
+                db.output.deltas_med[collect_step, :] .= dm
+
+                db.output.prices_short[collect_step, :, i, :] .= ps
+                db.output.deltas_short[collect_step, :] .= ds
+            end
+
+            @sync for (scenix, core) in get_dist_ppp(db)
+                @spawnat core reset_ppp_prices(scenix)
+            end
+        end
+    end
+end
+
+function reset_ppp_prices(scenix)
+    db = get_local_db()
+    ppp = db.ppp[scenix]
+    fill!(ppp.div["prices_long"], 0.0)
+    fill!(ppp.div["deltas_long"], 0.0)
+    fill!(ppp.div["prices_med"], 0.0)
+    fill!(ppp.div["deltas_med"], 0.0)
+    fill!(ppp.div["prices_short"], 0.0)
+    fill!(ppp.div["deltas_short"], 0.0)
+    return
+end
+
+function get_ppp_prices(scenix, bids)
+    db = get_local_db()
+    ppp = db.ppp[scenix]
+
+    balance_long = get_obj_from_id(TuLiPa.getobjects(ppp.longprob), bids[1])
+    horizon_long = TuLiPa.gethorizon(balance_long)
+    numperiods_long = TuLiPa.getnumperiods(horizon_long)
+
+    delta_long = 0
+    for t in 1:numperiods_long
+        delta_long += TuLiPa.getduration(TuLiPa.gettimedelta(horizon_long, t)).value
+        ppp.div["deltas_long"][t] = delta_long
+        for (i, bid) in enumerate(bids)
+            ppp.div["prices_long"][i,t]  = TuLiPa.getcondual(ppp.longprob, bid, t)
+        end
+    end
+
+    balance_med = get_obj_from_id(TuLiPa.getobjects(ppp.medprob), bids[1])
+    horizon_med = TuLiPa.gethorizon(balance_med)
+    numperiods_med = TuLiPa.getnumperiods(horizon_med)
+
+    delta_med = 0
+    for t in 1:numperiods_med
+        delta_med += TuLiPa.getduration(TuLiPa.gettimedelta(horizon_med, t)).value
+        ppp.div["deltas_med"][t] = delta_med
+        for (i, bid) in enumerate(bids)
+            ppp.div["prices_med"][i,t]  = TuLiPa.getcondual(ppp.medprob, bid, t)
+        end
+    end
+
+    balance_short = get_obj_from_id(TuLiPa.getobjects(ppp.shortprob), bids[1])
+    horizon_short = TuLiPa.gethorizon(balance_short)
+    numperiods_short = TuLiPa.getnumperiods(horizon_short)
+
+    delta_short = 0
+    for t in 1:numperiods_short
+        delta_short += TuLiPa.getduration(TuLiPa.gettimedelta(horizon_short, t)).value
+        ppp.div["deltas_short"][t] = delta_short
+        for (i, bid) in enumerate(bids)
+            ppp.div["prices_short"][i,t]  = TuLiPa.getcondual(ppp.shortprob, bid, t)
+        end
+    end
+
+    return ppp.div["prices_long"], ppp.div["deltas_long"], ppp.div["prices_med"], ppp.div["deltas_med"], ppp.div["prices_short"], ppp.div["deltas_short"]
 end
 
 get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
@@ -726,6 +868,8 @@ function get_output_final(steplength, skipmax)
     get_output_timing(output, steplength, skipmax)
 
     get_output_storagevalues(output, steplength, skipmax)
+
+    get_output_ppp_prices(output)
 
     get_output_memory(output) # TODO: Find problem
 
@@ -791,6 +935,42 @@ function get_storagenames_from_subix(subix)
         push!(storagenames, TuLiPa.getinstancename(first(TuLiPa.getvarout(statevar))))
     end
     return storagenames
+end
+
+function get_output_ppp_prices(output)
+    db = get_local_db()
+    settings = get_settings(db)
+    
+    if haskey(settings["results"], "prices_ppp")
+        f = @spawnat db.core_cp get_output_prices_ppp_local()
+        ret = fetch(f)
+        if ret isa RemoteException
+            throw(ret)
+        end
+        balancenames, pl, dl, pm, dm, ps, ds = ret
+        
+        output["balancenames_ppp"] = balancenames
+        output["prices_long"] = pl
+        output["deltas_long"] = dl
+        output["prices_med"] = pm
+        output["deltas_med"] = dm
+        output["prices_short"] = ps
+        output["deltas_short"] = ds
+    end
+end
+
+function get_output_prices_ppp_local()
+    db = get_local_db()
+
+    balancenames = [TuLiPa.getinstancename(bid) for bid in db.output.prices_balances]
+    pl = db.output.prices_long
+    dl = db.output.deltas_long
+    pm = db.output.prices_med
+    dm = db.output.deltas_med
+    ps = db.output.prices_short
+    ds = db.output.deltas_short
+
+    return balancenames, pl, dl, pm, dm, ps, ds
 end
 
 function get_output_memory(output)
