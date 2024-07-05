@@ -117,7 +117,7 @@ function update_statedependent_cp(db, stepnr, t)
             end
             headlosscost_data = ret
 
-            for (resid, headlosscost, T) in headlosscost_data
+            for (resid, headlosscost, T_mp) in headlosscost_data
                 obj = find_obj_by_id(TuLiPa.getobjects(db.cp.prob), resid)
                 T = TuLiPa.getnumperiods(TuLiPa.gethorizon(obj))
                 

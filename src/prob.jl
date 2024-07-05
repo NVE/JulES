@@ -27,6 +27,7 @@ end
 
 mutable struct ScenarioProblem # TODO: Should the others be mutable as well?
     prob::TuLiPa.Prob
+    horizons::Dict{CommodityName, TuLiPa.Horizon}
     scenslopes::Vector{Float64}
     scenconstant::Float64
     div::Dict
