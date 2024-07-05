@@ -719,9 +719,9 @@ function step_jules(t, steplength, stepnr, skipmed)
         end
     end
     
-    @time begin
-        println("Choose scenarios for price prognosis problems in first step")
-        if stepnr == 1 
+    if stepnr == 1 
+        @time begin
+            println("Choose scenarios for price prognosis problems in first step")
             wait(@spawnat firstcore update_scenmod_sim())
         end
     end
