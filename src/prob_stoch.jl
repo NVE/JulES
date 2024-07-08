@@ -79,7 +79,7 @@ function solve_stoch(t, stepnr, skipmed)
                 end
                     
                 solve_benders(stepnr, subix)
-                maintiming[4] += @elapsed save_storagevalues(mp.prob, mp.cuts, mp.div[StorageValues])
+                maintiming[4] += @elapsed save_storagevalues(mp.prob, mp.cuts, mp.div[StorageValues], settings)
                 maintiming[3] = @elapsed final_solve_mp(t, mp.prob, mp.cuts, mp.div[StorageValues], settings)
             end
         end
@@ -110,50 +110,50 @@ function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
         TuLiPa.updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
         TuLiPa.solve!(prob)
         TuLiPa.resetheadlosscosts!(prob)
-        settings["results"]["storagevalues"] && final_save_storagevalues(prob, cuts, storagevalues, settings)
+        settings["results"]["storagevalues"] && final_save_storagevalues(prob, cuts, storagevalues)
     end
 end 
 
-function final_save_storagevalues(prob, cuts, storagevalues, settings)
-    if settings["results"]["storagevalues"]
-        for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
-            obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
-            balance = TuLiPa.getbalance(obj)
+function final_save_storagevalues(prob, cuts, storagevalues)
+    for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
+        obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+        balance = TuLiPa.getbalance(obj)
 
-            storagevalues[length(cuts.probabilities)*2 + 2, j] = TuLiPa.getcondual(prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-            if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-                storagevalues[length(cuts.probabilities)*2 + 2, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
-            end
+        storagevalues[length(cuts.probabilities)*2 + 2, j] = TuLiPa.getcondual(prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+        if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+            storagevalues[length(cuts.probabilities)*2 + 2, j] = storagevalues[length(cuts.probabilities)*2 + 2, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
         end
     end
     return
 end
 
 
-function save_storagevalues(prob, cuts, storagevalues)
-    for (j, statevar) in enumerate(cuts.statevars)
-        obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
-        balance = TuLiPa.getbalance(obj)
-        for i in 1:length(cuts.probabilities) # scenario storage values
-            minslope = 0
-            maxslope = -1e9
-            for k in 1:TuLiPa.getnumcuts(cuts)
-                val = cuts.scenslopes[i,k,j]
-                minslope = min(minslope, val)
-                maxslope = max(maxslope, val)
+function save_storagevalues(prob, cuts, storagevalues, settings)
+    if settings["results"]["storagevalues"]
+        for (j, statevar) in enumerate(cuts.statevars)
+            obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
+            balance = TuLiPa.getbalance(obj)
+            for i in 1:length(cuts.probabilities) # scenario storage values
+                minslope = 0
+                maxslope = -1e9
+                for k in 1:TuLiPa.getnumcuts(cuts)
+                    val = cuts.scenslopes[i,k,j]
+                    minslope = min(minslope, val)
+                    maxslope = max(maxslope, val)
+                end
+                if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+                    minslope = minslope / balance.metadata[TuLiPa.GLOBALENEQKEY]
+                    maxslope = maxslope / balance.metadata[TuLiPa.GLOBALENEQKEY]
+                end
+                storagevalues[(i-1)*2+1, j] = minslope
+                storagevalues[(i-1)*2+2, j] = maxslope
             end
-            if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-                minslope = minslope / balance.metadata[TuLiPa.GLOBALENEQKEY]
-                maxslope = maxslope / balance.metadata[TuLiPa.GLOBALENEQKEY]
-            end
-            storagevalues[(i-1)*2+1, j] = minslope
-            storagevalues[(i-1)*2+2, j] = maxslope
-        end
 
-        # master / operative water values
-        storagevalues[length(cuts.probabilities)*2 + 1, j] = TuLiPa.getcondual(prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-        if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-            storagevalues[length(cuts.probabilities)*2 + 1, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
+            # master / operative water values
+            storagevalues[length(cuts.probabilities)*2 + 1, j] = TuLiPa.getcondual(prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+            if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+                storagevalues[length(cuts.probabilities)*2 + 1, j] = storagevalues[length(cuts.probabilities)*2 + 1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
+            end
         end
     end
     return
