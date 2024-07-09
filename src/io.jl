@@ -1224,10 +1224,15 @@ function get_output_cp_local()
     for (k, v) in startstates_cp
         db.startstates[k] = v
     end
-    db.output.statematrix[:,get_steps(db)] .= collect(values(db.startstates))
+    steps = get_steps(db)
+    if steps == 1
+        db.output.statenames = collect(keys(db.startstates))
+        db.output.statematrix = collect(values(db.startstates))
+    else
+        db.output.statematrix[:,] .= collect(values(db.startstates))
+    end
 
     if haskey(settings["results"], "mainresults")
-        steps = get_steps(db)
         steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
         periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
         periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
