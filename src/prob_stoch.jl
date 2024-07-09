@@ -317,17 +317,17 @@ function update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
         bid = TuLiPa.getid(obj)
 
         isupdated = isupdated_prices(db, scenix, term_ppp, bid, stepnr)
-        !isupdated && update_local_price(db, scenix, term_ppp, bid)
+        !isupdated && update_local_price(db, scenix, term_ppp, bid, stepnr)
 
         updated, allvalues = db.prices_ppp[(scenix, term_ppp, bid)]
         obj.price.values .= allvalues[periods]
     end
 end
 
-function update_local_price(db, scenix, term_ppp, bid)
+function update_local_price(db, scenix, term_ppp, bid, stepnr)
     core_ppp = get_core_ppp(db, scenix)
     future = @spawnat core_ppp get_prices_from_core(scenix, term_ppp, bid)
-    db.prices_ppp[(scenix, term_ppp, bid)] = (true, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
+    db.prices_ppp[(scenix, term_ppp, bid)] = (stepnr, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
 end
 
 function get_core_ppp(db::LocalDB, scenix)
@@ -462,7 +462,8 @@ function update_endconditions_sp(scenix, subix)
                 dual_ppp *= enekvglobaldict[instancename[2]]
             end
 
-            TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), endperiod, dual_ppp)
+            numperiods = TuLiPa.getnumperiods(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
+            TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), numperiods, dual_ppp)
         end
     end
 
@@ -471,6 +472,14 @@ end
 
 function get_core_evp(db::LocalDB, scenix, subix)
     for (_scenix, _subix, _core) in db.dist_evp
+        if (_scenix == scenix) && (_subix == subix)
+            return _core
+        end
+    end
+end
+
+function get_core_sp(db::LocalDB, scenix, subix)
+    for (_scenix, _subix, _core) in db.dist_sp
         if (_scenix == scenix) && (_subix == subix)
             return _core
         end
