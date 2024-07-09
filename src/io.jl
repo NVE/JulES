@@ -1229,7 +1229,7 @@ function get_output_cp_local()
         db.output.statenames = collect(keys(db.startstates))
         db.output.statematrix = collect(values(db.startstates))
     else
-        db.output.statematrix[:,] .= collect(values(db.startstates))
+        db.output.statematrix[:,steps] .= collect(values(db.startstates))
     end
 
     if haskey(settings["results"], "mainresults")
