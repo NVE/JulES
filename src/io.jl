@@ -285,6 +285,8 @@ function parse_methods(s::String)
         return TuLiPa.HighsSimplexMethod(warmstart=false)
     elseif s == "HighsSimplexSIPMethod(warmstart=false)"
         return TuLiPa.HighsSimplexSIPMethod(warmstart=false)
+    elseif s == "JuMPHiGHSMethod()"
+        return TuLiPa.JuMPHiGHSMethod()
     elseif s == "KMeansAHMethod()"
         return TuLiPa.KMeansAHMethod()
     end
@@ -597,6 +599,12 @@ function init_local_output()
             if haskey(settings["problems"], "clearing")
                 num_storagevalues += 1
             end
+            if haskey(settings["problems"], "stochastic")
+                num_storagevalues += get_numscen_stoch(db.input)
+            end
+            if haskey(settings["problems"], "endvalue")
+                num_storagevalues += get_numscen_stoch(db.input)
+            end
             f = @spawnat core get_numstates(subix)
             db.output.storagevalues[subix] = zeros(steps, num_storagevalues, fetch(f))
         end
@@ -696,6 +704,20 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                     if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
                         db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
                     end
+                    if haskey(settings["problems"], "stochastic")
+                        for scenix in 1:get_numscen_stoch(db.input)
+                            core_stoch = get_core_sp(db, scenix, subix)
+                            f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
+                            db.output.storagevalues[subix][stepnr, dim+1+scenix, j] = fetch(f)
+                        end
+                    end
+                    if haskey(settings["problems"], "endvalue") && is_subsystem_evp(db.subsystems[subix])
+                        for scenix in 1:get_numscen_stoch(db.input)
+                            core_evp = get_core_evp(db, scenix, subix)
+                            f = @spawnat core_evp get_enddual_evp(scenix, subix, first(TuLiPa.getvarout(statevar)))
+                            db.output.storagevalues[subix][stepnr, dim+1+get_numscen_stoch(db.input)+scenix, j] = fetch(f)
+                        end
+                    end
                 end
             end
         end
@@ -788,6 +810,34 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             end
         end
     end
+end
+
+function get_enddual_stoch(scenix, subix, objid)
+    db = get_local_db()
+    sp = db.sp[(scenix, subix)]
+
+    obj = get_obj_from_id(TuLiPa.getobjects(sp.prob), objid) # TODO: OK to assume objid = varoutid?
+    balance = TuLiPa.getbalance(obj)
+    dual = TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+        dual /= balance.metadata[TuLiPa.GLOBALENEQKEY]
+    end
+
+    return dual
+end
+
+function get_enddual_evp(scenix, subix, objid)
+    db = get_local_db()
+    evp = db.evp[(scenix, subix)]
+
+    obj = get_obj_from_id(TuLiPa.getobjects(evp.prob), objid) # TODO: OK to assume objid = varoutid?
+    balance = TuLiPa.getbalance(obj)
+    dual = TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
+        dual /= balance.metadata[TuLiPa.GLOBALENEQKEY]
+    end
+
+    return dual
 end
 
 function reset_ppp_prices(scenix)
@@ -920,6 +970,16 @@ function get_output_storagevalues_local(output, steplength, skipmax)
     end
     if haskey(settings["problems"], "clearing")
         push!(scenarionames, "Operative clearing")
+    end
+    if haskey(settings["problems"], "stochastic")
+        for i in 1:get_numscen_stoch(db.input)
+            push!(scenarionames, string(i) * " stochend")
+        end
+    end
+    if haskey(settings["problems"], "endvalue")
+        for i in 1:get_numscen_stoch(db.input)
+            push!(scenarionames, string(i) * " evpend")
+        end
     end
 
     skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
