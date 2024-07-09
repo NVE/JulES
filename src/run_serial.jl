@@ -275,7 +275,6 @@ function create_subsystems(db)
         if method == "twostorageduration"
             storagesystems = TuLiPa.getstoragesystems(modelobjects)
             shorttermstoragesystems = TuLiPa.getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            println("Number of shortterm storagesystems $(length(shorttermstoragesystems))")
             for storagesystem in shorttermstoragesystems
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 main = Set()
@@ -317,9 +316,10 @@ function create_subsystems(db)
                 subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
+            num_shortterm = length(subsystems)
+            println("Number of shortterm storagesystems $num_shortterm")
 
             longtermstoragesystems = TuLiPa.getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            println("Number of longterm storagesystems $(length(longtermstoragesystems))")
             for storagesystem in longtermstoragesystems
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 if length(commodities) == 1
@@ -419,6 +419,9 @@ function create_subsystems(db)
                 end
                 push!(subsystems, subsystem)
             end
+            println("Number of longterm storagesystems $(length(subsystems)-num_shortterm)")
+            num_ignored = length(shorttermstoragesystems) + length(longtermstoragesystems) - length(subsystems)
+            println("Number of ignored storagesystems not connected to power $num_ignored")
         else
             error("getsubsystem() not implemented for $(method)")
         end
