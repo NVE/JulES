@@ -20,14 +20,16 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     prob = TuLiPa.buildprob(probmethod, modelobjects)
 
     div = Dict()
-    div[MainTiming] = zeros(4)
-    if settings["results"]["storagevalues"]
+    div[MainTiming] = zeros(5)
+    if do_result_storagevalues(settings)
         if get_headlosscost(settings["problems"]["stochastic"]["master"])
             num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
         else
             num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
         end
         div[StorageValues] = zeros(num_storagevalues, length(states))
+    else
+        div[StorageValues] = nothing
     end
 
     db.mp[subix] = MasterProblem(prob, cuts, states, div)
@@ -79,7 +81,7 @@ function solve_stoch(t, stepnr, skipmed)
                 end
                     
                 solve_benders(stepnr, subix)
-                maintiming[4] += @elapsed save_storagevalues(mp.prob, mp.cuts, mp.div[StorageValues], settings)
+                maintiming[4] += @elapsed save_storagevalues(mp.prob, mp.cuts, mp.div[StorageValues])
                 maintiming[3] = @elapsed final_solve_mp(t, mp.prob, mp.cuts, mp.div[StorageValues], settings)
             end
         end
@@ -110,7 +112,7 @@ function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
         TuLiPa.updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
         TuLiPa.solve!(prob)
         TuLiPa.resetheadlosscosts!(prob)
-        settings["results"]["storagevalues"] && final_save_storagevalues(prob, cuts, storagevalues)
+        !isnothing(storagevalues) && final_save_storagevalues(prob, cuts, storagevalues)
     end
 end 
 
@@ -128,8 +130,8 @@ function final_save_storagevalues(prob, cuts, storagevalues)
 end
 
 
-function save_storagevalues(prob, cuts, storagevalues, settings)
-    if settings["results"]["storagevalues"]
+function save_storagevalues(prob, cuts, storagevalues)
+    if !isnothing(storagevalues)
         for (j, statevar) in enumerate(cuts.statevars)
             obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
             balance = TuLiPa.getbalance(obj)
@@ -230,6 +232,7 @@ function solve_benders(stepnr, subix)
             count += 1
         end
     end
+    maintiming[5] = count
     return
 end
 

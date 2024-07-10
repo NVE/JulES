@@ -362,8 +362,6 @@ function get_headlosscost(settings::Dict)
     end
 end
 
-# -------------------------------------------------------------------------------------
-# Other inpututils not used yet
 function get_onlyagghydro(settings::Dict)
     if haskey(settings["problems"], "onlyagghydro")
         return settings["problems"]["onlyagghydro"]
@@ -372,7 +370,7 @@ function get_onlyagghydro(settings::Dict)
     end
 end
 
-function getoutputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
+function get_outputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     if mainconfig["outputindex"] == "datayear"
         return datayear
     elseif mainconfig["outputindex"] == "weatheryear"
@@ -380,8 +378,32 @@ function getoutputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     end
 end
 
+function do_result_times(settings::Dict)
+    if haskey(settings["results"], "times")
+        return settings["results"]["times"]
+    else
+        return false
+    end
+end
+
+function do_result_memory(settings::Dict)
+    if haskey(settings["results"], "memory")
+        return settings["results"]["memory"]
+    else
+        return false
+    end
+end
+
+function do_result_storagevalues(settings::Dict)
+    if haskey(settings["results"], "storagevalues")
+        return settings["results"]["storagevalues"]
+    else
+        return false
+    end
+end
+
 # Prognosis util functions
-function getrhsdata(rhsdata::Dict, datayear::Int64, weatheryearstart::Int64, weatheryearstop::Int64)
+function get_rhsdata(rhsdata::Dict, datayear::Int64, weatheryearstart::Int64, weatheryearstop::Int64)
     method = rhsdata["function"]
     if method == "DynamicExogenPriceAHData"
         return TuLiPa.DynamicExogenPriceAHData(TuLiPa.Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
@@ -435,7 +457,7 @@ end
 function build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
     weatheryearstart = settings["time"]["weatheryearstart"]
     weatheryearstop = settings["time"]["weatheryearstop"]
-    rhsdata = getrhsdata(settings["horizons"][term][commodity]["rhsdata"], datayear, weatheryearstart, weatheryearstop)
+    rhsdata = get_rhsdata(settings["horizons"][term][commodity]["rhsdata"], datayear, weatheryearstart, weatheryearstop)
     rhsmethod = parse_methods(settings["horizons"][term][commodity]["rhsmethod"])
     clusters = settings["horizons"][term][commodity]["clusters"]
     unitduration = Millisecond(Hour(settings["horizons"][term][commodity]["unitduration_hours"]))
@@ -580,41 +602,48 @@ function init_local_output()
 
     steps = get_steps(db)
 
-    for (scenix, core) in db.dist_ppp
-        db.output.timing_ppp[scenix] = zeros(steps, 3, 3) # TODO: Matrix more flexible long term, and array instead of dict?
+    if do_result_times(settings)
+        for (scenix, core) in db.dist_ppp
+            db.output.timing_ppp[scenix] = zeros(steps, 3, 3) # TODO: Matrix more flexible long term, and array instead of dict?
+        end
+
+        for (scenix, subix, core) in db.dist_evp
+            db.output.timing_evp[(scenix, subix)] = zeros(steps, 3)
+        end
+
+        for (subix, core) in db.dist_mp
+            db.output.timing_mp[subix] = zeros(steps, 5)
+        end
+
+        for (scenix, subix, core) in db.dist_sp
+            db.output.timing_sp[(scenix, subix)] = zeros(steps, 3)
+        end
+
+        db.output.timing_cp = zeros(steps, 3)
     end
 
-    for (scenix, subix, core) in db.dist_evp
-        db.output.timing_evp[(scenix, subix)] = zeros(steps, 3)
-    end
-
-    for (subix, core) in db.dist_mp
-        db.output.timing_mp[subix] = zeros(steps, 4)
-        if settings["results"]["storagevalues"]
-            if get_headlosscost(settings["problems"]["stochastic"]["master"])
-                num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
-            else
-                num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+    if do_result_storagevalues(settings)
+        for (subix, core) in db.dist_mp
+            if settings["results"]["storagevalues"]
+                if get_headlosscost(settings["problems"]["stochastic"]["master"])
+                    num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+                else
+                    num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+                end
+                if haskey(settings["problems"], "clearing")
+                    num_storagevalues += 1
+                end
+                if haskey(settings["problems"], "stochastic")
+                    num_storagevalues += get_numscen_stoch(db.input)
+                end
+                if haskey(settings["problems"], "endvalue")
+                    num_storagevalues += get_numscen_stoch(db.input)
+                end
+                f = @spawnat core get_numstates(subix)
+                db.output.storagevalues[subix] = zeros(steps, num_storagevalues, fetch(f))
             end
-            if haskey(settings["problems"], "clearing")
-                num_storagevalues += 1
-            end
-            if haskey(settings["problems"], "stochastic")
-                num_storagevalues += get_numscen_stoch(db.input)
-            end
-            if haskey(settings["problems"], "endvalue")
-                num_storagevalues += get_numscen_stoch(db.input)
-            end
-            f = @spawnat core get_numstates(subix)
-            db.output.storagevalues[subix] = zeros(steps, num_storagevalues, fetch(f))
         end
     end
-
-    for (scenix, subix, core) in db.dist_sp
-        db.output.timing_sp[(scenix, subix)] = zeros(steps, 3)
-    end
-
-    db.output.timing_cp = zeros(steps, 3)
 
     if haskey(settings["results"], "prices_ppp")
         collect_interval = settings["results"]["prices_ppp"]
@@ -670,24 +699,34 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     settings = get_settings(db)
     steps = get_steps(db)
 
-    for (scenix, core) in db.dist_ppp
-        f = @spawnat core get_maintiming_ppp(scenix)
-        db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
-        @spawnat core reset_maintiming_ppp(scenix)
+    if do_result_times(settings)
+        for (scenix, core) in db.dist_ppp
+            f = @spawnat core get_maintiming_ppp(scenix)
+            db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
+            @spawnat core reset_maintiming_ppp(scenix)
+        end
+
+        for (scenix, subix, core) in db.dist_evp
+            f = @spawnat core get_maintiming_evp(scenix, subix)
+            db.output.timing_evp[(scenix, subix)][stepnr, :] .= fetch(f)
+            @spawnat core reset_maintiming_evp(scenix, subix)
+        end
+
+        for (subix, core) in db.dist_mp
+            f = @spawnat core get_maintiming_mp(subix)
+            db.output.timing_mp[subix][stepnr, :] .= fetch(f)
+            @spawnat core reset_maintiming_mp(subix)
+        end
+
+        for (scenix, subix, core) in db.dist_sp
+            f = @spawnat core get_maintiming_sp(scenix, subix)
+            db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
+            @spawnat core reset_maintiming_sp(scenix, subix)
+        end
     end
 
-    for (scenix, subix, core) in db.dist_evp
-        f = @spawnat core get_maintiming_evp(scenix, subix)
-        db.output.timing_evp[(scenix, subix)][stepnr, :] .= fetch(f)
-        @spawnat core reset_maintiming_evp(scenix, subix)
-    end
-
-    for (subix, core) in db.dist_mp
-        f = @spawnat core get_maintiming_mp(subix)
-        db.output.timing_mp[subix][stepnr, :] .= fetch(f)
-        @spawnat core reset_maintiming_mp(subix)
-
-        if settings["results"]["storagevalues"]
+    if do_result_storagevalues(settings)
+        for (subix, core) in db.dist_mp
             f = @spawnat core get_storagevalues_stoch(subix)
             storagevalues_stoch = fetch(f)
             dim = (size(storagevalues_stoch, 1))
@@ -721,12 +760,6 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 end
             end
         end
-    end
-
-    for (scenix, subix, core) in db.dist_sp
-        f = @spawnat core get_maintiming_sp(scenix, subix)
-        db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
-        @spawnat core reset_maintiming_sp(scenix, subix)
     end
 
     if haskey(settings["results"], "mainresults")
@@ -930,7 +963,7 @@ function get_output_storagevalues(output, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
     
-    if settings["results"]["storagevalues"]
+    if do_result_storagevalues(settings)
         f = @spawnat db.core_cp get_output_storagevalues_local(output, steplength, skipmax)
         storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
         
@@ -1037,7 +1070,7 @@ function get_output_memory(output)
     db = get_local_db()
     settings = get_settings(db)
 
-    if settings["results"]["memory"]
+    if do_result_memory(settings)
         names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ifm", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ifm", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_cp", "div", "ifm_output", "ifm_derived"]
         df = DataFrame(DataFrame([[] for _ = names] , names))
         cores = get_cores(db)
@@ -1077,108 +1110,108 @@ function get_output_timing_local(data, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
 
-    skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
-    
-    timing_cp = get_timing_cp_local()
+    if do_result_times(settings)
+        skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
+        
+        timing_cp = get_timing_cp_local()
 
-    timings_ppp = []
-    for (scenix, values) in db.output.timing_ppp
-        push!(timings_ppp, values)
-    end
+        timings_ppp = []
+        for (scenix, values) in db.output.timing_ppp
+            push!(timings_ppp, values)
+        end
 
-    # TODO: Add subix name
-    df_evp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "total", "core", "skipmed"]])
-    for (scenix, subix, core) in db.dist_evp
-        values = dropdims(mean(db.output.timing_evp[(scenix, subix)], dims=1), dims=1)
-        f = @spawnat core get_skipmed_impact(subix)
-        push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
-    end
-    df_evp[!, :other] = df_evp[!, :total] - df_evp[!, :solve] - df_evp[!, :update]
-    df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .* skipfactor
-    if nrow(df_evp) != 0
-        df_evp_subix = combine(groupby(df_evp, [:subix]), 
-        :update => sum => :evp_u, 
-        :solve => sum => :evp_s, 
-        :other => sum => :evp_o,
-        :total => sum => :evp_tot)
-        timings_evp = mean.(eachcol(select(df_evp_subix, Not([:subix, :evp_o]))))
-        df_evp_core = combine(groupby(df_evp, [:core]), 
-        :update => sum => :evp_u, 
-        :solve => sum => :evp_s, 
-        :other => sum => :evp_o,
-        :total => sum => :evp_tot)
-    else
-        df_evp_subix = DataFrame([name => [] for name in ["subix", "evp_u", "evp_s", "evp_o", "evp_tot"]])
-        timings_evp = [0.0, 0.0, 0.0]
-        df_evp_core = DataFrame([name => [] for name in ["core", "evp_u", "evp_s", "evp_o", "evp_tot"]])
-    end
-    # TODO: df_evp_scen
+        # TODO: Add subix name
+        df_evp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "total", "core", "skipmed"]])
+        for (scenix, subix, core) in db.dist_evp
+            values = dropdims(mean(db.output.timing_evp[(scenix, subix)], dims=1), dims=1)
+            f = @spawnat core get_skipmed_impact(subix)
+            push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+        end
+        df_evp[!, :other] = df_evp[!, :total] - df_evp[!, :solve] - df_evp[!, :update]
+        df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed .== true, [:update, :solve, :total]] .* skipfactor
+        if nrow(df_evp) != 0
+            df_evp_subix = combine(groupby(df_evp, [:subix]), 
+            :update => sum => :evp_u, 
+            :solve => sum => :evp_s, 
+            :other => sum => :evp_o,
+            :total => sum => :evp_tot)
+            timings_evp = mean.(eachcol(select(df_evp_subix, Not([:subix, :evp_o]))))
+            df_evp_core = combine(groupby(df_evp, [:core]), 
+            :update => sum => :evp_u, 
+            :solve => sum => :evp_s, 
+            :other => sum => :evp_o,
+            :total => sum => :evp_tot)
+        else
+            df_evp_subix = DataFrame([name => [] for name in ["subix", "evp_u", "evp_s", "evp_o", "evp_tot"]])
+            timings_evp = [0.0, 0.0, 0.0]
+            df_evp_core = DataFrame([name => [] for name in ["core", "evp_u", "evp_s", "evp_o", "evp_tot"]])
+        end
+        # TODO: df_evp_scen
 
-    df_mp = DataFrame([name => [] for name in ["subix", "mp_u", "mp_s", "mp_fin", "mp_o", "core", "skipmed"]])
-    for (subix, core) in db.dist_mp
-        values = dropdims(mean(db.output.timing_mp[(subix)], dims=1), dims=1)
-        f = @spawnat core get_skipmed_impact(subix)
-        push!(df_mp, [subix, values[1], values[2], values[3], values[4], core, fetch(f)])
-    end
-    df_mp[!, :mp_tot] = df_mp[!, :mp_s] + df_mp[!, :mp_u] + df_mp[!, :mp_fin] + df_mp[!, :mp_o]
-    df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot]] .= df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot]] .* skipfactor
-    timings_mp = mean.(eachcol(select(df_mp, Not([:subix, :core, :skipmed, :mp_fin, :mp_o]))))
-    df_mp_core = combine(groupby(df_mp, [:core]), 
-    :mp_u => sum => :mp_u, 
-    :mp_s => sum => :mp_s, 
-    :mp_fin => sum => :mp_fin,
-    :mp_o => sum => :mp_o,
-    :mp_tot => sum => :mp_tot)
+        df_mp = DataFrame([name => [] for name in ["subix", "mp_u", "mp_s", "mp_fin", "mp_o", "bend_it", "core", "skipmed"]])
+        for (subix, core) in db.dist_mp
+            values = dropdims(mean(db.output.timing_mp[(subix)], dims=1), dims=1)
+            f = @spawnat core get_skipmed_impact(subix)
+            push!(df_mp, [subix, values[1], values[2], values[3], values[4], values[5], core, fetch(f)])
+        end
+        df_mp[!, :mp_tot] = df_mp[!, :mp_s] + df_mp[!, :mp_u] + df_mp[!, :mp_fin] + df_mp[!, :mp_o]
+        df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .= df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .* skipfactor
+        timings_mp = mean.(eachcol(select(df_mp, Not([:subix, :core, :skipmed, :mp_fin, :mp_o, :bend_it]))))
+        df_mp_core = combine(groupby(df_mp, [:core]), 
+        :mp_u => sum => :mp_u, 
+        :mp_s => sum => :mp_s, 
+        :mp_fin => sum => :mp_fin,
+        :mp_o => sum => :mp_o,
+        :mp_tot => sum => :mp_tot)
 
-    df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
-    for (scenix, subix, core) in db.dist_sp
-        values = dropdims(mean(db.output.timing_sp[(scenix, subix)], dims=1), dims=1)
-        f = @spawnat core get_skipmed_impact(subix)
-        push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
-    end
-    df_sp[!, :total] = df_sp[!, :solve] + df_sp[!, :update] + df_sp[!, :other]
-    df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .= df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .* skipfactor
-    df_sp_subix = combine(groupby(df_sp, [:subix]), 
-    :update => sum => :sp_u, 
-    :solve => sum => :sp_s, 
-    :other => sum => :sp_o,
-    :total => sum => :sp_tot)
-    timings_sp = mean.(eachcol(select(df_sp_subix, Not([:subix, :sp_o]))))
-    df_sp_core = combine(groupby(df_sp, [:core]), 
-    :update => sum => :sp_u, 
-    :solve => sum => :sp_s, 
-    :other => sum => :sp_o,
-    :total => sum => :sp_tot)
-    # TODO: df_sp_scen
+        df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
+        for (scenix, subix, core) in db.dist_sp
+            values = dropdims(mean(db.output.timing_sp[(scenix, subix)], dims=1), dims=1)
+            f = @spawnat core get_skipmed_impact(subix)
+            push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+        end
+        df_sp[!, :total] = df_sp[!, :solve] + df_sp[!, :update] + df_sp[!, :other]
+        df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .= df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .* skipfactor
+        df_sp_subix = combine(groupby(df_sp, [:subix]), 
+        :update => sum => :sp_u, 
+        :solve => sum => :sp_s, 
+        :other => sum => :sp_o,
+        :total => sum => :sp_tot)
+        timings_sp = mean.(eachcol(select(df_sp_subix, Not([:subix, :sp_o]))))
+        df_sp_core = combine(groupby(df_sp, [:core]), 
+        :update => sum => :sp_u, 
+        :solve => sum => :sp_s, 
+        :other => sum => :sp_o,
+        :total => sum => :sp_tot)
+        # TODO: df_sp_scen
 
-    df_subix = outerjoin(df_evp_subix, df_mp, df_sp_subix, on = :subix)
-    df_subix = coalesce.(df_subix, 0.0)
-    df_subix[!, :tot] = df_subix[!, :evp_tot] + df_subix[!, :mp_tot] + df_subix[!, :sp_tot]
-    df_subix = sort(df_subix, :tot, rev=true)
-    df_subix = df_subix[!, [:subix, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
+        df_subix = outerjoin(df_evp_subix, df_mp, df_sp_subix, on = :subix)
+        df_subix = coalesce.(df_subix, 0.0)
+        df_subix[!, :tot] = df_subix[!, :evp_tot] + df_subix[!, :mp_tot] + df_subix[!, :sp_tot]
+        df_subix = sort(df_subix, :tot, rev=true)
+        df_subix = df_subix[!, [:subix, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :bend_it, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
 
-    df_core = outerjoin(df_evp_core, df_mp_core, df_sp_core, on = :core)
-    df_core = coalesce.(df_core, 0.0)
-    df_core[!, :tot] = df_core[!, :evp_tot] + df_core[!, :mp_tot] + df_core[!, :sp_tot]
-    df_core = sort(df_core, :tot, rev=true)
-    df_core = df_core[!, [:core, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
+        df_core = outerjoin(df_evp_core, df_mp_core, df_sp_core, on = :core)
+        df_core = coalesce.(df_core, 0.0)
+        df_core[!, :tot] = df_core[!, :evp_tot] + df_core[!, :mp_tot] + df_core[!, :sp_tot]
+        df_core = sort(df_core, :tot, rev=true)
+        df_core = df_core[!, [:core, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
 
-    if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing")
-        factors = [skipfactor,skipfactor,1]
-        dims = size(timings_ppp[1])
-        dims = (dims..., length(timings_ppp))
-        timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
-        timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
-        all = vcat(timings_ppp2, reshape(timings_evp,1,3), reshape(timings_mp,1,3), reshape(timings_sp,1,3), mean(timing_cp, dims=1))
-        df = DataFrame(model=["long","med","short","evp","mp","sp","clearing"], update=all[:,1], solve=all[:,2], total=all[:,3])
-        df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
-        display(df[!, [1, 2, 3, 5, 4]])
-    end
+        if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing")
+            factors = [skipfactor,skipfactor,1]
+            dims = size(timings_ppp[1])
+            dims = (dims..., length(timings_ppp))
+            timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
+            timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
+            all = vcat(timings_ppp2, reshape(timings_evp,1,3), reshape(timings_mp,1,3), reshape(timings_sp,1,3), mean(timing_cp, dims=1))
+            df = DataFrame(model=["long","med","short","evp","mp","sp","clearing"], update=all[:,1], solve=all[:,2], total=all[:,3])
+            df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
+            display(df[!, [1, 2, 3, 5, 4]])
+        end
 
-    display(df_core)
-    display(df_subix)
+        display(df_core)
+        display(df_subix)
 
-    if settings["results"]["times"]
         if haskey(settings["problems"], "prognosis") 
             data["prognosistimes"] = timings_ppp1
         end
@@ -1281,7 +1314,7 @@ function get_output_cp_local()
         end
 
         # Indexes
-        dim = getoutputindex(mainconfig, get_datayear(db), get_weatheryear(db))
+        dim = get_outputindex(mainconfig, get_datayear(db), get_weatheryear(db))
         x1 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
         x2 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
         x3 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + steplength*(t-1) for t in 1:steps]; # state resolution
