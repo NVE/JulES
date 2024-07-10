@@ -402,7 +402,12 @@ function update_horizons_sp(scenix, subix)
 
     parentscenix = get_scenmod_stoch(db).scenarios[scenix].parentscenario
     for commodity in collect(keys(sp.horizons))
-        sp.horizons[commodity].subhorizon.subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity]
+        if sp.horizons[commodity].subhorizon isa TuLiPa.ShortenedHorizon
+            sp.horizons[commodity].subhorizon.subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity]
+        else
+            @assert sp.horizons[commodity] isa TuLiPa.ShortenedHorizon
+            sp.horizons[commodity].subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity]
+        end
     end
     return
 end
