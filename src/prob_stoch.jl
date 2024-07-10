@@ -178,7 +178,14 @@ function solve_benders(stepnr, subix)
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-        count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
+        maintiming[4] += @elapsed begin
+            count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
+            if (count == 1 && cutreuse)
+                TuLiPa.updatecuts!(mp.prob, mp.cuts)
+            elseif count != 0
+                TuLiPa.updatelastcut!(mp.prob, mp.cuts)
+            end
+        end
 
         maintiming[2] += @elapsed begin
             if cutreuse # try to reuse cuts from last time step
@@ -201,8 +208,7 @@ function solve_benders(stepnr, subix)
             ub = 0.0
 
             count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
-            (count == 0 && cutreuse) && TuLiPa.clearcuts!(mp.prob, mp.cuts) # reuse cuts in first iteration
-            
+            (count == 0 && cutreuse) && TuLiPa.clearcuts!(mp.cuts) # reuse cuts in first iteration
             TuLiPa.getoutgoingstates!(mp.prob, mp.states)
             cutix = TuLiPa.getcutix(mp.cuts) + 1
             if cutix > TuLiPa.getmaxcuts(mp.cuts)
@@ -228,7 +234,6 @@ function solve_benders(stepnr, subix)
             end
         
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
-            TuLiPa.updatelastcut!(mp.prob, mp.cuts)
             count += 1
         end
     end
@@ -402,11 +407,16 @@ function update_horizons_sp(scenix, subix)
 
     parentscenix = get_scenmod_stoch(db).scenarios[scenix].parentscenario
     for commodity in collect(keys(sp.horizons))
+        if commodity == "Battery"
+            commodity_ppp = "Power"
+        else
+            commodity_ppp = commodity
+        end
         if sp.horizons[commodity].subhorizon isa TuLiPa.ShortenedHorizon
-            sp.horizons[commodity].subhorizon.subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity]
+            sp.horizons[commodity].subhorizon.subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity_ppp]
         else
             @assert sp.horizons[commodity] isa TuLiPa.ShortenedHorizon
-            sp.horizons[commodity].subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity]
+            sp.horizons[commodity].subhorizon = horizons[parentscenix, get_horizonterm_stoch(subsystem), commodity_ppp]
         end
     end
     return
