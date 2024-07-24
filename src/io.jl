@@ -97,7 +97,21 @@ get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
 
-get_distribution_method(input::DefaultJulESInput) = get_settings(input)["problems"]["stochastic"]["distribution_method"]
+# Define the function to get the distribution method with a default
+
+function get_distribution_method(input::DefaultJulESInput, default::String="by_size")
+    settings = get_settings(input)
+
+    # Retrieve the distribution method value
+    method = settings["problems"]["stochastic"]["distribution_method"]
+
+    # Check if the method is not nothing and not an empty string
+    if !isnothing(method) && !isempty(method)
+        return method
+    else
+        return default
+    end
+end
 
 function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
     # Standard time for market clearing - perfect information so simple time type

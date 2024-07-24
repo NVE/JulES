@@ -94,13 +94,22 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     cores = get_cores(input)
     subsystems_desc = get_subsystem_ids_by_decending_size(subsystems)
     
+    
     distribution_method = get_distribution_method(input)
-   
+    default = "by_size"
+
+    valid_methods = ["randdumb", "random", "by_size", "greedy", "storage", "size_pairing"]
+
+    # Check if distribution_method is valid
+    if !(distribution_method in valid_methods)
+        println("distribution method $distribution_method is not valid. Using $default")
+        distribution_method = default
+    end
 
     if distribution_method == "randdumb"
         dist_mp = _distribute_subsystems_randdumb!(subsystems_desc, cores)
     elseif distribution_method == "random"
-        dist_mp = _distribute_subsystems_random!(subsystems_desc, cores)
+        dist_mp = _distribute_subsystems_random!(subsystems_desc, cores) 
     elseif distribution_method == "by_size"
         dist_mp = _distribute_subsystems_by_size!(subsystems_desc, cores)
     elseif distribution_method == "greedy"
@@ -124,7 +133,7 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     return (dist_mp, dist_sp)
 end
 
-
+#by_size
 function _distribute_subsystems_big_small!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems)
     
