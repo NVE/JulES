@@ -97,13 +97,28 @@ get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
 
-# Define the function to get the distribution method with a default
+# Define the function to get the mp distribution method with a default
 
-function get_distribution_method(input::DefaultJulESInput, default::String="by_size")
+function get_distribution_method_mp(input::DefaultJulESInput, default::String="by_size")
     settings = get_settings(input)
 
     # Retrieve the distribution method value
-    method = settings["problems"]["stochastic"]["distribution_method"]
+    method = settings["problems"]["stochastic"]["distribution_method_mp"]
+
+    # Check if the method is not nothing and not an empty string
+    if !isnothing(method) && !isempty(method)
+        return method
+    else
+        return default
+    end
+end
+
+# Define the function to get the sp distribution method with a default
+function get_distribution_method_sp(input::DefaultJulESInput, default::String="with_mp")
+    settings = get_settings(input)
+
+    # Retrieve the distribution method value
+    method = settings["problems"]["stochastic"]["distribution_method_sp"]
 
     # Check if the method is not nothing and not an empty string
     if !isnothing(method) && !isempty(method)
