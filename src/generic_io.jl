@@ -98,9 +98,9 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     subsystems_desc = get_subsystem_ids_by_decending_size(subsystems)
     
     distribution_method_mp = get_distribution_method_mp(input)
-    default = "by_size"
+    default = "bysize"
 
-    valid_methods_mp = ["randdumb", "random", "by_size", "greedy", "storage", "size_pairing", "advanced"]
+    valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced"]
 
     # Check if distribution_method is valid
     if !(distribution_method_mp in valid_methods_mp)
@@ -112,13 +112,13 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
         dist_mp = _distribute_subsystems_randdumb!(subsystems_desc, cores)
     elseif distribution_method_mp == "random"
         dist_mp = _distribute_subsystems_random!(subsystems_desc, cores) 
-    elseif distribution_method_mp == "by_size"
+    elseif distribution_method_mp == "bysize"
         dist_mp = _distribute_subsystems_by_size!(subsystems_desc, cores)
     elseif distribution_method_mp == "greedy"
         dist_mp = _distribute_subsystems_elements_greedy!(subsystems, cores)
     elseif distribution_method_mp == "storage"
         dist_mp = _distribute_subsystems_storage_greedy!(input, subsystems, cores)
-    elseif distribution_method_mp == "size_pairing"
+    elseif distribution_method_mp == "sizepairing"
         dist_mp = _distribute_subsystems_big_small!(subsystems, cores)
     elseif distribution_method_mp == "advanced"
         dist_mp = _distribute_subsystems_advanced(subsystems, cores)
@@ -131,8 +131,8 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     
     #Distributing scenarioproblems sp
     distribution_method_sp = get_distribution_method_sp(input)
-    default = "with_mp"
-    valid_methods_sp = ["with_mp", "greedy"]
+    default = "withmp"
+    valid_methods_sp = ["withmp", "greedy"]
 
      # Check if distribution_method_sp is valid
      if !(distribution_method_sp in valid_methods_sp)
@@ -140,7 +140,7 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
         distribution_method_sp = default
     end
 
-    if distribution_method_sp == "with_mp"
+    if distribution_method_sp == "withmp"
         dist_sp = _distribute_sp_with_mp!(input, dist_mp)
     elseif distribution_method_sp == "greedy"
         core_loads = _get_core_load!(input, subsystems, dist_mp)
