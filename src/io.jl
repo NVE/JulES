@@ -99,7 +99,7 @@ get_horizons(input::DefaultJulESInput) = input.horizons
 
 # Define the function to get the mp distribution method with a default
 
-function get_distribution_method_mp(input::DefaultJulESInput, default::String="by_size")
+function get_distribution_method_mp(input::DefaultJulESInput, default::String="bysize")
     settings = get_settings(input)
 
     # Retrieve the distribution method value
@@ -114,7 +114,7 @@ function get_distribution_method_mp(input::DefaultJulESInput, default::String="b
 end
 
 # Define the function to get the sp distribution method with a default
-function get_distribution_method_sp(input::DefaultJulESInput, default::String="with_mp")
+function get_distribution_method_sp(input::DefaultJulESInput, default::String="withmp")
     settings = get_settings(input)
 
     # Retrieve the distribution method value
