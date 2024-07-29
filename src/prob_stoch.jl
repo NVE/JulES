@@ -188,7 +188,7 @@ function solve_benders(stepnr, subix)
         end
 
         maintiming[2] += @elapsed begin
-            if cutreuse # try to reuse cuts from last time step
+            if cutreuse # try to reuse cuts from last time step, NB! we reuse cuts although scenarios can have changed
                 try
                     TuLiPa.solve!(mp.prob)
                 catch
@@ -208,7 +208,7 @@ function solve_benders(stepnr, subix)
             ub = 0.0
 
             count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
-            (count == 0 && cutreuse) && TuLiPa.clearcuts!(mp.cuts) # reuse cuts in first iteration
+            (count == 0 && cutreuse) && TuLiPa.clearcuts!(mp.cuts)
             TuLiPa.getoutgoingstates!(mp.prob, mp.states)
             cutix = TuLiPa.getcutix(mp.cuts) + 1
             if cutix > TuLiPa.getmaxcuts(mp.cuts)
