@@ -121,7 +121,7 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     elseif distribution_method_mp == "sizepairing"
         dist_mp = _distribute_subsystems_big_small!(subsystems, cores)
     elseif distribution_method_mp == "advanced"
-        dist_mp = _distribute_subsystems_advanced(subsystems, cores)
+        dist_mp = _distribute_subsystems_advanced!(subsystems, cores)
         dist_sp =  _distribute_subscenarios_advanced!(dist_mp, cores, input)
         return (dist_mp, dist_sp)
     end
@@ -243,22 +243,23 @@ end
 
 
 
-#usikker her på om det største mp blir løst dobbelt på de to første kjernene
-#koden gjør ivertfall slik at det største mp blir lagt på kjerne 1 og kjerne to, mens resten fordeles etter size på de resterende kjernene
-function _distribute_subsystems_advanced(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
+
+
+#making the largest MP get the two first cores by assigning largest MP to core 1 and "reserving" core two for its SP
+function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     
     dist = Tuple{SubsystemIx, CoreId}[]
     sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems) #største subsystems først
 
-     # Make a copy of the cores array to avoid modifying the original
+    # Make a copy of the cores array to avoid modifying the original
     cores_copy = copy(cores)
     
     #the first/largest masterproblem (subsystem) gets the two first cores
-     # Check if there are at least two cores
-     if length(cores) >= 2
-        # Push the first two elements from core to dist
+    # Check if there are at least two cores
+        if length(cores) >= 2
+        
         push!(dist, (sorted_subsystems[1], cores[1]))
-        push!(dist, (sorted_subsystems[1], cores[2]))
+        
         
         # Remove the first subsystem and the first two cores
         popfirst!(sorted_subsystems)
@@ -266,7 +267,7 @@ function _distribute_subsystems_advanced(subsystems::Vector{Tuple{SubsystemIx, A
         popfirst!(cores_copy)
     end
 
-    #resten av mp fordeles by_size
+    #the rest of the masterproblems are distributed by_size
     dist_rest = _distribute_subsystems_by_size!(sorted_subsystems, cores_copy)
 
     # Append dist_rest to dist
@@ -275,29 +276,33 @@ function _distribute_subsystems_advanced(subsystems::Vector{Tuple{SubsystemIx, A
     return dist
 end
 
+# Function to split the scenario problems of the largest MP on the first two cores, and then distribute the rest of SP as before
 function _distribute_subscenarios_advanced!(dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, cores::Vector{CoreId}, input::AbstractJulESInput)
     N = get_numscen_stoch(input)
     dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N * length(dist_mp))
     i = 0
 
-    # Split scenarios for the first subsystem across its two cores
-    (first_sub, first_core1) = dist_mp[1]
-    (first_sub, first_core2) = dist_mp[2]
+    # Get the first two cores from the cores input
+    first_core1 = cores[1]
+    first_core2 = cores[2]
+    
+    # Find the largest MP problem
+    first_sub = dist_mp[1][1]
 
-    #itererer gjennom den første halvdelen av sp
+    # Iterate through the first half of SP
     for scen in 1:div(N, 2)
         i += 1
         dist_sp[i] = (scen, first_sub, first_core1)
     end
 
-    #andre halvdel scenarioer får den neste kjernen
+    # The second half of scenarios get the next core
     for scen in div(N, 2)+1:N
         i += 1
         dist_sp[i] = (scen, first_sub, first_core2)
     end
 
     # Distribute the rest of the scenarios as before
-    for j in 3:length(dist_mp)
+    for j in 2:length(dist_mp)
         (sub, core) = dist_mp[j]
         for scen in 1:N
             i += 1
@@ -305,11 +310,13 @@ function _distribute_subscenarios_advanced!(dist_mp::Vector{Tuple{SubsystemIx, C
         end
     end
 
-    #fjerner uninizialiez items på slutten
+    # Remove uninitialized items at the end
     dist_sp = dist_sp[1:i]
 
     return dist_sp
 end
+
+
     
 
 #by_size
