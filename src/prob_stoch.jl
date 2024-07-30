@@ -22,7 +22,7 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     div = Dict()
     div[MainTiming] = zeros(5)
     if has_result_storagevalues(settings)
-        if get_headlosscost(settings["problems"]["stochastic"]["master"])
+        if has_headlosscost(settings["problems"]["stochastic"]["master"])
             num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
         else
             num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
@@ -108,7 +108,7 @@ end
 # Util functions for solve_stoch ----------------------------------------------------------------------------------------------
 
 function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
-    if get_headlosscost(settings["problems"]["stochastic"]["master"])
+    if has_headlosscost(settings["problems"]["stochastic"]["master"])
         TuLiPa.updateheadlosscosts!(ReservoirCurveSlopeMethod(), prob, [prob], t)
         TuLiPa.solve!(prob)
         TuLiPa.resetheadlosscosts!(prob)
