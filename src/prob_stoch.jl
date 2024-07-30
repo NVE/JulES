@@ -283,12 +283,7 @@ function update_sp(t, scenix, subix)
 end
 
 function update_statedependent_mp(stepnr, subsystem, prob, startstates, settings)
-    init = false
-    if stepnr == 1
-        init = true
-    end
-
-    has_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=init)
+    has_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=(stepnr==1))
     has_statedependentpump(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentpump!(prob, startstates)
     return
 end
