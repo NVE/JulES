@@ -96,9 +96,11 @@ get_phaseindelta(input::DefaultJulESInput) = input.phaseindelta
 get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
+"""
 
-# Define the function to get the mp distribution method with a default
-
+Returns the subsystem distribution method from the config file. If there is no distribution method, the default method "bysize" is returned. 
+"Bysize" is the orginal method where the subsystems are sorted from biggest to smallest, and then distributed forward and then backward until all subsystems are distributed. 
+"""
 function get_distribution_method_mp(input::DefaultJulESInput, default::String="bysize")
     settings = get_settings(input)
 
@@ -113,7 +115,11 @@ function get_distribution_method_mp(input::DefaultJulESInput, default::String="b
     end
 end
 
-# Define the function to get the sp distribution method with a default
+
+"""
+Returns the scenario problem distribution method from the config file. If there is no distribution method, the default method "withmp" is returned. 
+Withmp is the original method where scenarios are distributed on the same core as the master problem. 
+"""
 function get_distribution_method_sp(input::DefaultJulESInput, default::String="withmp")
     settings = get_settings(input)
 
