@@ -103,11 +103,11 @@ function update_statedependent_cp(db, stepnr, t)
         init = true
     end
 
-    get_statedependentprod(settings["problems"]["clearing"]) && TuLiPa.statedependentprod!(db.cp.prob, db.startstates, init=init)
-    get_statedependentpump(settings["problems"]["clearing"]) && TuLiPa.statedependentpump!(db.cp.prob, db.startstates)
+    has_statedependentprod(settings["problems"]["clearing"]) && TuLiPa.statedependentprod!(db.cp.prob, db.startstates, init=init)
+    has_statedependentpump(settings["problems"]["clearing"]) && TuLiPa.statedependentpump!(db.cp.prob, db.startstates)
 
     # Headlosscosts
-    if get_headlosscost(settings["problems"]["clearing"])
+    if has_headlosscost(settings["problems"]["clearing"])
         for (_subix, _core) in db.dist_mp
             future = @spawnat _core get_headlosscost_data_from_mp(_subix, t)
 

@@ -338,67 +338,20 @@ function get_aggzonecopl(aggzone::Dict)
     return aggzonecopl
 end
 
-function get_statedependentprod(settings::Dict)
-    if haskey(settings, "statedependentprod")
-        return settings["statedependentprod"]
-    else
-        return false
-    end
-end
+has_statedependentprod(settings::Dict)::Bool = get(settings, "statedependentprod", false)
+has_statedependentpump(settings::Dict)::Bool = get(settings, "statedependentpump", false)
+has_headlosscost(settings::Dict)::Bool = get(settings, "statedependentpump", false)
+has_onlyagghydro(settings::Dict)::Bool = get(settings["problems"], "onlyagghydro", false)
 
-function get_statedependentpump(settings::Dict)
-    if haskey(settings, "statedependentpump")
-        return settings["statedependentpump"]
-    else
-        return false
-    end
-end
-
-function get_headlosscost(settings::Dict)
-    if haskey(settings, "headlosscost")
-        return settings["headlosscost"]
-    else
-        return false
-    end
-end
-
-function get_onlyagghydro(settings::Dict)
-    if haskey(settings["problems"], "onlyagghydro")
-        return settings["problems"]["onlyagghydro"]
-    else
-        return false
-    end
-end
+has_result_times(settings::Dict)::Bool = get(settings["results"], "times", false)
+has_result_memory(settings::Dict)::Bool = get(settings["results"], "memory", false)
+has_result_storagevalues(settings::Dict)::Bool = get(settings["results"], "storagevalues", false)
 
 function get_outputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     if mainconfig["outputindex"] == "datayear"
         return datayear
     elseif mainconfig["outputindex"] == "weatheryear"
         return weatheryear
-    end
-end
-
-function do_result_times(settings::Dict)
-    if haskey(settings["results"], "times")
-        return settings["results"]["times"]
-    else
-        return false
-    end
-end
-
-function do_result_memory(settings::Dict)
-    if haskey(settings["results"], "memory")
-        return settings["results"]["memory"]
-    else
-        return false
-    end
-end
-
-function do_result_storagevalues(settings::Dict)
-    if haskey(settings["results"], "storagevalues")
-        return settings["results"]["storagevalues"]
-    else
-        return false
     end
 end
 
@@ -602,7 +555,7 @@ function init_local_output()
 
     steps = get_steps(db)
 
-    if do_result_times(settings)
+    if has_result_times(settings)
         for (scenix, core) in db.dist_ppp
             db.output.timing_ppp[scenix] = zeros(steps, 3, 3) # TODO: Matrix more flexible long term, and array instead of dict?
         end
@@ -622,10 +575,10 @@ function init_local_output()
         db.output.timing_cp = zeros(steps, 3)
     end
 
-    if do_result_storagevalues(settings)
+    if has_result_storagevalues(settings)
         for (subix, core) in db.dist_mp
             if settings["results"]["storagevalues"]
-                if get_headlosscost(settings["problems"]["stochastic"]["master"])
+                if has_headlosscost(settings["problems"]["stochastic"]["master"])
                     num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
                 else
                     num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
@@ -699,7 +652,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     settings = get_settings(db)
     steps = get_steps(db)
 
-    if do_result_times(settings)
+    if has_result_times(settings)
         for (scenix, core) in db.dist_ppp
             f = @spawnat core get_maintiming_ppp(scenix)
             db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
@@ -725,7 +678,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         end
     end
 
-    if do_result_storagevalues(settings)
+    if has_result_storagevalues(settings)
         for (subix, core) in db.dist_mp
             f = @spawnat core get_storagevalues_stoch(subix)
             storagevalues_stoch = fetch(f)
@@ -963,7 +916,7 @@ function get_output_storagevalues(output, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
     
-    if do_result_storagevalues(settings)
+    if has_result_storagevalues(settings)
         f = @spawnat db.core_cp get_output_storagevalues_local(output, steplength, skipmax)
         storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
         
@@ -998,7 +951,7 @@ function get_output_storagevalues_local(output, steplength, skipmax)
         push!(scenarionames, string(i) * " max")
     end
     push!(scenarionames, "Operative master")
-    if get_headlosscost(settings["problems"]["stochastic"]["master"])
+    if has_headlosscost(settings["problems"]["stochastic"]["master"])
         push!(scenarionames, "Operative master after")
     end
     if haskey(settings["problems"], "clearing")
@@ -1070,7 +1023,7 @@ function get_output_memory(output)
     db = get_local_db()
     settings = get_settings(db)
 
-    if do_result_memory(settings)
+    if has_result_memory(settings)
         names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ifm", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ifm", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_cp", "div", "ifm_output", "ifm_derived"]
         df = DataFrame(DataFrame([[] for _ = names] , names))
         cores = get_cores(db)
@@ -1110,7 +1063,7 @@ function get_output_timing_local(data, steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
 
-    if do_result_times(settings)
+    if has_result_times(settings)
         skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
         
         timing_cp = get_timing_cp_local()

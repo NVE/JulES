@@ -21,7 +21,7 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
 
     div = Dict()
     div[MainTiming] = zeros(5)
-    if do_result_storagevalues(settings)
+    if has_result_storagevalues(settings)
         if get_headlosscost(settings["problems"]["stochastic"]["master"])
             num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
         else
@@ -288,8 +288,8 @@ function update_statedependent_mp(stepnr, subsystem, prob, startstates, settings
         init = true
     end
 
-    get_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=init)
-    get_statedependentpump(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentpump!(prob, startstates)
+    has_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=init)
+    has_statedependentpump(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentpump!(prob, startstates)
     return
 end
 
