@@ -97,7 +97,36 @@ get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
 
-get_distribution_method(input::DefaultJulESInput) = get_settings(input)["problems"]["stochastic"]["distribution_method"]
+# Define the function to get the mp distribution method with a default
+
+function get_distribution_method_mp(input::DefaultJulESInput, default::String="bysize")
+    settings = get_settings(input)
+
+    # Retrieve the distribution method value
+    method = settings["problems"]["stochastic"]["distribution_method_mp"]
+
+    # Check if the method is not nothing and not an empty string
+    if !isnothing(method) && !isempty(method)
+        return method
+    else
+        return default
+    end
+end
+
+# Define the function to get the sp distribution method with a default
+function get_distribution_method_sp(input::DefaultJulESInput, default::String="withmp")
+    settings = get_settings(input)
+
+    # Retrieve the distribution method value
+    method = settings["problems"]["stochastic"]["distribution_method_sp"]
+
+    # Check if the method is not nothing and not an empty string
+    if !isnothing(method) && !isempty(method)
+        return method
+    else
+        return default
+    end
+end
 
 function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64, datanumscen::Int64, simtimetype::String)
     # Standard time for market clearing - perfect information so simple time type
@@ -710,6 +739,7 @@ function get_output_timing_local(data, steplength, skipmax)
     :mp_fin => sum => :mp_fin,
     :mp_o => sum => :mp_o,
     :mp_tot => sum => :mp_tot)
+    rename!(df_mp, :core => :core_mp)
 
     df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
     for (scenix, subix, core) in db.dist_sp
@@ -735,7 +765,8 @@ function get_output_timing_local(data, steplength, skipmax)
     df_subix = outerjoin(df_evp_subix, df_mp, df_sp_subix, on = :subix)
     df_subix[!, :tot] = df_subix[!, :evp_tot] + df_subix[!, :mp_tot] + df_subix[!, :sp_tot]
     df_subix = sort(df_subix, :tot, rev=true)
-    df_subix = df_subix[!, [:subix, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
+    df_subix = df_subix[!, [:subix, :core_mp, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
+
 
     df_core = outerjoin(df_evp_core, df_mp_core, df_sp_core, on = :core)
     df_core[!, :tot] = df_core[!, :evp_tot] + df_core[!, :mp_tot] + df_core[!, :sp_tot]
@@ -756,6 +787,20 @@ function get_output_timing_local(data, steplength, skipmax)
 
     display(df_core)
     display(df_subix)
+
+    # # display number of elements of each type per subsystem
+    # unique_types = ["subix", "name_first_element", "name_second_element", "total_count"] #  
+    # # loop gjennom get_elements(db.input) og legg til push!(unique_type, )
+    # df_sub_element_type = DataFrame([name => [] for name in unique_type])
+    # for (subix, subsystem) in enumerate(get_subsystems(db))
+    #     type_count = []
+    #     total_count = # sum av type_count
+    #     name_first_element = # element.instancename
+    #     name_second_element = 
+    #     push!(df_sub_element_type, [subix, name_first_element, name_second_element, total_count, type_count...])
+    # end
+    # # sorter df_sub_element_type etter total_count
+    # display(df_sub_element_type)
 
     if settings["results"]["times"]
         if haskey(settings["problems"], "prognosis") 

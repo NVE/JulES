@@ -59,7 +59,7 @@ threehour:
                 solver: HighsSimplexMethod()
             startstorages:
                 function: startmagdict
-            distribution_method: storage #random #by_size #greedy
+            distribution_method: random #randdumb #storage #random #by_size #greedy
         clearing:
             solver: HighsSimplexMethod(warmstart=false)
             statedependentprod: true
@@ -186,7 +186,7 @@ fast:
                 solver: HighsSimplexMethod()
             startstorages:
                 function: startmagdict
-            distribution_method: storage #random #by_size #greedy
+            distribution_method: #randdumb #storage #random #by_size #greedy #size-pairing
         clearing:
             solver: HighsSimplexMethod(warmstart=false)
             statedependentprod: true
