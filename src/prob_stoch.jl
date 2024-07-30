@@ -343,15 +343,10 @@ end
 
 function isupdated_prices(db, scenix, term_ppp, bid, stepnr)
     if haskey(db.prices_ppp, (scenix, term_ppp, bid))
-        updated, allvalues = db.prices_ppp[(scenix, term_ppp, bid)]
-        if updated != stepnr
-            return false
-        else
-            return true
-        end
-    else
-        return false
+        stored_stepnr, __ = db.prices_ppp[(scenix, term_ppp, bid)]
+        return stored_stepnr == stepnr
     end
+    return false
 end
 
 function find_obj_by_id(objects::Any, bid::TuLiPa.Id)
