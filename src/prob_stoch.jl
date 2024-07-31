@@ -511,6 +511,13 @@ function make_modelobjects_stochastic(db, scenix, subix, startduration, enddurat
     subsystem = get_subsystems(db)[subix]
     term_ppp = get_horizonterm_stoch(subsystem)
     subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, true)
+    
+    if (get_numscen_sim(db.input) == get_numscen_stoch(db.input)) || master
+        ifmscenix = scenix
+    else
+        ifmscenix = get_numscen_sim(db.input) + scenix
+    end
+    add_scenix_to_InflowParam(subelements, ifmscenix)
 
     aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))
     change_elements!(subelements, aggzonecopl=aggzonecopl)
@@ -590,8 +597,6 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
             numperiods_powerhorizon = TuLiPa.getnumperiods(horizon)
         end
     end
-
-    add_scenix_to_InflowParam(subelements, scenix)
 
     return subelements, numperiods_powerhorizon, probhorizons
 end

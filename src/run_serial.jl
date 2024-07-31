@@ -722,11 +722,14 @@ function step_jules(t, steplength, stepnr, skipmed)
         end
     end
     
-    if stepnr == 1 
-        @time begin
-            println("Choose scenarios for price prognosis problems in first step")
+    println("Scenario modelling")
+    @time begin
+        if stepnr == 1 
             wait(@spawnat firstcore update_scenmod_sim())
         end
+        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+        # TODO: Do scenario modelling based on ifm
+        wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
     end
 
     println("Solve inflow models")
@@ -757,7 +760,6 @@ function step_jules(t, steplength, stepnr, skipmed)
 	
     println("End value problems")
     @time begin
-        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
         @sync for core in cores
             @spawnat core solve_evp(t, stepnr, skipmed)
         end
@@ -765,9 +767,6 @@ function step_jules(t, steplength, stepnr, skipmed)
 
     println("Subsystem problems")
     @time begin
-        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
-
         @sync for core in cores
             @spawnat core solve_stoch(t, stepnr, skipmed)
         end

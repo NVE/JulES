@@ -486,6 +486,34 @@ function solve_ifm(t)
                     end
                 end
             end
+
+            # Ifm for stoch scenarios TODO: Quickfix, improve?
+            stochscenarios = get_scenarios(db.scenmod_stoch)
+            if length(stochscenarios) != length(scenarios)
+                for (j, stochscen) in enumerate(stochscenarios)
+                    stochscenix = length(scenarios) + j
+                    parentscenix = stochscen.parentscenario
+                    (ix, Q) = db.ifm_output[inflow_name][parentscenix]
+                    if !haskey(db.ifm_output[inflow_name], stochscenix)
+                        db.ifm_output[inflow_name][stochscenix] = (ix, Q)
+                    else
+                        (stored_ix, stored_Q) = db.ifm_output[inflow_name][stochscenix]
+                        if length(stored_Q) != length(Q)
+                            @assert length(stored_ix) == 0
+                            @assert length(stored_Q) == 0
+                            for i in eachindex(Q)
+                                push!(stored_ix, ix[i])
+                                push!(stored_Q, Q[i])
+                            end
+                        else
+                            for i in eachindex(Q)
+                                stored_ix[i] = ix[i]
+                                stored_Q[i] = Q[i]
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 end

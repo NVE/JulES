@@ -112,6 +112,7 @@ function make_modelobjects_evp(db, scenix, subix, startduration, endduration)
     subsystem = get_subsystems(db)[subix]
     term_ppp = get_horizonterm_evp(subsystem)
     subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, false)
+    add_scenix_to_InflowParam(subelements, scenix)
 
     aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))
     change_elements!(subelements, aggzonecopl=aggzonecopl)
