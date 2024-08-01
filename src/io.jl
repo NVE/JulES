@@ -105,7 +105,9 @@ function get_distribution_method_mp(input::DefaultJulESInput, default::String="b
     settings = get_settings(input)
 
     # Retrieve the distribution method value
-    method = settings["problems"]["stochastic"]["distribution_method_mp"]
+    
+    
+    method = get(settings["problems"]["stochastic"],"distribution_method_mp", default)
 
     # Check if the method is not nothing and not an empty string
     if !isnothing(method) && !isempty(method)
@@ -123,8 +125,9 @@ Withmp is the original method where scenarios are distributed on the same core a
 function get_distribution_method_sp(input::DefaultJulESInput, default::String="withmp")
     settings = get_settings(input)
 
+    
     # Retrieve the distribution method value
-    method = settings["problems"]["stochastic"]["distribution_method_sp"]
+    method = get(settings["problems"]["stochastic"],"distribution_method_sp", default)
 
     # Check if the method is not nothing and not an empty string
     if !isnothing(method) && !isempty(method)

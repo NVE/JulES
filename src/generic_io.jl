@@ -77,11 +77,10 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     cores = get_cores(input)
     #Distributing the master problems/subsystems
     
-    
-    
     distribution_method_mp = get_distribution_method_mp(input)
     default = "bysize"
 
+    
     valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced"]
 
     # Check if distribution_method is valid
@@ -229,35 +228,72 @@ function _distribute_scenarios_greedy!(input::AbstractJulESInput, subsystems::Ve
     return dist_sp
 end
 
+# #advanced
+# """Making the largest MP get the two first cores by assigning largest MP to core 1 and "reserving" core two for its SP"""
+# function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
+    
+#     dist = Tuple{SubsystemIx, CoreId}[]
+#     sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems) #største subsystems først
+#     print("sorted_subsystems:")
+#     print(sorted_subsystems)
+#     # Make a copy of the cores array to avoid modifying the original
+#     cores_copy = copy(cores)
+    
+#     #the first/largest masterproblem (subsystem) gets the two first cores
+#     # Check if there are at least two cores
+#         if length(cores) >= 2
+        
+#         push!(dist, (sorted_subsystems[1], cores[1]))
+        
+        
+#         # Remove the first subsystem and the first two cores
+#         popfirst!(sorted_subsystems)
+#         popfirst!(cores_copy)
+#         popfirst!(cores_copy)
+#     end
+
+#     #the rest of the masterproblems are distributed by_size
+#     dist_rest = _distribute_subsystems_by_size!(subsystems, cores_copy)
+
+#     # Append dist_rest to dist
+#     append!(dist, dist_rest)
+
+#     return dist
+# end
+
 #advanced
 """Making the largest MP get the two first cores by assigning largest MP to core 1 and "reserving" core two for its SP"""
 function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
-    
+   
     dist = Tuple{SubsystemIx, CoreId}[]
     sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems) #største subsystems først
-
+    println("sorted subsystems")
+    println(sorted_subsystems)
+ 
     # Make a copy of the cores array to avoid modifying the original
     cores_copy = copy(cores)
-    
+    subsystems_copy = copy(subsystems)
+   
     #the first/largest masterproblem (subsystem) gets the two first cores
     # Check if there are at least two cores
         if length(cores) >= 2
-        
+       
         push!(dist, (sorted_subsystems[1], cores[1]))
-        
-        
+       
+        print(sorted_subsystems[1])
+       
         # Remove the first subsystem and the first two cores
-        popfirst!(sorted_subsystems)
+        deleteat!(subsystems_copy, sorted_subsystems[1])
         popfirst!(cores_copy)
         popfirst!(cores_copy)
     end
-
+ 
     #the rest of the masterproblems are distributed by_size
-    dist_rest = _distribute_subsystems_by_size!(sorted_subsystems, cores_copy)
-
+    dist_rest = _distribute_subsystems_by_size!(subsystems_copy, cores_copy)
+ 
     # Append dist_rest to dist
     append!(dist, dist_rest)
-
+ 
     return dist
 end
 

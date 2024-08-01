@@ -4,16 +4,16 @@ main:
     
     datayears: [2024]
     weatheryears: [1991, 1991]
-    weekstart: 5
+    weekstart: 21
     # simulationyears: 1
     # extrasteps: 0 # see steplength_hours
     
     # settings: fast # fast, threehour, sixhour
 
-    simulationyears: 0
+    simulationyears: 1
     extrasteps: 16 # see steplength_hours
     
-    settings: fast # fast, threehour
+    settings: threehour # fast, threehour
 
     outputformat: "juliadict" # hdf5 hvis du kjører gjennom JulESIO
     outputindex: datayear # standard for paralellsimulering
@@ -59,8 +59,8 @@ threehour:
             startstorages:
                 function: startmagdict
 
-            distribution_method_mp: sizepairing #random #bysize #greedy 
-            distribution_method_sp: #greedy #withmp
+            distribution_method_mp: greedy #random #bysize #greedy 
+            distribution_method_sp: greedy #withmp
         clearing:
             solver: HighsSimplexMethod(warmstart=false)
             statedependentprod: true
@@ -192,8 +192,8 @@ fast: # 24 hour steps, 7 static scenarios, aggregated hydro, shrinkablehorizon, 
                 solver: HighsSimplexMethod()
             startstorages:
                 function: startmagdict
-            distribution_method_mp: advanced #storage #random #bysize #greedy #advanced
-            distribution_method_sp: greedy #withmp
+            distribution_method_mp: storage #storage #random #bysize #greedy #advanced
+            distribution_method_sp: withmp #withmp
         clearing:
             solver: HighsSimplexMethod(warmstart=false)
             statedependentprod: false
