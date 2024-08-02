@@ -48,7 +48,8 @@ end
 
 function solve_stoch(t, delta, stepnr, skipmed)
     db = get_local_db()
-
+    
+    
     for (subix, core) in db.dist_mp
         if core == db.core
             subsystem = db.subsystems[subix]
@@ -67,12 +68,18 @@ function solve_stoch(t, delta, stepnr, skipmed)
                 @sync for _core in get_cores(db)
                     @spawnat _core update_sps(t, stepnr, subix)
                 end
-                    
+                
+                
+                
                 solve_benders(stepnr, subix)
+                
+                
+                
                 maintiming[3] = @elapsed final_solve_mp(t, mp.prob)
             end
         end
     end
+
 end
 
 function update_sps(t, stepnr, subix)
@@ -121,6 +128,7 @@ function solve_benders(stepnr, subix)
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
+        println("count $count, ")
         count == 0 && setwarmstart!(mp.prob, false)
 
         maintiming[2] += @elapsed begin
