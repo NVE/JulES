@@ -661,7 +661,10 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
     (ix, vals) = d[inflow_name][scenix]
     prognosis_profile = TuLiPa.InfiniteTimeVector(ix, vals)    
 
-    lowlevel[TuLiPa.getobjkey(elkey)] = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile)
+    param = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile)
+    param = TuLiPa.StatefulParam(param)
+
+    lowlevel[TuLiPa.getobjkey(elkey)] = param
 
     return (true, deps)
 end
