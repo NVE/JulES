@@ -112,7 +112,6 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     
 
     
-    
     #Distributing scenarioproblems sp
     distribution_method_sp = get_distribution_method_sp(input)
     default = "withmp"
@@ -132,8 +131,6 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
         #using _distribute_scenarios_greedy!() to find the distribution of scenario problems
         dist_sp = _distribute_scenarios_greedy!(input, subsystems, dist_mp, core_loads)
     end
-
-    
     return (dist_mp, dist_sp)
 end
 
@@ -229,15 +226,16 @@ function _distribute_scenarios_greedy!(input::AbstractJulESInput, subsystems::Ve
     return dist_sp
 end
 
-#advanced
+#advanced MP
 """Making the largest MP get the two first cores by assigning largest MP to core 1 and "reserving" core two for its SP"""
 function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     
     dist = Tuple{SubsystemIx, CoreId}[]
     sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems) #største subsystems først
-
+    
     # Make a copy of the cores array to avoid modifying the original
     cores_copy = copy(cores)
+    subsystems_copy = copy(subsystems)
     
     #the first/largest masterproblem (subsystem) gets the two first cores
     # Check if there are at least two cores
@@ -247,13 +245,13 @@ function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, 
         
         
         # Remove the first subsystem and the first two cores
-        popfirst!(sorted_subsystems)
+        deleteat!(subsystems_copy, sorted_subsystems[1])
         popfirst!(cores_copy)
         popfirst!(cores_copy)
     end
 
     #the rest of the masterproblems are distributed by_size
-    dist_rest = _distribute_subsystems_by_size!(sorted_subsystems, cores_copy)
+    dist_rest = _distribute_subsystems_by_size!(subsystems_copy, cores_copy)
 
     # Append dist_rest to dist
     append!(dist, dist_rest)
@@ -261,7 +259,7 @@ function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, 
     return dist
 end
 
-#advanced
+#advanced SP
 """Function to split the scenario problems of the largest MP on the first two cores, and then distribute the rest of SP as before"""
 function _distribute_subscenarios_advanced!(dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, cores::Vector{CoreId}, input::AbstractJulESInput)
     N = get_numscen_stoch(input)
