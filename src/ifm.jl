@@ -607,7 +607,7 @@ end
 
 
 """
-ModeledInflowParam is actually a PrognosisSeriesParam under-the-hood,
+ModeledInflowParam is actually a stateful PrognosisSeriesParam under-the-hood,
 but where the prognosis part is created and managed by JulES and not 
 given as user input
 """
