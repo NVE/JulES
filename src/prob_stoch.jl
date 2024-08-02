@@ -119,7 +119,6 @@ function solve_benders(stepnr, subix)
     maintiming = mp.div[MainTiming]
 
     count = 0
-    max_inner_iterations = 50
     cutreuse = true
     if stepnr == 1
         cutreuse = false
@@ -129,10 +128,6 @@ function solve_benders(stepnr, subix)
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-        if (count >= max_inner_iterations)
-            print("max_inner_iterations is met!!!!")
-            #break
-        end
         println("count $count, ")
         count == 0 && setwarmstart!(mp.prob, false)
 
