@@ -589,7 +589,7 @@ function update_ifm_derived()
                 if length(vals) != length(derived_vals)
                     @assert length(derived_vals) == 0
                     for (i, v) in enumerate(vals)
-                        push!(derived_vals, v)
+                        push!(derived_vals, v * weight)
                         push!(derived_ix, ix[i])
                         do_ix = false
                     end
