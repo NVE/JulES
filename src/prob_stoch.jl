@@ -128,9 +128,7 @@ function solve_benders(stepnr, subix)
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
-        println("count $count, ")
         count == 0 && setwarmstart!(mp.prob, false)
-
         maintiming[2] += @elapsed begin
             if cutreuse # try to reuse cuts from last time step
                 try

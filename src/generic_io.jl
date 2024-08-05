@@ -243,8 +243,6 @@ function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, 
        
         push!(dist, (sorted_subsystems[1], cores[1]))
        
-        print(sorted_subsystems[1])
-       
         # Remove the first subsystem and the first two cores
         deleteat!(subsystems_copy, sorted_subsystems[1])
         popfirst!(cores_copy)
@@ -370,7 +368,6 @@ function _distribute_subsystems_random!(subsystems::Vector{Tuple{SubsystemIx, Ab
         end
         core = rand(corelist)
         filter!(x -> x != core, corelist)  # Remove the selected core from the list
-        print(corelist)
         # Assign the subsystem to the randomly selected core
         push!(dist, (ix, core))
         
