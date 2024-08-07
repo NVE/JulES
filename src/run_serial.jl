@@ -16,37 +16,58 @@ Design goals
 
 
 function run_serial(input::AbstractJulESInput)
-    (t, N, delta, skipmed, skipmax) = init_jules(input)
-    totaltime = @elapsed for stepnr in 1:N
-        step_jules(t, delta, stepnr, skipmed)
-        t += delta
-        skipmed += Millisecond(delta)
+    (t, steps, steplength, skipmed, skipmax) = init_jules(input)
+    totaltime = @elapsed for stepnr in 1:steps
+        step_jules(t, steplength, stepnr, skipmed)
+        t += steplength
+        skipmed += Millisecond(steplength)
         if skipmed > skipmax
             skipmed = Millisecond(0)
         end
     end
     println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
-    println(string("Time usage per simulation step: ", round(totaltime/N; digits=2), " seconds\n"))
+    println(string("Time usage per simulation step: ", round(totaltime/steps; digits=2), " seconds\n"))
 
-    output = get_output_final(delta, skipmax)
+    output = get_output_final(steplength, skipmax)
     cleanup_jules(input)
     return output
 end
 
 function init_jules(input::AbstractJulESInput)
-    (t, N, delta, skipmed, skipmax) = get_simperiod(input)
+    (t, steps, steplength, skipmed, skipmax) = get_simperiod(input)
+
+    init_extensions(input)
 
     init_databases(input)
     
-    return (t, N, delta, skipmed, skipmax)
+    return (t, steps, steplength, skipmed, skipmax)
+end
+
+function init_extensions(input::AbstractJulESInput)
+    cores = get_cores(input)
+    @sync for core in cores
+        @spawnat core add_local_extensions()
+    end
+end
+
+function add_local_extensions()
+    TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateBucketIfm")] = includeTwoStateBucketIfm!
+    TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateNeuralODEIfm")] = includeTwoStateNeuralODEIfm!
+    TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!
+    return
 end
 
 """
-Free local databases and clean-up temporary stuff in output-object
+Free local databases and clean-up temporary stuff.
+Call gc on each core before returning.
 """
-function cleanup_jules(input::DefaultJulESInput)
-    @sync for core in get_cores(input)
+function cleanup_jules(input::AbstractJulESInput)
+    cores = get_cores(input)
+    @sync for core in cores
         @spawnat core free_local_db()
+    end
+    @sync for core in cores
+        @spawnat core GC.gc()
     end
     return
 end
@@ -66,6 +87,7 @@ as this makes it easy to kill a problem on one core, and re-build it on another 
 """
 function init_databases(input::AbstractJulESInput)
     cores = get_cores(input)
+    firstcore = first(cores)
 
     println("Add local dbs")
     @time begin
@@ -97,8 +119,7 @@ function init_databases(input::AbstractJulESInput)
 
     println("Add local subsystems")
     @time begin
-        c = first(cores)
-        wait(@spawnat c add_local_subsystems())
+        wait(@spawnat firstcore add_local_subsystems())
     end
 
     println("Add local scenmod")
@@ -112,7 +133,7 @@ function init_databases(input::AbstractJulESInput)
     # transfer this data to all other cores
     println("Add local problem distribution")
     @time begin
-        wait(@spawnat c add_local_problem_distribution())
+        wait(@spawnat firstcore add_local_problem_distribution())
     end
 
     println("Add local horizons")
@@ -181,7 +202,7 @@ function add_local_dummyobjects()
     # Horizons are needed to build modelobjects, but not used in scenario modelling
     dummyperiods = 10
     dummyperiodduration = Millisecond(Hour(24))
-    dummyhorizon = SequentialHorizon(dummyperiods, dummyperiodduration)
+    dummyhorizon = TuLiPa.SequentialHorizon(dummyperiods, dummyperiodduration)
 
     # Make dummy elements
     elements = copy(get_elements(db.input))
@@ -192,12 +213,12 @@ function add_local_dummyobjects()
             set_horizon!(elements, "Battery", dummyhorizon)
         end
     end
-    (dummyobjects, dummydeps) = getmodelobjects(elements, validate=true, deps=true)
+    (dummyobjects, dummydeps) = TuLiPa.getmodelobjects(elements, validate=true, deps=true)
     aggzonedict = Dict()
     for (k,v) in get_aggzone(get_settings(db))
-        aggzonedict[Id(BALANCE_CONCEPT,"PowerBalance_" * k)] = [dummyobjects[Id(BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+        aggzonedict[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * k)] = [dummyobjects[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
     end
-    aggzone!(dummyobjects, aggzonedict)
+    TuLiPa.aggzone!(dummyobjects, aggzonedict)
     db.dummyobjects = (dummyobjects, dummydeps)
 
     # Make dummy prog elements
@@ -209,7 +230,7 @@ function add_local_dummyobjects()
                 set_horizon!(elements_ppp, "Battery", dummyhorizon)
             end
         end
-        (dummyobjects_ppp, dummydeps_ppp) = getmodelobjects(elements_ppp, validate=true, deps=true)
+        (dummyobjects_ppp, dummydeps_ppp) = TuLiPa.getmodelobjects(elements_ppp, validate=true, deps=true)
         db.dummyobjects_ppp = (dummyobjects_ppp, dummydeps_ppp)
     else
         db.dummyobjects_ppp = db.dummyobjects
@@ -241,7 +262,7 @@ function create_subsystems(db)
     elements = get_elements(db.input)
     subsystems = AbstractSubsystem[]
     modelobjects, dependencies = db.dummyobjects
-    deep_dependencies = get_deep_dependencies(elements, dependencies)
+    deep_dependencies = TuLiPa.get_deep_dependencies(elements, dependencies)
     # filtered_dependencies = get_filtered_dependencies(elements, dependencies)
     # deep_dependencies = get_deep_dependencies(elements, filtered_dependencies; concepts=[PARAM_CONCEPT, METADATA_CONCEPT])
     if get_onlysubsystemmodel(db.input)
@@ -252,9 +273,8 @@ function create_subsystems(db)
         settings = get_settings(db.input)
         method = settings["subsystems"]["function"]
         if method == "twostorageduration"
-            storagesystems = getstoragesystems(modelobjects)
-            shorttermstoragesystems = getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            println("Number of shortterm storagesystems $(length(shorttermstoragesystems))")
+            storagesystems = TuLiPa.getstoragesystems(modelobjects)
+            shorttermstoragesystems = TuLiPa.getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
             for storagesystem in shorttermstoragesystems
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 main = Set()
@@ -277,8 +297,8 @@ function create_subsystems(db)
                     if _add
                         for _dep in _deps
                             if !(_dep in all)
-                                elkey = getelkey(elements[_dep])
-                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                elkey = TuLiPa.getelkey(elements[_dep])
+                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
                                     # println(elkey)
                                     push!(all, _dep)
                                 end
@@ -296,9 +316,10 @@ function create_subsystems(db)
                 subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
+            num_shortterm = length(subsystems)
+            println("Number of shortterm storagesystems $num_shortterm")
 
-            longtermstoragesystems = getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            println("Number of longterm storagesystems $(length(longtermstoragesystems))")
+            longtermstoragesystems = TuLiPa.getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
             for storagesystem in longtermstoragesystems
                 commodities = get_commodities_from_storagesystem(storagesystem)
                 if length(commodities) == 1
@@ -336,8 +357,8 @@ function create_subsystems(db)
                     if _add
                         for _dep in _deps
                             if !(_dep in all)
-                                elkey = getelkey(elements[_dep])
-                                if elkey.conceptname != BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                elkey = TuLiPa.getelkey(elements[_dep])
+                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
                                     # println(elkey)
                                     push!(all, _dep)
                                 end
@@ -382,18 +403,25 @@ function create_subsystems(db)
                 #     end
                 # end
                 # println(length(completed))
-                    
-                longevduration = parse_duration(settings["subsystems"], "longevduration")
-                horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
 
                 longstochduration = parse_duration(settings["subsystems"], "longstochduration")
                 horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
 
                 priceareas = get_priceareas(storagesystem)
-                skipmed_impact = true
-                subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                skipmed_impact = true  
+                if has_longevduration(settings)
+                    longevduration = parse_duration(settings["subsystems"], "longevduration")
+                    horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
+
+                    subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                else
+                    subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                end
                 push!(subsystems, subsystem)
             end
+            println("Number of longterm storagesystems $(length(subsystems)-num_shortterm)")
+            num_ignored = length(shorttermstoragesystems) + length(longtermstoragesystems) - length(subsystems)
+            println("Number of ignored storagesystems not connected to power $num_ignored")
         else
             error("getsubsystem() not implemented for $(method)")
         end
@@ -401,43 +429,52 @@ function create_subsystems(db)
     return subsystems
 end
 
+function has_longevduration(settings)
+    for key in keys(settings["subsystems"])
+        if startswith(key, "longevduration")
+            return true
+        end
+    end
+    return false  
+end
+
 # Which time resolution (short, med, long) should we use horizons and prices from
 # TODO: Should we use different terms for master and subproblems?
 function get_term_ppp(horizons, commodities, duration)
     dummycommodity = commodities[1]
     horizon_short = horizons[(ShortTermName, dummycommodity)]
-    if duration <= getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
+    if duration <= TuLiPa.getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
         return ShortTermName
     end
     horizon_med = horizons[(MedTermName, dummycommodity)]
-    if duration <= getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
+    if duration <= TuLiPa.getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
         return MedTermName
     end
     horizon_long = horizons[(LongTermName, dummycommodity)]
-    @assert duration <= getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
+    @assert duration <= TuLiPa.getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
     return LongTermName   
 end
 
 function get_filtered_dependencies(elements, dependencies)
-    filtered_dependencies = Dict{ElementKey,Vector{Int}}()
+    filtered_dependencies = Dict{TuLiPa.ElementKey,Vector{Int}}()
     for element in elements # remove dependencies of elemements not in elements list
-        filtered = [x for x in dependencies[getelkey(element)] if x < length(elements)]
-        filtered_dependencies[getelkey(element)] = filtered
+        filtered = [x for x in dependencies[TuLiPa.getelkey(element)] if x < length(elements)]
+        filtered_dependencies[TuLiPa.getelkey(element)] = filtered
     end
     return filtered_dependencies
 end
 
-function get_elkey_from_element(dataelements::Vector{DataElement}, element::DataElement)
+function get_elkey_from_element(dataelements::Vector{TuLiPa.DataElement}, element::TuLiPa.DataElement)
     for _element in dataelements
         if _element == element
-            return getelkey(element)
+            return TuLiPa.getelkey(element)
         end
     end
     error("element not in dataelements")
 end
 
-function get_element_from_obj(dataelements::Vector{DataElement}, obj::Any)
-    objid = getid(obj)
+function get_element_from_obj(dataelements::Vector{TuLiPa.DataElement}, obj::Any)
+    objid = TuLiPa.getid(obj)
     conceptname = objid.conceptname
     instancename = objid.instancename
     for (i, dataelement) in enumerate(dataelements)
@@ -447,11 +484,11 @@ function get_element_from_obj(dataelements::Vector{DataElement}, obj::Any)
     end
 end
     
-function get_commodities_from_dataelements(elements::Vector{DataElement})
+function get_commodities_from_dataelements(elements::Vector{TuLiPa.DataElement})
     commodities = CommodityName[]
     for element in elements
-        if element.conceptname == BALANCE_CONCEPT
-            commodity = element.value[COMMODITY_CONCEPT]
+        if element.conceptname == TuLiPa.BALANCE_CONCEPT
+            commodity = element.value[TuLiPa.COMMODITY_CONCEPT]
             if !(commodity in commodities)
                 push!(commodities, commodity)
             end
@@ -460,14 +497,22 @@ function get_commodities_from_dataelements(elements::Vector{DataElement})
     return commodities
 end
 
+function get_obj_from_id(objects::Vector, id::TuLiPa.Id)
+    for obj in objects
+        if TuLiPa.getid(obj) == id
+            return obj
+        end
+    end
+end
+
 function get_commodities_from_storagesystem(storagesystem::Vector)
     commodities = Set{CommodityName}()
     for obj in storagesystem
-        if obj isa Flow
-            for arrow in getarrows(obj)
-                commodity = getcommodity(getbalance(arrow))
+        if obj isa TuLiPa.Flow
+            for arrow in TuLiPa.getarrows(obj)
+                commodity = TuLiPa.getcommodity(TuLiPa.getbalance(arrow))
                 if !(commodity in commodities)
-                    push!(commodities, getinstancename(getid(commodity)))
+                    push!(commodities, TuLiPa.getinstancename(TuLiPa.getid(commodity)))
                 end
             end
         end
@@ -487,11 +532,11 @@ end
 function get_priceareas(objects)
     priceareas = []
     for obj in objects
-        if obj isa Flow
-            for arrow in getarrows(obj)
-                balance = getbalance(arrow)
-                if (getinstancename(getid(getcommodity(balance))) == "Power") && !isexogen(balance)
-                    pricearea = getinstancename(getid(balance))
+        if obj isa TuLiPa.Flow
+            for arrow in TuLiPa.getarrows(obj)
+                balance = TuLiPa.getbalance(arrow)
+                if (TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(balance))) == "Power") && !TuLiPa.isexogen(balance)
+                    pricearea = TuLiPa.getinstancename(TuLiPa.getid(balance))
                     push!(priceareas, pricearea)
                 end
             end
@@ -547,22 +592,20 @@ to all other cores.
 function add_local_problem_distribution()
     db = get_local_db()
 
+    dist_ifm = get_dist_ifm(db.input)
     dist_ppp = get_dist_ppp(db.input)
-    println(dist_ppp)
     dist_evp = get_dist_evp(db.input, db.subsystems_evp)
-    println(dist_evp)
     (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
-    println(dist_mp)
-    println(dist_sp)
     core_cp = get_core_cp(db.input)
 
+    db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
     db.core_cp = core_cp
 
-    dists = (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
+    dists = (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
 
     cores = get_cores(db.input)
     @sync for core in cores
@@ -575,10 +618,11 @@ function add_local_problem_distribution()
 end
 
 function set_local_dists(dists)
-    (dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
+    (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
 
     db = get_local_db()
     
+    db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
@@ -602,13 +646,13 @@ Which cores own which scenarios are defined in db.dist_ppp at any given time.
 function add_local_horizons()
     db = get_local_db()
     horizons = get_horizons(db.input)
-    d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, Horizon}()
+    d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}()
     for (scenarioix, ownercore) in db.dist_ppp
         for ((term, commodity), horizon) in horizons
             if ownercore != db.core
-                horizon = getlightweightself(horizon)
+                horizon = TuLiPa.getlightweightself(horizon)
                 horizon = deepcopy(horizon)
-                externalhorizon = ExternalHorizon(horizon)
+                externalhorizon = TuLiPa.ExternalHorizon(horizon)
                 d[(scenarioix, term, commodity)] = externalhorizon
             else
                 horizon = deepcopy(horizon) # TODO: Only deepcopy parts of horizon
@@ -623,12 +667,14 @@ end
 function add_local_cp()
     db = get_local_db()
     if db.core == db.core_cp
-        @spawnat db.core_cp create_cp()
+        create_cp()
     end
 end
 
 function add_local_problems()
     db = get_local_db()
+
+    create_ifm()
 
     for (scenix, core) in db.dist_ppp
         if core == db.core
@@ -657,10 +703,11 @@ function add_local_problems()
 end
 
 # TODO: Use or remove delta
-function step_jules(t, delta, stepnr, skipmed)
+function step_jules(t, steplength, stepnr, skipmed)
     db = get_local_db()
     cores = get_cores(db)
-	
+    firstcore = first(cores)
+
     if mod(stepnr, 20) == 0
         @sync for core in cores
             @spawnat core GC.gc()
@@ -674,15 +721,36 @@ function step_jules(t, delta, stepnr, skipmed)
             @spawnat core update_startstates(stepnr, t)
         end
     end
-
-    println("Price prognosis problems")
+    
+    println("Scenario modelling")
     @time begin
-        c = first(cores)
         if stepnr == 1 
-            wait(@spawnat c update_scenmod_sim())
+            wait(@spawnat firstcore update_scenmod_sim())
         end
+        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+        # TODO: Do scenario modelling based on ifm
+        wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
+    end
+
+    println("Solve inflow models")
+    @time begin
         @sync for core in cores
-            @spawnat core solve_ppp(t, delta, stepnr, skipmed)
+            @spawnat core solve_ifm(t)
+        end
+
+        @sync for core in cores
+            @spawnat core synchronize_ifm_output()
+        end
+
+        @sync for core in cores
+            @spawnat core update_ifm_derived()
+        end
+    end
+
+    println("Solve price prognosis problems")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_ppp(t, steplength, stepnr, skipmed)
         end
 
         @sync for core in cores
@@ -692,26 +760,22 @@ function step_jules(t, delta, stepnr, skipmed)
 	
     println("End value problems")
     @time begin
-        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
         @sync for core in cores
-            @spawnat core solve_evp(t, delta, stepnr, skipmed)
+            @spawnat core solve_evp(t, stepnr, skipmed)
         end
     end
 
     println("Subsystem problems")
     @time begin
-        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
-        wait(@spawnat c update_scenmod_stoch(t, skipmed))
-
         @sync for core in cores
-            @spawnat core solve_stoch(t, delta, stepnr, skipmed)
+            @spawnat core solve_stoch(t, stepnr, skipmed)
         end
     end
 
     println("Clearing problem")
     @time begin
         @sync for core in cores
-            @spawnat core solve_cp(t, delta, stepnr, skipmed)
+            @spawnat core solve_cp(t, stepnr, skipmed)
         end
     end
 

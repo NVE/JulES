@@ -1,32 +1,33 @@
 struct ClearingProblem
-    prob::Prob
+    prob::TuLiPa.Prob
     endstates::Dict{String, Float64} # startstates in next iteration
     div::Dict
 end
 # TODO: also preallocate clearingstates?
 
 struct EndValueProblem
-    prob::Prob
+    prob::TuLiPa.Prob
     div::Dict
 end
 
 struct PricePrognosisProblem
-    longprob::Prob
-    medprob::Prob
-    shortprob::Prob
-    nonstoragestates_short::Dict{StateVariableInfo, Float64}
+    longprob::TuLiPa.Prob
+    medprob::TuLiPa.Prob
+    shortprob::TuLiPa.Prob
+    nonstoragestates_short::Dict{TuLiPa.StateVariableInfo, Float64}
     div::Dict
 end
 
 mutable struct MasterProblem
-    prob::Prob
-    cuts::SimpleSingleCuts
-    states::Dict{StateVariableInfo, Float64}
+    prob::TuLiPa.Prob
+    cuts::TuLiPa.SimpleSingleCuts
+    states::Dict{TuLiPa.StateVariableInfo, Float64}
     div::Dict
 end
 
 mutable struct ScenarioProblem # TODO: Should the others be mutable as well?
-    prob::Prob
+    prob::TuLiPa.Prob
+    horizons::Dict{CommodityName, TuLiPa.Horizon}
     scenslopes::Vector{Float64}
     scenconstant::Float64
     div::Dict
