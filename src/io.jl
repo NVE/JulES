@@ -344,8 +344,10 @@ has_headlosscost(settings::Dict)::Bool = get(settings, "statedependentpump", fal
 has_onlyagghydro(settings::Dict)::Bool = get(settings["problems"], "onlyagghydro", false)
 
 has_result_times(settings::Dict)::Bool = get(settings["results"], "times", false)
+has_result_scenarios(settings::Dict)::Bool = get(settings["results"], "scenarios", false)
 has_result_memory(settings::Dict)::Bool = get(settings["results"], "memory", false)
 has_result_storagevalues(settings::Dict)::Bool = get(settings["results"], "storagevalues", false)
+has_result_prices_ppp(settings::Dict)::Bool = get(settings["results"], "prices_ppp", false)
 
 function get_outputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     if mainconfig["outputindex"] == "datayear"
@@ -512,7 +514,8 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     prices_short::Array{Float64}
     deltas_short::Array{Float64}
 
-    # TODO: info on scenix -> scenario for each step
+    scenweights_sim::Array{Float64}
+    scenweights_stoch::Array{Float64}
 
     prices::Array{Float64}
     rhstermvalues::Array{Float64}
@@ -541,6 +544,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         return new(Dict(),Dict(),Dict(),Dict(),[],
         Dict(),
         [],[],[],[],[],[],[],
+        [],[],
         [],[],[],[],[],[],
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
     end
@@ -575,6 +579,11 @@ function init_local_output()
         db.output.timing_cp = zeros(steps, 3)
     end
 
+    if has_result_scenarios(settings)
+        db.output.scenweights_sim = zeros(steps, get_numscen_sim(db.input))
+        db.output.scenweights_stoch = zeros(steps, get_numscen_stoch(db.input))
+    end
+
     if has_result_storagevalues(settings)
         for (subix, core) in db.dist_mp
             if settings["results"]["storagevalues"]
@@ -598,7 +607,7 @@ function init_local_output()
         end
     end
 
-    if haskey(settings["results"], "prices_ppp")
+    if has_result_prices_ppp(settings)
         collect_interval = settings["results"]["prices_ppp"]
         collect_steps = div(steps, collect_interval) + 1
 
@@ -676,6 +685,11 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
             @spawnat core reset_maintiming_sp(scenix, subix)
         end
+    end
+
+    if has_result_scenarios(settings)
+        db.output.scenweights_sim[stepnr, :] .= [get_probability(scen) for scen in get_scenarios(db.scenmod_sim)]
+        db.output.scenweights_stoch[stepnr, :] .= [get_probability(scen) for scen in get_scenarios(db.scenmod_stoch)]
     end
 
     if has_result_storagevalues(settings)
@@ -764,7 +778,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         TuLiPa.get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 
-    if haskey(settings["results"], "prices_ppp")
+    if has_result_prices_ppp(settings)
         collect_interval = settings["results"]["prices_ppp"]
         if (stepnr-1) % collect_interval == 0
             collect_step = div((stepnr-1), collect_interval) + 1
@@ -903,6 +917,8 @@ function get_output_final(steplength, skipmax)
 
     get_output_timing(output, steplength, skipmax)
 
+    get_output_scenarios(output)
+
     get_output_storagevalues(output, steplength, skipmax)
 
     get_output_ppp_prices(output)
@@ -987,7 +1003,7 @@ function get_output_ppp_prices(output)
     db = get_local_db()
     settings = get_settings(db)
     
-    if haskey(settings["results"], "prices_ppp")
+    if has_result_prices_ppp(settings)
         f = @spawnat db.core_cp get_output_prices_ppp_local()
         ret = fetch(f)
         if ret isa RemoteException
@@ -1051,6 +1067,19 @@ function get_output_memory_local()
         push!(values, field_memory_size)
     end
     return values
+end
+
+function get_output_scenarios(output)
+    db = get_local_db()
+
+    wait(@spawnat db.core_cp get_output_scenarios_local(output))
+end
+
+function get_output_scenarios_local(data)
+    db = get_local_db()
+
+    data["scenweights_sim"] = db.output.scenweights_sim
+    data["scenweights_stoch"] = db.output.scenweights_stoch
 end
 
 function get_output_timing(output, steplength, skipmax)
