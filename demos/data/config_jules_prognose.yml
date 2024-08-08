@@ -59,7 +59,7 @@ threehour:
                 function: startmagdict
 
             # distribution_method_mp: bysize #random #bysize #greedy #randdumb #storage #sizepairing #advanced
-            # distribution_method_sp: withmp #withmp #greedy
+            # distribution_method_sp: withmp #withmp 
         clearing:
             solver: HighsSimplexMethod(warmstart=false)
             statedependentprod: true
@@ -192,7 +192,7 @@ fast: # 24 hour steps, 7 static scenarios, aggregated hydro, shrinkablehorizon, 
             startstorages:
                 function: startmagdict
             # distribution_method_mp: bysize #random #bysize #greedy #randdumb #storage #sizepairing #advanced
-            # distribution_method_sp: withmp #withmp #greedy
+            # distribution_method_sp: withmp #withmp 
         clearing:
             solver: HighsSimplexMethod(warmstart=false)
             statedependentprod: false

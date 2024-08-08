@@ -114,7 +114,6 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     
     distribution_method_mp = get_distribution_method_mp(input)
     default = "bysize"
-
     
     valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced"]
 
@@ -216,6 +215,7 @@ function _distribute_sp_with_mp!(input::AbstractJulESInput, dist_mp::Vector{Tupl
 end
 
 #greedy
+#TODO: bugs, Benders does not converge with this method for distribution of scenarioproblems
 """Function to distribute the scenarios on the core with least data elements"""
 function _distribute_scenarios_greedy!(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, core_loads::Dict{CoreId, Int})
     elements = get_elements(input)
