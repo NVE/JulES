@@ -110,12 +110,8 @@ Returns the subsystem distribution method from the config file. If there is no d
 """
 function get_distribution_method_mp(input::DefaultJulESInput, default::String="bysize")
     settings = get_settings(input)
-
     # Retrieve the distribution method value
-    
-    
     method = get(settings["problems"]["stochastic"],"distribution_method_mp", default)
-
     # Check if the method is not nothing and not an empty string
     if !isnothing(method) && !isempty(method)
         return method
@@ -131,7 +127,6 @@ Withmp is the original method where scenarios are distributed on the same core a
 """
 function get_distribution_method_sp(input::DefaultJulESInput, default::String="withmp")
     settings = get_settings(input)
-
     
     # Retrieve the distribution method value
     method = get(settings["problems"]["stochastic"],"distribution_method_sp", default)
@@ -168,7 +163,6 @@ end
 
 function get_ifm_weights(input::DefaultJulESInput)
     w = input.dataset["ifm_weights"]
-
     # remove stations from w that does not exist
     # and update weights accordingly
     names = get_ifm_names(input)
@@ -217,7 +211,6 @@ function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64
         weatheroffset = weatherscenariotime - weathersimtime
         datascenarios[scen] = WeatherScenario(weatheroffset, 1/datanumscen, scen)
     end
-
     return (simtime, NoScenarioModellingMethod(datascenarios))
 end
 
