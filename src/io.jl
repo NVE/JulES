@@ -1199,7 +1199,7 @@ function get_output_timing_local(data, steplength, skipmax)
 
         display(df_core)
         display(df_subix)
-
+    end
     # # display number of elements of each type per subsystem
     # unique_types = ["subix", "name_first_element", "name_second_element", "total_count"] #  
     # # loop gjennom get_elements(db.input) og legg til push!(unique_type, )
