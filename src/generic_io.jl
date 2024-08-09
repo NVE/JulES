@@ -20,22 +20,17 @@ end
 """
 How price prognosis problems (ppp) are distributed on cores initially
 """
-
-
-
 function get_dist_ppp(input::AbstractJulESInput)
     cores = get_cores(input)
     N = length(cores)
     S = get_numscen_sim(input)
     
     dist = Vector{Tuple{ScenarioIx, CoreId}}(undef, S)
-    
     for s in 1:S
         j = (s - 1) % N + 1
     
         dist[s] = (s, cores[j])
     end
-    
     return dist
 end
 
@@ -44,16 +39,11 @@ How end value problems (evp) are distributed on cores initially
 """
 function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}) 
     cores = get_cores(input)
-
     N = length(cores) #number of cores
     S = get_numscen_sim(input) #number of scenarios
     Y = length(subsystems)
 
-    
-
-
     out = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, S*Y)
-
     if N >= S*Y
         k = 0
         for (subix, sub) in subsystems
@@ -67,7 +57,6 @@ function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{Subsys
     end
 
     # TODO: Do better when S < N < S*Y
-
     k = 0
     for (subix, sub) in subsystems
         for scenix in 1:S
@@ -84,8 +73,6 @@ end
 function get_core_cp(input::AbstractJulESInput) 
     return first(get_cores(input))
 end 
-
-# TODO: Is it a better default to minimize total object count on each core? (Can lead to one big subsystem on one core and several subsystems on others). More complicated.
 
 """
 Will try to distribute small and large subsystems evenly on cores.
@@ -108,22 +95,18 @@ Scenario problems (sp) will be put on the same core as master problems (mp).
 """
 
 function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
-    
     cores = get_cores(input)
     #Distributing the master problems/subsystems
     
     distribution_method_mp = get_distribution_method_mp(input)
-    default = "bysize"
-    
+    default = "bysize" 
     valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced"]
-
     # Check if distribution_method is valid
     if !(distribution_method_mp in valid_methods_mp)
         println("distribution method $distribution_method_mp is not valid. Using $default")
         distribution_method_mp = default
     end
 
-    
     if distribution_method_mp == "randdumb"
         dist_mp = _distribute_subsystems_randdumb!(subsystems, cores)
     elseif distribution_method_mp == "random"
@@ -142,8 +125,6 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
         #Returning here to avoid the rest of the code, since dist_mp is already decided
         return (dist_mp, dist_sp)
     end
-    
-
     
     #Distributing scenarioproblems sp
     distribution_method_sp = get_distribution_method_sp(input)
@@ -183,7 +164,6 @@ function _get_core_load!(input::AbstractJulESInput, subsystems::Vector{Tuple{Sub
         subsystem_dict[ix] = s
     end
 
-
     for (sub_ix, core) in dist_mp
         s = subsystem_dict[sub_ix]
         num_elements = length(get_dataelements(s))
@@ -199,8 +179,7 @@ function _get_core_load!(input::AbstractJulESInput, subsystems::Vector{Tuple{Sub
     return core_loads
 end
 
-#withmp
-"""The original way to distribute senario problems. Each sp is on the same core as its master problem"""
+"""The original way to distribute scenario problems. Each sp is on the same core as its master problem"""
 function _distribute_sp_with_mp!(input::AbstractJulESInput, dist_mp::Vector{Tuple{SubsystemIx, CoreId}})
     N = get_numscen_stoch(input)
         dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(dist_mp))
@@ -214,19 +193,15 @@ function _distribute_sp_with_mp!(input::AbstractJulESInput, dist_mp::Vector{Tupl
     return dist_sp
 end
 
-#greedy
 #TODO: bugs, Benders does not converge with this method for distribution of scenarioproblems
 """Function to distribute the scenarios on the core with least data elements"""
 function _distribute_scenarios_greedy!(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, core_loads::Dict{CoreId, Int})
     elements = get_elements(input)
-    
     N = get_numscen_stoch(input)
-
     dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(dist_mp))
     
     #vektor med tupler med subsystem id, subsystem og antall dataelementer
     subsystem_elements = Tuple{SubsystemIx, Int}[]
-
     for (ix, s) in subsystems
         push!(subsystem_elements, (ix, length(get_dataelements(s))))
     end
@@ -241,11 +216,9 @@ function _distribute_scenarios_greedy!(input::AbstractJulESInput, subsystems::Ve
             for scen in 1:N 
             
                 # Find the core with the minimum load
-            
                 min_load_core = findmin(core_loads)[2]
                 dist_sp[i] = (scen, ix, min_load_core)
                 core_loads[min_load_core] += elements
-                
                 i += 1
             end
         end
@@ -255,8 +228,6 @@ function _distribute_scenarios_greedy!(input::AbstractJulESInput, subsystems::Ve
     return dist_sp
 end
 
-
-#advanced MP
 """Making the largest MP get the two first cores by assigning largest MP to core 1 and "reserving" core two for its SP"""
 function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
    
@@ -287,7 +258,6 @@ function _distribute_subsystems_advanced!(subsystems::Vector{Tuple{SubsystemIx, 
     return dist
 end
 
-#advanced SP
 """Function to split the scenario problems of the largest MP on the first two cores, and then distribute the rest of SP as before"""
 function _distribute_subscenarios_advanced!(dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, cores::Vector{CoreId}, input::AbstractJulESInput)
     N = get_numscen_stoch(input)
@@ -328,7 +298,6 @@ function _distribute_subscenarios_advanced!(dist_mp::Vector{Tuple{SubsystemIx, C
     return dist_sp
 end
 
-#sizepairing
 """Function to sort all subsystems from biggest to smallest in a list, distribute smallest and biggest subsystem on the same core, removing them from the list and repeating until all subsystems are distributed on cores"""
 function _distribute_subsystems_big_small!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     sorted_subsystems = get_subsystem_ids_by_decending_size(subsystems)
@@ -348,7 +317,6 @@ function _distribute_subsystems_big_small!(subsystems::Vector{Tuple{SubsystemIx,
             # Assign the smallest subsystem to the current core
             push!(dist, (sorted_subsystems[1], cores[i]))
             deleteat!(sorted_subsystems, 1)
-            
             if length(sorted_subsystems) == 0
                 break
             end
@@ -361,7 +329,6 @@ function _distribute_subsystems_big_small!(subsystems::Vector{Tuple{SubsystemIx,
     return dist
 end
      
-#randdumb
 """ Function to distribute the subsystems on completely random cores"""   
 function _distribute_subsystems_randdumb!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     dist = Tuple{SubsystemIx, CoreId}[]
@@ -369,14 +336,12 @@ function _distribute_subsystems_randdumb!(subsystems::Vector{Tuple{SubsystemIx, 
         # Randomly select a core
         core = rand(cores)
 
-        
         # Assign the subsystem to the randomly selected core
         push!(dist, (ix, core))
     end
     return dist
 end
 
-#random
 """Function to distribute the subsystems on random cores, but on different cores until all cores have subproblems assigned to them, then again until all cores have 2 subproblems assigned to them, and so on"""
 function _distribute_subsystems_random!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     dist = Tuple{SubsystemIx, CoreId}[]
@@ -393,7 +358,6 @@ function _distribute_subsystems_random!(subsystems::Vector{Tuple{SubsystemIx, Ab
     return dist
 end
 
-#bysize
 """
 Function that distributes the subsystems by size. 
 """
@@ -424,7 +388,6 @@ function _distribute_subsystems_by_size!(subsystems::Vector{Tuple{SubsystemIx, A
     return dist
 end
 
-#storage
 """Function that first distributes the subsystems with the highest number of storage elements on the cores with the lowest number of dataelements, then the remaining subsystems are distributed on the core with fewest dataelements one by one. """
 function _distribute_subsystems_storage_greedy!(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     elements = get_elements(input)
@@ -476,7 +439,6 @@ function _distribute_subsystems_storage_greedy!(input::AbstractJulESInput, subsy
     return dist
 end
 
-
 """Function to sort subsystems by decending number of dataelements """
 function get_subsystem_ids_by_decending_size(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
     subsystems = [(length(get_dataelements(s)), ix) for (ix, s) in subsystems]
@@ -484,7 +446,6 @@ function get_subsystem_ids_by_decending_size(subsystems::Vector{Tuple{SubsystemI
     return [ix for (n, ix) in subsystems]
 end
 
-#greedy
 """ Function to distribute subsystems greedy by number of dataelements. First sorting the subsystems in decreasing order, then placing them from biggest to smallest on the core with fewst dataelements."""
 function _distribute_subsystems_elements_greedy!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     num_cores = length(cores)
@@ -503,8 +464,6 @@ function _distribute_subsystems_elements_greedy!(subsystems::Vector{Tuple{Subsys
     end
     return dist
 end
-
-
 
 """function to get a tuple(subsystem index, number of data elements) that is sorted from highest to lowest number of data elements in the subsystem"""
 function get_subsystem_number_of_elements(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
