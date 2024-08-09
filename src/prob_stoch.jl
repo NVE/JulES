@@ -79,13 +79,16 @@ function solve_stoch(t, stepnr, skipmed)
                 @sync for _core in get_cores(db)
                     @spawnat _core update_sps(t, stepnr, subix)
                 end
-                    
+                
+                
+                
                 solve_benders(stepnr, subix)
                 maintiming[4] += @elapsed save_storagevalues(mp.prob, mp.cuts, mp.div[StorageValues])
                 maintiming[3] = @elapsed final_solve_mp(t, mp.prob, mp.cuts, mp.div[StorageValues], settings)
             end
         end
     end
+
 end
 
 function update_sps(t, stepnr, subix)
