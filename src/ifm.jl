@@ -462,7 +462,7 @@ function solve_ifm(t)
                 scentime = get_scentphasein(t, scen, db.input)
                 Q = predict(inflow_model, u0, scentime)
                 Q .= Q .* normalize_factor
-                start = TuLiPa.getscenariotime(scentime)
+                start = TuLiPa.getdatatime(scentime)
                 if !haskey(db.ifm_output[inflow_name], scenix)
                     ix = [start + Day(i-1) for i in 1:length(Q)]
                     db.ifm_output[inflow_name][scenix] = (ix, Q)
