@@ -10,6 +10,7 @@ struct DefaultJulESInput <: AbstractJulESInput
     datayear::Int
     weatheryear::Int
     onlysubsystemmodel::Bool # TODO: can probably remove this
+    
 
     steps::Int
     steplength::Millisecond
@@ -29,6 +30,7 @@ struct DefaultJulESInput <: AbstractJulESInput
         settings = config[mainconfig["settings"]]
         numcores = mainconfig["numcores"]
         cores = collect(1:numcores)
+       
 
         onlysubsystemmodel = false
         if !haskey(settings["problems"], "prognosis") && !haskey(settings["problems"], "endvalue") && haskey(settings["problems"], "stochastic") && !haskey(settings["problems"], "clearing")
@@ -101,6 +103,41 @@ get_phaseindelta(input::DefaultJulESInput) = input.phaseindelta
 get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
+"""
+
+Returns the subsystem distribution method from the config file. If there is no distribution method, the default method "bysize" is returned. 
+"Bysize" is the orginal method where the subsystems are sorted from biggest to smallest, and then distributed forward and then backward until all subsystems are distributed. 
+"""
+function get_distribution_method_mp(input::DefaultJulESInput, default::String="bysize")
+    settings = get_settings(input)
+    # Retrieve the distribution method value
+    method = get(settings["problems"]["stochastic"],"distribution_method_mp", default)
+    # Check if the method is not nothing and not an empty string
+    if !isnothing(method) && !isempty(method)
+        return method
+    else
+        return default
+    end
+end
+
+
+"""
+Returns the scenario problem distribution method from the config file. If there is no distribution method, the default method "withmp" is returned. 
+Withmp is the original method where scenarios are distributed on the same core as the master problem. 
+"""
+function get_distribution_method_sp(input::DefaultJulESInput, default::String="withmp")
+    settings = get_settings(input)
+    
+    # Retrieve the distribution method value
+    method = get(settings["problems"]["stochastic"],"distribution_method_sp", default)
+
+    # Check if the method is not nothing and not an empty string
+    if !isnothing(method) && !isempty(method)
+        return method
+    else
+        return default
+    end
+end
 
 get_iprogtype(input::DefaultJulESInput) = input.dataset["iprogtype"]
 get_ifm_normfactors(input::DefaultJulESInput) = input.dataset["ifm_normfactors"]
@@ -126,7 +163,6 @@ end
 
 function get_ifm_weights(input::DefaultJulESInput)
     w = input.dataset["ifm_weights"]
-
     # remove stations from w that does not exist
     # and update weights accordingly
     names = get_ifm_names(input)
@@ -175,7 +211,6 @@ function get_datascenarios(datayear::Int64, weatheryear::Int64, weekstart::Int64
         weatheroffset = weatherscenariotime - weathersimtime
         datascenarios[scen] = WeatherScenario(weatheroffset, 1/datanumscen, scen)
     end
-
     return (simtime, NoScenarioModellingMethod(datascenarios))
 end
 
@@ -1193,7 +1228,22 @@ function get_output_timing_local(data, steplength, skipmax)
 
         display(df_core)
         display(df_subix)
+    end
+    # # display number of elements of each type per subsystem
+    # unique_types = ["subix", "name_first_element", "name_second_element", "total_count"] #  
+    # # loop gjennom get_elements(db.input) og legg til push!(unique_type, )
+    # df_sub_element_type = DataFrame([name => [] for name in unique_type])
+    # for (subix, subsystem) in enumerate(get_subsystems(db))
+    #     type_count = []
+    #     total_count = # sum av type_count
+    #     name_first_element = # element.instancename
+    #     name_second_element = 
+    #     push!(df_sub_element_type, [subix, name_first_element, name_second_element, total_count, type_count...])
+    # end
+    # # sorter df_sub_element_type etter total_count
+    # display(df_sub_element_type)
 
+    if settings["results"]["times"]
         if haskey(settings["problems"], "prognosis") 
             data["prognosistimes"] = timings_ppp1
         end
@@ -1332,6 +1382,8 @@ function get_output_cp_local()
         data["demandvalues"] = demandvalues
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
+
+        #data[]
     end
 
     return data
