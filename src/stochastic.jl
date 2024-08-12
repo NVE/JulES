@@ -228,7 +228,7 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
 
     ub = 0
     cutreuse = false
-    count, mastertime, subtime = iterate_convergence!(master, subs, cuts, states, cutreuse, lb, ub, reltol)
+    count, mastertime, subtime = iterate_convergence!(master, subs, cuts, states, cutreuse, lb, ub, reltol, startstates)
 
     # Init storagevalues results # TODO move to function
     if settings["results"]["storagevalues"]
@@ -290,40 +290,42 @@ function stochastic_init!(probmethods::Vector, masterobjects::Vector, subobjects
 end
 
 # Iterate until convergence between master and subproblems
-function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts, states::Dict{StateVariableInfo, Float64}, cutreuse::Bool, lb::Float64, ub::Int, reltol::Float64)
+function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts, states::Dict{StateVariableInfo, Float64}, cutreuse::Bool, lb::Float64, ub::Int, reltol::Float64, startstates::Dict)
     count = 0
     mastertime = 0
     subtime = 0
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
 
-        count == 0 && setwarmstart!(master, false)
-
         mastertime += @elapsed begin
-            if cutreuse # try to reuse cuts from last time step
-                try
+            if getnumcuts(cuts) != 0
+                count == 0 && setwarmstart!(master, false)
+                if cutreuse # try to reuse cuts from last time step
+                    try
+                        solve!(master)
+                        count == 0 && clearcuts!(master, cuts)
+                    catch
+                        count == 0 && println("Retrying first iteration without cuts from last time step")
+                        count > 0 && println("Restarting iterations without cuts from last time step")
+                        clearcuts!(master, cuts)
+                        cutreuse = false
+                    end
+                else
                     solve!(master)
-                catch
-                    count == 0 && println("Retrying first iteration without cuts from last time step")
-                    count > 0 && println("Restarting iterations without cuts from last time step")
-                    clearcuts!(master, cuts)
-                    solve!(master)
-                    cutreuse = false
                 end
-            else
-                solve!(master)
+                count == 0 && setwarmstart!(master, true)
+                lb = getvarvalue(master, getfuturecostvarid(cuts), 1)
+                count += 1
             end
         end
 
-        lb = getvarvalue(master, getfuturecostvarid(cuts), 1)
         ub = 0
-
-        count == 0 && setwarmstart!(master, true)
-        (count == 0 && cutreuse) && clearcuts!(master, cuts) # reuse cuts in first iteration
-        
         for (i,sub) in enumerate(subs)
-
-            transferboundarystates!(master, sub, states)
+            if getnumcuts(cuts) == 0
+                setstartstates!(sub, getstorages(getobjects(sub)), startstates)
+            else
+                transferboundarystates!(master, sub, states)
+            end
             
             subtime += @elapsed solve!(sub)
 
@@ -332,12 +334,7 @@ function iterate_convergence!(master::Prob, subs::Vector, cuts::SimpleSingleCuts
         end
 
         updatecutparameters!(master, cuts)
-        if (count == 0 && cutreuse) 
-            updatecuts!(master, cuts)
-        else
-            updatelastcut!(master, cuts)
-        end
-        count += 1
+        updatelastcut!(master, cuts)
         # display(ub)
         # display(abs((lb-ub)/lb))
         # display(abs(ub-lb))
@@ -433,7 +430,7 @@ function stochastic!(master::Prob, subs::Vector, states::Dict{StateVariableInfo,
         ub = 0
         cutreuse = true
         stochastictimes[stepnr-1, 3] = @elapsed begin
-            (count, mastertime, subtime) = iterate_convergence!(master, subs, cuts, states, cutreuse, lb, ub, reltol)
+            (count, mastertime, subtime) = iterate_convergence!(master, subs, cuts, states, cutreuse, lb, ub, reltol, startstates)
         end
         stochastictimes[stepnr-1, 4] = count
         stochastictimes[stepnr-1, 5] = mastertime
