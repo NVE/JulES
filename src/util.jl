@@ -287,12 +287,16 @@ end
 function parse_methods(s::String)
     if s == "HiGHS_Prob()"
         return HiGHS_Prob()
+    elseif s == "JuMP_Prob()"
+        return JuMP_Prob() 
     elseif s == "HighsSimplexMethod()"
         return HighsSimplexMethod()
     elseif s == "HighsSimplexMethod(warmstart=false)"
         return HighsSimplexMethod(warmstart=false)
     elseif s == "HighsSimplexSIPMethod(warmstart=false)"
         return HighsSimplexSIPMethod(warmstart=false)
+    elseif s == "JuMPHiGHSMethod()"
+        return JuMPHiGHSMethod()
     elseif s == "KMeansAHMethod()"
         return KMeansAHMethod()
     end
