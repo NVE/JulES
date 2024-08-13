@@ -164,6 +164,11 @@ function save_storagevalues(prob, cuts, storagevalues)
     return
 end
 
+"""
+Two possibilities to warm start benders solve:
+- Start with solving master problem if cuts from previous step are available. NB! we reuse cuts although scenarios can have changed
+- Start with solving subproblems with start reservoirs from db.startstates if cuts from previous step are NOT available
+"""
 function solve_benders(stepnr, subix)
     db = get_local_db()
     settings = get_settings(db)
@@ -182,7 +187,6 @@ function solve_benders(stepnr, subix)
 
     while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
         maintiming[4] += @elapsed begin
-            count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
             if (count == 1 && cutreuse)
                 TuLiPa.updatecuts!(mp.prob, mp.cuts)
             elseif count != 0
@@ -191,43 +195,52 @@ function solve_benders(stepnr, subix)
         end
 
         maintiming[2] += @elapsed begin
-            if cutreuse # try to reuse cuts from last time step, NB! we reuse cuts although scenarios can have changed
-                try
+            if getnumcuts(cuts) != 0
+                count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
+                if cutreuse
+                    try
+                        TuLiPa.solve!(mp.prob)
+                        count == 0 && TuLiPa.clearcuts!(mp.cuts)
+                    catch
+                        count == 0 && println("Retrying first iteration without cuts from last time step")
+                        count > 0 && println("Restarting iterations without cuts from last time step")
+                        TuLiPa.clearcuts!(mp.prob, mp.cuts)
+                        cutreuse = false
+                        count = 0
+                    end
+                else
                     TuLiPa.solve!(mp.prob)
-                catch
-                    count == 0 && println("Retrying first iteration without cuts from last time step")
-                    count > 0 && println("Restarting iterations without cuts from last time step")
-                    TuLiPa.clearcuts!(mp.prob, mp.cuts)
-                    TuLiPa.solve!(mp.prob)
-                    cutreuse = false
                 end
-            else
-                TuLiPa.solve!(mp.prob)
+                count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
             end
         end
 
         maintiming[4] += @elapsed begin
-            lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
-            ub = 0.0
-
-            count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
-            (count == 0 && cutreuse) && TuLiPa.clearcuts!(mp.cuts)
-            TuLiPa.getoutgoingstates!(mp.prob, mp.states)
-            cutix = TuLiPa.getcutix(mp.cuts) + 1
-            if cutix > TuLiPa.getmaxcuts(mp.cuts)
-                cutix = 1
+            if getnumcuts(cuts) != 0
+                lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
+                TuLiPa.getoutgoingstates!(mp.prob, mp.states)
+                count += 1
             end
         end
 
         futures = []
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
-                f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                if getnumcuts(cuts) != 0
+                    f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                else
+                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix)
+                end
                 push!(futures, f)
             end
         end
 
         maintiming[4] += @elapsed begin
+            ub = 0.0
+            cutix = TuLiPa.getcutix(mp.cuts) + 1
+            if cutix > TuLiPa.getmaxcuts(mp.cuts)
+                cutix = 1
+            end
             for future in futures
                 scenix, objectivevalue, scenslopes, scenconstant = fetch(future)
 
@@ -237,7 +250,6 @@ function solve_benders(stepnr, subix)
             end
         
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
-            count += 1
         end
     end
     maintiming[5] = count
@@ -251,6 +263,24 @@ function solve_sp(scenix, subix, states)
     maintiming = sp.div[MainTiming]
 
     maintiming[3] += @elapsed TuLiPa.setingoingstates!(sp.prob, states)
+    maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
+    maintiming[3] += @elapsed begin
+        get_scencutparameters!(sp, states)
+
+        objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
+        scenslopes = sp.scenslopes
+        scenconstant = sp.scenconstant
+    end
+    return (scenix, objectivevalue, scenslopes, scenconstant)
+end
+
+function solve_sp_with_startreservoirs(scenix, subix)
+    db = get_local_db()
+
+    sp = db.sp[(scenix, subix)]
+    maintiming = sp.div[MainTiming]
+
+    maintiming[3] += @elapsed TuLiPa.setstartstates!(sp.prob, getstorages(getobjects(sp.prob)), db.startstates)
     maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
         get_scencutparameters!(sp, states)
