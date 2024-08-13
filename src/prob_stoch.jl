@@ -195,7 +195,7 @@ function solve_benders(stepnr, subix)
         end
 
         maintiming[2] += @elapsed begin
-            if getnumcuts(cuts) != 0
+            if TuLiPa.getnumcuts(cuts) != 0
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
                 if cutreuse
                     try
@@ -216,7 +216,7 @@ function solve_benders(stepnr, subix)
         end
 
         maintiming[4] += @elapsed begin
-            if getnumcuts(cuts) != 0
+            if TuLiPa.getnumcuts(cuts) != 0
                 lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
                 TuLiPa.getoutgoingstates!(mp.prob, mp.states)
                 count += 1
@@ -226,7 +226,7 @@ function solve_benders(stepnr, subix)
         futures = []
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
-                if getnumcuts(cuts) != 0
+                if TuLiPa.getnumcuts(cuts) != 0
                     f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
                 else
                     f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix)
