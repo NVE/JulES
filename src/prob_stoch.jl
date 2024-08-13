@@ -185,7 +185,7 @@ function solve_benders(stepnr, subix)
     lb = mp.cuts.lower_bound
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
 
-    while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1)
+    while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1) && count < 15
         maintiming[4] += @elapsed begin
             if (count == 1 && cutreuse)
                 TuLiPa.updatecuts!(mp.prob, mp.cuts)
@@ -195,12 +195,13 @@ function solve_benders(stepnr, subix)
         end
 
         maintiming[2] += @elapsed begin
-            if TuLiPa.getnumcuts(cuts) != 0
+            if TuLiPa.getnumcuts(mp.cuts) != 0
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
                 if cutreuse
                     try
                         TuLiPa.solve!(mp.prob)
                         count == 0 && TuLiPa.clearcuts!(mp.cuts)
+                        count += 1
                     catch
                         count == 0 && println("Retrying first iteration without cuts from last time step")
                         count > 0 && println("Restarting iterations without cuts from last time step")
@@ -210,26 +211,27 @@ function solve_benders(stepnr, subix)
                     end
                 else
                     TuLiPa.solve!(mp.prob)
+                    count += 1
                 end
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
+                lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
+                TuLiPa.getoutgoingstates!(mp.prob, mp.states)
             end
         end
 
         maintiming[4] += @elapsed begin
-            if TuLiPa.getnumcuts(cuts) != 0
-                lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
-                TuLiPa.getoutgoingstates!(mp.prob, mp.states)
-                count += 1
+            if TuLiPa.getnumcuts(mp.cuts) != 0
+
             end
         end
 
         futures = []
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
-                if TuLiPa.getnumcuts(cuts) != 0
+                if TuLiPa.getnumcuts(mp.cuts) != 0
                     f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
                 else
-                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix)
+                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix, mp.states)
                 end
                 push!(futures, f)
             end
@@ -274,16 +276,16 @@ function solve_sp(scenix, subix, states)
     return (scenix, objectivevalue, scenslopes, scenconstant)
 end
 
-function solve_sp_with_startreservoirs(scenix, subix)
+function solve_sp_with_startreservoirs(scenix, subix, states)
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
     maintiming = sp.div[MainTiming]
 
-    maintiming[3] += @elapsed TuLiPa.setstartstates!(sp.prob, getstorages(getobjects(sp.prob)), db.startstates)
+    maintiming[3] += @elapsed set_startstates!(sp.prob, TuLiPa.getstorages(TuLiPa.getobjects(sp.prob)), db.startstates)
     maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
-        get_scencutparameters!(sp, states)
+        get_scencutparameters!(sp, states) # TODO: Even better replacing states with db.startstates?
 
         objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
         scenslopes = sp.scenslopes
