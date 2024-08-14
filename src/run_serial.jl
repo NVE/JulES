@@ -735,7 +735,7 @@ function step_jules(t, steplength, stepnr, skipmed)
     println("Solve inflow models")
     @time begin
         @sync for core in cores
-            @spawnat core solve_ifm(t)
+            @spawnat core solve_ifm(t, stepnr)
         end
 
         @sync for core in cores

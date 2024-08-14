@@ -139,7 +139,8 @@ function get_distribution_method_sp(input::DefaultJulESInput, default::String="w
     end
 end
 
-get_iprogtype(input::DefaultJulESInput) = input.dataset["iprogtype"]
+get_iprogtype(input::DefaultJulESInput) = get(input.dataset, "iprogtype", "direct")
+has_ifm_results(input::DefaultJulESInput) = get_iprogtype(input) != "direct"
 get_ifm_normfactors(input::DefaultJulESInput) = input.dataset["ifm_normfactors"]
 get_ifm_elements(input::DefaultJulESInput) = input.dataset["ifm_elements"]
 
@@ -575,13 +576,19 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     statenames::Vector{String}
     statematrix::Array{Float64} # end states after each step
 
+    ifm_step_u0::Dict{String, Tuple{Int64, Vector{Float64}}}
+    ifm_stations::Vector{String}
+    ifm_u0::Vector{Matrix{Float64}}
+
+
     function DefaultJulESOutput(input)
         return new(Dict(),Dict(),Dict(),Dict(),[],
         Dict(),
         [],[],[],[],[],[],[],
         [],[],
         [],[],[],[],[],[],
-        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
+        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
+        Dict(), [], [])
     end
 end
 
@@ -671,6 +678,21 @@ function init_local_output()
             @spawnat core init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
         end
     end
+
+    if has_ifm_results(db.input)
+        db.output.ifm_stations = collect(get_ifm_names(db.input))
+        num_states = get_ifm_numstates()
+        num_stations = length(db.output.ifm_stations)
+        @assert length(db.output.ifm_u0) == 0
+        for __ in 1:num_states
+            push!(db.output.ifm_u0, zeros(Float64, (num_stations, steps)))
+        end
+    end
+end
+
+function get_ifm_numstates()
+    # TODO: find common numstates by calling numstates on each ifm and verify all ifm of same type
+    return 2
 end
 
 function init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
@@ -691,10 +713,48 @@ function get_numstates(subix)
     return length(db.mp[subix].states)
 end
 
+function collect_ifm_u0(stepnr)
+    db = get_local_db()
+    d = Dict{String, Vector{Float64}}()
+    for core in get_cores(db.input)
+        fetched = fetch(@spawnat core local_collect_ifm_u0(stepnr))
+        if fetched isa RemoteException
+            throw(fetched)
+        end
+        for (name, u0_vec) in fetched
+            @assert !haskey(d, name)
+            d[name] = u0_vec
+        end
+    end
+    return d
+end
+
+function local_collect_ifm_u0(stepnr)
+    db = get_local_db()
+    d = Dict{String, Vector{Float64}}()
+    for (name, core) in db.dist_ifm
+        if core == db.core
+            (stored_stepnr, u0_vec) = db.output.ifm_step_u0[name]
+            @assert stored_stepnr == stepnr
+            d[name] = u0_vec
+        end
+    end
+    return d
+end
+
 function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     db = get_local_db()
     settings = get_settings(db)
     steps = get_steps(db)
+
+    if has_ifm_results(db.input)
+        u0 = collect_ifm_u0(stepnr)
+        for (i, station) in enumerate(db.output.ifm_stations)
+            for (j, v) in enumerate(u0[station])
+                db.output.ifm_u0[j][i, stepnr] = v
+            end
+        end
+    end
 
     if has_result_times(settings)
         for (scenix, core) in db.dist_ppp
@@ -720,7 +780,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
             @spawnat core reset_maintiming_sp(scenix, subix)
         end
-    end
+    end    
 
     if has_result_scenarios(settings)
         db.output.scenweights_sim[stepnr, :] .= [get_probability(scen) for scen in get_scenarios(db.scenmod_sim)]
@@ -1383,7 +1443,13 @@ function get_output_cp_local()
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
 
-        #data[]
+        if has_ifm_results(db.input)
+            data["ifm_stations"] = db.output.ifm_stations
+            data["ifm_state_index"] =  x3
+            for stateix in eachindex(db.output.ifm_u0)
+                data["ifm_state_$(stateix)_matrix"] = db.output.ifm_u0[i]
+            end
+        end
     end
 
     return data

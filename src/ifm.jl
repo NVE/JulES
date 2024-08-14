@@ -247,6 +247,7 @@ end
 
 TuLiPa.getid(m::TwoStateBucketIfm) = m.id
 TuLiPa.assemble!(m::TwoStateBucketIfm) = true
+numstates(::TwoStateBucketIfm) = 2
 estimate_u0(m::TwoStateBucketIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
 
@@ -297,7 +298,7 @@ end
 
 TuLiPa.getid(m::TwoStateNeuralODEIfm) = m.id
 TuLiPa.assemble!(m::TwoStateNeuralODEIfm) = true
-
+numstates(::TwoStateNeuralODEIfm) = 2
 estimate_u0(m::TwoStateNeuralODEIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
 
@@ -446,7 +447,7 @@ end
 Sequentially solve inflow models stored locally. 
 Each inflow model is solved for each scenario.
 """
-function solve_ifm(t)
+function solve_ifm(t, stepnr)
     db = get_local_db()
     normfactors = get_ifm_normfactors(db)
     scenarios = get_scenarios(db.scenmod_sim)
@@ -458,6 +459,10 @@ function solve_ifm(t)
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
             u0 = estimate_u0(inflow_model, t)
+            (stored_stepnr, __) = get(db.output.ifm_step_u0, inflow_name, (-1, 0.0))
+            if stored_stepnr != stepnr
+                db.output.ifm_step_u0[inflow_name] = (stepnr, u0)
+            end
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
                 Q = predict(inflow_model, u0, scentime)
