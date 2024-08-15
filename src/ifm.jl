@@ -484,8 +484,8 @@ function solve_ifm(t, stepnr)
     steplen_ms = Millisecond(get_steplength(db.input))
     ifmstep_ms = TuLiPa.getduration(ONEDAY_MS_TIMEDELTA)
     @assert steplen_ms >= ifmstep_ms
-    ndays = steplen_ms.value // ifmstep_ms.value
-    remainder_ms = steplen_ms - ifmstep_ms * ndays
+    nifmsteps = div(steplen_ms.value, ifmstep_ms.value)
+    remainder_ms = steplen_ms - ifmstep_ms * nifmsteps
     steplen_f = float(steplen_ms.value)
     ifmstep_f = float(ifmstep_ms.value)
     remainder_f = float(remainder_ms.value)
@@ -506,13 +506,13 @@ function solve_ifm(t, stepnr)
             # predict mean Q for over clearing period and store result
             # can be used to measure goodness of ifm model
             Q = predict(inflow_model, u0, t)
-            @assert ndays <= length(Q)
+            @assert nifmsteps <= length(Q)
             mean_Q = 0.0
-            for i in 1:ndays
+            for i in 1:nifmsteps
                 mean_Q += Q[i] * ifmstep_f
             end
-            if ndays > 0
-                mean_Q += Q[i] * remainder_f
+            if nifmsteps > 0
+                mean_Q += Q[nifmsteps] * remainder_f
             end
             mean_Q /= steplen_f
             save_ifm_Q(db, inflow_name, stepnr, mean_Q)
