@@ -1447,7 +1447,7 @@ function get_output_cp_local()
             data["ifm_stations"] = db.output.ifm_stations
             data["ifm_state_index"] =  x3
             for stateix in eachindex(db.output.ifm_u0)
-                data["ifm_state_$(stateix)_matrix"] = db.output.ifm_u0[i]
+                data["ifm_state_$(stateix)_matrix"] = db.output.ifm_u0[stateix]
             end
         end
     end
