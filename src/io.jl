@@ -785,7 +785,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         end
         ifm_Q = collect_ifm_Q(stepnr)
         for (i, station) in enumerate(db.output.ifm_stations)
-            db.output.ifm_Q[i, stepnr] .= ifm_Q[station]
+            db.output.ifm_Q[i, stepnr] = ifm_Q[station]
         end
     end
 
