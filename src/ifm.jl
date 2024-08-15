@@ -482,7 +482,7 @@ function solve_ifm(t, stepnr)
     db = get_local_db()
 
     steplen_ms = Millisecond(get_steplength(db.input))
-    ifmstep_ms = ONEDAY_MS_TIMEDELTA.value
+    ifmstep_ms = getduration(ONEDAY_MS_TIMEDELTA)
     @assert steplen_ms >= ifmstep_ms
     ndays = steplen_ms.value // ifmstep_ms.value
     remainder_ms = steplen_ms - ifmstep_ms * ndays
