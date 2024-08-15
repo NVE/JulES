@@ -587,7 +587,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         [],[],
         [],[],[],[],[],[],
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
-        [], [], [])
+        [], [], Matrix{Float64}(undef, (0,0)))
     end
 end
 
@@ -1477,11 +1477,12 @@ function get_output_cp_local()
         data["demandbalancenames"] = demandbalancenames
 
         if has_ifm_results(db.input)
-            data["ifm_stations"] = db.output.ifm_stations
-            data["ifm_state_index"] =  x3
+            data["ifm_names"] = db.output.ifm_stations
+            data["ifm_index"] =  x3
             for stateix in eachindex(db.output.ifm_u0)
-                data["ifm_state_$(stateix)_matrix"] = db.output.ifm_u0[stateix]
+                data["ifm_startstates_$(stateix)"] = db.output.ifm_u0[stateix]
             end
+            data["ifm_steamflow"] =  db.output.ifm_Q
         end
     end
 
