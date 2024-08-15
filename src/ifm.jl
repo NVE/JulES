@@ -424,11 +424,15 @@ end
 
 # --- Functions used in run_serial in connection with inflow models ---
 
+const IFM_DB_STATE_KEY = "ifm_step_u0"
+
 """
 Create inflow models and store some of them locally according to db.dist_ifm
 """
 function create_ifm()
     db = get_local_db()
+    @assert !haskey(db.div, IFM_DB_STATE_KEY)
+    db.div[IFM_DB_STATE_KEY] = Dict{String, Tuple{Int, Vector{Float64}}}()
     elements = get_ifm_elements(db)
     t0 = time()
     modelobjects = TuLiPa.getmodelobjects(elements)
@@ -439,6 +443,17 @@ function create_ifm()
         if core == db.core
             id = TuLiPa.Id(ABSTRACT_INFLOW_MODEL, inflow_name)
             db.ifm[inflow_name] = modelobjects[id]
+        end
+    end
+end
+
+function save_ifm_u0(db, inflow_name, stepnr, u0)
+    if !haskey(db.div[IFM_DB_STATE_KEY], inflow_name)
+        db.div[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
+    else
+        (stored_stepnr, __) = db.div[IFM_DB_STATE_KEY][inflow_name]
+        if stored_stepnr != stepnr
+            db.div[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
         end
     end
 end
@@ -459,10 +474,7 @@ function solve_ifm(t, stepnr)
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
             u0 = estimate_u0(inflow_model, t)
-            (stored_stepnr, __) = get(db.output.ifm_step_u0, inflow_name, (-1, 0.0))
-            if stored_stepnr != stepnr
-                db.output.ifm_step_u0[inflow_name] = (stepnr, u0)
-            end
+            save_ifm_u0(db, inflow_name, stepnr, u0)
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
                 Q = predict(inflow_model, u0, scentime)

@@ -576,7 +576,6 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     statenames::Vector{String}
     statematrix::Array{Float64} # end states after each step
 
-    ifm_step_u0::Dict{String, Tuple{Int64, Vector{Float64}}}
     ifm_stations::Vector{String}
     ifm_u0::Vector{Matrix{Float64}}
 
@@ -588,7 +587,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         [],[],
         [],[],[],[],[],[],
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
-        Dict(), [], [])
+        [], [])
     end
 end
 
@@ -734,7 +733,7 @@ function local_collect_ifm_u0(stepnr)
     d = Dict{String, Vector{Float64}}()
     for (name, core) in db.dist_ifm
         if core == db.core
-            (stored_stepnr, u0_vec) = db.output.ifm_step_u0[name]
+            (stored_stepnr, u0_vec) = db.div[IFM_DB_STATE_KEY][name]
             @assert stored_stepnr == stepnr
             d[name] = u0_vec
         end
