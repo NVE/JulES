@@ -578,7 +578,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
 
     ifm_stations::Vector{String}
     ifm_u0::Vector{Matrix{Float64}}
-
+    ifm_Q::Matrix{Float64}
 
     function DefaultJulESOutput(input)
         return new(Dict(),Dict(),Dict(),Dict(),[],
@@ -587,7 +587,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         [],[],
         [],[],[],[],[],[],
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
-        [], [])
+        [], [], [])
     end
 end
 
@@ -686,6 +686,7 @@ function init_local_output()
         for __ in 1:num_states
             push!(db.output.ifm_u0, zeros(Float64, (num_stations, steps)))
         end
+        db.output.ifm_Q = zeros(Float64, (num_stations, steps))
     end
 end
 
@@ -720,9 +721,9 @@ function collect_ifm_u0(stepnr)
         if fetched isa RemoteException
             throw(fetched)
         end
-        for (name, u0_vec) in fetched
+        for (name, x) in fetched
             @assert !haskey(d, name)
-            d[name] = u0_vec
+            d[name] = x
         end
     end
     return d
@@ -733,9 +734,38 @@ function local_collect_ifm_u0(stepnr)
     d = Dict{String, Vector{Float64}}()
     for (name, core) in db.dist_ifm
         if core == db.core
-            (stored_stepnr, u0_vec) = db.div[IFM_DB_STATE_KEY][name]
+            (stored_stepnr, u0) = db.div[IFM_DB_STATE_KEY][name]
             @assert stored_stepnr == stepnr
-            d[name] = u0_vec
+            d[name] = u0
+        end
+    end
+    return d
+end
+
+function collect_ifm_Q(stepnr)
+    db = get_local_db()
+    d = Dict{String, Float64}()
+    for core in get_cores(db.input)
+        fetched = fetch(@spawnat core local_collect_ifm_Q(stepnr))
+        if fetched isa RemoteException
+            throw(fetched)
+        end
+        for (name, x) in fetched
+            @assert !haskey(d, name)
+            d[name] = x
+        end
+    end
+    return d
+end
+
+function local_collect_ifm_Q(stepnr)
+    db = get_local_db()
+    d = Dict{String, Float64}()
+    for (name, core) in db.dist_ifm
+        if core == db.core
+            (stored_stepnr, Q) = db.div[IFM_DB_FLOW_KEY][name]
+            @assert stored_stepnr == stepnr
+            d[name] = Q
         end
     end
     return d
@@ -752,6 +782,10 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             for (j, v) in enumerate(u0[station])
                 db.output.ifm_u0[j][i, stepnr] = v
             end
+        end
+        ifm_Q = collect_ifm_Q(stepnr)
+        for (i, station) in enumerate(db.output.ifm_stations)
+            db.output.ifm_Q[i, stepnr] .= ifm_Q[station]
         end
     end
 

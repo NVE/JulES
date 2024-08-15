@@ -425,14 +425,19 @@ end
 # --- Functions used in run_serial in connection with inflow models ---
 
 const IFM_DB_STATE_KEY = "ifm_step_u0"
+const IFM_DB_FLOW_KEY = "ifm_step_Q"
 
 """
 Create inflow models and store some of them locally according to db.dist_ifm
 """
 function create_ifm()
     db = get_local_db()
+
     @assert !haskey(db.div, IFM_DB_STATE_KEY)
     db.div[IFM_DB_STATE_KEY] = Dict{String, Tuple{Int, Vector{Float64}}}()
+    @assert !haskey(db.div, IFM_DB_FLOW_KEY)
+    db.div[IFM_DB_FLOW_KEY] = Dict{String, Tuple{Int, Float64}}()
+
     elements = get_ifm_elements(db)
     t0 = time()
     modelobjects = TuLiPa.getmodelobjects(elements)
@@ -458,12 +463,34 @@ function save_ifm_u0(db, inflow_name, stepnr, u0)
     end
 end
 
+function save_ifm_Q(db, inflow_name, stepnr, Q)
+    if !haskey(db.div[IFM_DB_FLOW_KEY], inflow_name)
+        db.div[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
+    else
+        (stored_stepnr, __) = db.div[IFM_DB_FLOW_KEY][inflow_name]
+        if stored_stepnr != stepnr
+            db.div[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
+        end
+    end
+end
+
 """
 Sequentially solve inflow models stored locally. 
 Each inflow model is solved for each scenario.
 """
 function solve_ifm(t, stepnr)
     db = get_local_db()
+
+    steplen_ms = Millisecond(get_steplength(db.input))
+    ifmstep_ms = ONEDAY_MS_TIMEDELTA.value
+    @assert steplen_ms >= ifmstep_ms
+    ndays = steplen_ms.value // ifmstep_ms.value
+    remainder_ms = steplen_ms - ifmstep_ms * ndays
+    steplen_f = float(steplen_ms.value)
+    ifmstep_f = float(ifmstep_ms.value)
+    remainder_f = float(remainder_ms.value)
+
+
     normfactors = get_ifm_normfactors(db)
     scenarios = get_scenarios(db.scenmod_sim)
     for (inflow_name, core) in db.dist_ifm
@@ -475,6 +502,21 @@ function solve_ifm(t, stepnr)
             normalize_factor = normfactors[inflow_name]
             u0 = estimate_u0(inflow_model, t)
             save_ifm_u0(db, inflow_name, stepnr, u0)
+
+            # predict mean Q for over clearing period and store result
+            # can be used to measure goodness of ifm model
+            Q = predict(inflow_model, u0, t)
+            @assert ndays <= length(Q)
+            mean_Q = 0.0
+            for i in 1:ndays
+                mean_Q += Q[i] * ifmstep_f
+            end
+            if ndays > 0
+                mean_Q += Q[i] * remainder_f
+            end
+            mean_Q /= steplen_f
+            save_ifm_Q(db, inflow_name, stepnr, mean_Q)
+
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
                 Q = predict(inflow_model, u0, scentime)
