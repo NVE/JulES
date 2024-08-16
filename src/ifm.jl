@@ -503,7 +503,7 @@ function solve_ifm(t, stepnr)
             u0 = estimate_u0(inflow_model, t)
 
             # save in familiar unit
-            u0_mm3 = u0 .* inflow_model.basin_area ./ 1000.0 
+            u0_mm3 = u0 .* inflow_model.handler.basin_area ./ 1000.0 
             save_ifm_u0(db, inflow_name, stepnr, u0_mm3)
 
             # predict mean Q for over clearing period and store result
