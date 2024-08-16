@@ -503,6 +503,7 @@ function solve_ifm(t, stepnr)
             u0 = estimate_u0(inflow_model, t)
 
             # save in familiar unit
+            # TODO: extend interface with get_basin_area(::AbstractInflowModel) ?
             u0_mm3 = u0 .* inflow_model.handler.basin_area ./ 1000.0 
             save_ifm_u0(db, inflow_name, stepnr, u0_mm3)
 
