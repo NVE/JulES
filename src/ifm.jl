@@ -501,7 +501,10 @@ function solve_ifm(t, stepnr)
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
             u0 = estimate_u0(inflow_model, t)
-            save_ifm_u0(db, inflow_name, stepnr, u0)
+
+            # save in familiar unit
+            u0_mm3 = u0 .* inflow_model.basin_area ./ 1000.0 
+            save_ifm_u0(db, inflow_name, stepnr, u0_mm3)
 
             # predict mean Q for over clearing period and store result
             # can be used to measure goodness of ifm model
