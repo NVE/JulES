@@ -359,19 +359,21 @@ end
 
 function get_numscen_sim(input::AbstractJulESInput)
     settings = get_settings(input)
-    if haskey(settings["scenariogeneration"], "simulation")
-        return settings["scenariogeneration"]["simulation"]["numscen"]
-    else
-        return get_numscen_data(input)
+    if !isnothing(settings["scenariogeneration"])
+        if haskey(settings["scenariogeneration"], "simulation")
+            return settings["scenariogeneration"]["simulation"]["numscen"]
+        end
     end
+    return get_numscen_data(input)
 end
 function get_numscen_stoch(input::AbstractJulESInput)
     settings = get_settings(input)
-    if haskey(settings["scenariogeneration"], "stochastic")
-        return settings["scenariogeneration"]["stochastic"]["numscen"]
-    else
-        return get_numscen_sim(input)
+    if !isnothing(settings["scenariogeneration"])
+        if haskey(settings["scenariogeneration"], "stochastic")
+            return settings["scenariogeneration"]["stochastic"]["numscen"]
+        end
     end
+    return get_numscen_sim(input)
 end
 
 function get_simperiod(input::AbstractJulESInput)
