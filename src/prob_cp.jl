@@ -52,7 +52,7 @@ end
 function solve_cp(t, stepnr, skipmed)
     db = get_local_db()
 
-    if db.core_cp == db.core
+    if db.core_main == db.core
         timing = db.output.timing_cp
         timing[stepnr, 3] = @elapsed begin
             update_startstates_cp(db, stepnr, t)
