@@ -1,5 +1,3 @@
-# TODO: This is not up to date
-
 main:
     inputpath: "data"
     numcores: 1
@@ -8,12 +6,12 @@ main:
     weatheryears: [1981]
     weekstart: 1
     simulationyears: 1
-    extrasteps: 0 # see steplength_hours
+    extrasteps: 0 # see horizons: master: termduration_hours
     
     settings: hourly
 
     outputformat: "juliadict" # results as a julia dict
-    outputindex: scenarioyear # standard for series simulation
+    outputindex: weatheryear # standard for series simulation
 
 data:
     transmcap: 5 # MW
@@ -28,15 +26,14 @@ data:
 #############################################################
 hourly:
     time:
-        scenarioyearstart: 1981 # diff from prognose
-        scenarioyearstop: 1996 # diff from prognose
+        weatheryearstart: 1981 # diff from prognose
+        weatheryearstop: 1996 # diff from prognose
         probtime:
             normaltime: FixedDataTwoTime # diff from prognose
             phaseintime: PhaseinFixedDataTwoTime # diff from prognose
             phaseindelta_days: 5
             phaseinsteps: 5
         
-        steplength_hours: 48
         skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
     scenariogeneration: # if empty use all datascenarios
     problems:
@@ -45,28 +42,33 @@ hourly:
             lb: -10000000000.0
             reltol: 0.0001
             master:
-                prob: HiGHS_Prob()
                 solver: HighsSimplexMethod()
             subs:
                 solver: HighsSimplexMethod()
             startstorages:
                 function: percentage
                 percentage: 50.0
+            endcondition: startequalstop
     horizons:
-        stochastic:
-            short:
-                horizonduration_hours: 168
-                master:
-                    power:
-                        periodduration_hours: 1
-                    hydro:
-                        periodduration_hours: 1
-                subs:
-                    power:
-                        periodduration_hours: 1
-                    hydro:
-                        periodduration_hours: 1
+        commodities: ["Power"]
+        sub:
+            termduration_days: 5
+            Power:
+                function: SequentialHorizon
+                periodduration_hours: 1
+            Hydro:
+                function: SequentialHorizon
+                periodduration_hours: 1
+        master: 
+            termduration_hours: 48
+            Power:
+                function: SequentialHorizon
+                periodduration_hours: 1
+            Hydro:
+                function: SequentialHorizon
+                periodduration_hours: 1
     results:
         mainresults: "all"
+        scenarios: true
         times: true
         storagevalues: true
