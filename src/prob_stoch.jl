@@ -462,7 +462,7 @@ function update_endconditions_sp(scenix, subix, t)
             TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), T, -enddual)
         end
     elseif endvaluemethod_sp == "startequalstop"
-        TuLiPa.setendstates!(sp.prob, storages, db.startstates)
+        set_endstates!(sp.prob, storages, db.startstates)
     elseif endvaluemethod_sp == "evp" # TODO: Store bid and period in sp (or subsystem?)
         core_evp = get_core_evp(db, parentscenix, subix)
         for obj in storages

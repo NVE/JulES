@@ -315,7 +315,7 @@ function create_subsystems(db)
 
                 priceareas = get_priceareas(storagesystem)
                 skipmed_impact = false
-                subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "start_equal_stop", skipmed_impact)
+                subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "startequalstop", skipmed_impact)
                 push!(subsystems, subsystem)
             end
             num_shortterm = length(subsystems)
