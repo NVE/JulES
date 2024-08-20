@@ -148,8 +148,10 @@ function init_databases(input::AbstractJulESInput)
         @sync for core in cores
             @spawnat core add_local_problems()
         end
-        @sync for core in cores
-            @spawnat core add_local_cp()
+        if !get_onlysubsystemmodel(input)
+            @sync for core in cores
+                @spawnat core add_local_cp()
+            end
         end
     end
 
@@ -179,7 +181,7 @@ Updated after each simulation step
 """
 function add_local_output()
     db = get_local_db()
-    wait(@spawnat db.core_cp init_local_output())
+    wait(@spawnat db.core_main init_local_output())
 end
 
 """
@@ -267,7 +269,7 @@ function create_subsystems(db)
     # deep_dependencies = get_deep_dependencies(elements, filtered_dependencies; concepts=[PARAM_CONCEPT, METADATA_CONCEPT])
     if get_onlysubsystemmodel(db.input)
         commodities = get_commodities_from_dataelements(get_elements(db.input))
-        endvaluemethod_sp = get_settings(db.input)["subsystems"]["endvaluemethod_sp"] # TODO: Parse to struct
+        endvaluemethod_sp = get_settings(db.input)["problems"]["stochastic"]["endcondition"] # TODO: Parse to struct
         return push!(subsystems, ExogenSubsystem(commodities, endvaluemethod_sp))
     else
         settings = get_settings(db.input)
@@ -592,20 +594,24 @@ to all other cores.
 function add_local_problem_distribution()
     db = get_local_db()
 
-    dist_ifm = get_dist_ifm(db.input)
-    dist_ppp = get_dist_ppp(db.input)
-    dist_evp = get_dist_evp(db.input, db.subsystems_evp)
+    if !get_onlysubsystemmodel(db.input)
+        db.dist_ppp = get_dist_ppp(db.input)
+        println(db.dist_ppp)
+        db.dist_evp = get_dist_evp(db.input, db.subsystems_evp)
+        println(db.dist_evp)
+    end
+    db.dist_ifm = get_dist_ifm(db.input)
+    println(db.dist_ifm)
     (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
-    core_cp = get_core_cp(db.input)
-
-    db.dist_ifm = dist_ifm
-    db.dist_ppp = dist_ppp
-    db.dist_evp = dist_evp
+    println(dist_mp)
+    println(dist_sp)
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
-    db.core_cp = core_cp
 
-    dists = (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp)
+    db.core_main = get_core_main(db.input)
+    println(db.core_main)
+
+    dists = (db.dist_ifm, db.dist_ppp, db.dist_evp, db.dist_sp, db.dist_mp, db.core_main)
 
     cores = get_cores(db.input)
     @sync for core in cores
@@ -618,16 +624,15 @@ function add_local_problem_distribution()
 end
 
 function set_local_dists(dists)
-    (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_cp) = dists
-
     db = get_local_db()
-    
+
+    (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_main) = dists
     db.dist_ifm = dist_ifm
     db.dist_ppp = dist_ppp
     db.dist_evp = dist_evp
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
-    db.core_cp = core_cp
+    db.core_main = core_main
     
     return
 end
@@ -646,17 +651,37 @@ Which cores own which scenarios are defined in db.dist_ppp at any given time.
 function add_local_horizons()
     db = get_local_db()
     horizons = get_horizons(db.input)
+
     d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}()
-    for (scenarioix, ownercore) in db.dist_ppp
-        for ((term, commodity), horizon) in horizons
-            if ownercore != db.core
-                horizon = TuLiPa.getlightweightself(horizon)
-                horizon = deepcopy(horizon)
-                externalhorizon = TuLiPa.ExternalHorizon(horizon)
-                d[(scenarioix, term, commodity)] = externalhorizon
-            else
-                horizon = deepcopy(horizon) # TODO: Only deepcopy parts of horizon
-                d[(scenarioix, term, commodity)] = horizon
+
+    if !get_onlysubsystemmodel(db.input)
+        for (scenarioix, ownercore) in db.dist_ppp
+            for ((term, commodity), horizon) in horizons
+                if (ownercore != db.core) && !get_onlysubsystemmodel(db.input)
+                    horizon = TuLiPa.getlightweightself(horizon)
+                    horizon = deepcopy(horizon)
+                    externalhorizon = TuLiPa.ExternalHorizon(horizon)
+                    d[(scenarioix, term, commodity)] = externalhorizon
+                elseif ownercore == db.core
+                    horizon = deepcopy(horizon) # TODO: Only deepcopy parts of horizon
+                    d[(scenarioix, term, commodity)] = horizon
+                end
+            end
+        end
+    else
+        commoditites = get_settings(db.input)["horizons"]["commodities"]
+        for commodity in commoditites
+            term = MasterTermName
+            for (subix, ownercore) in db.dist_mp
+                if ownercore == db.core
+                    d[(1, term, commodity)] = horizons[term, commodity]
+                end
+            end
+            term = SubTermName
+            for (scenarioix, subix, ownercore) in db.dist_sp
+                if ownercore == db.core
+                    d[(scenarioix, term, commodity)] = deepcopy(horizons[term, commodity])
+                end
             end
         end
     end
@@ -666,7 +691,7 @@ end
 
 function add_local_cp()
     db = get_local_db()
-    if db.core == db.core_cp
+    if db.core == db.core_main
         create_cp()
     end
 end
@@ -774,14 +799,16 @@ function step_jules(t, steplength, stepnr, skipmed)
 
     println("Clearing problem")
     @time begin
-        @sync for core in cores
-            @spawnat core solve_cp(t, stepnr, skipmed)
+        if !get_onlysubsystemmodel(db.input)
+            @sync for core in cores
+                @spawnat core solve_cp(t, stepnr, skipmed)
+            end
         end
     end
 
     println("Update output")
     @time begin
-        wait(@spawnat db.core_cp update_output(t, stepnr))
+        wait(@spawnat db.core_main update_output(t, stepnr))
     end
 	
     # do dynamic load balancing here
