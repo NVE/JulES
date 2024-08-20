@@ -64,6 +64,7 @@ function solve_stoch(t, stepnr, skipmed)
                 maintiming = mp.div[MainTiming]
 
                 maintiming[4] = @elapsed begin
+                    has_headlosscost(settings["problems"]["stochastic"]["master"]) && TuLiPa.resetheadlosscosts!(mp.prob)
                     update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
                     set_startstates!(mp.prob, TuLiPa.getstorages(TuLiPa.getobjects(mp.prob)), db.startstates)
                     update_prices_mp(stepnr, subix, subsystem)
@@ -106,9 +107,8 @@ end
 
 function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
     if has_headlosscost(settings["problems"]["stochastic"]["master"])
-        TuLiPa.updateheadlosscosts!(TuLiPa.ReservoirCurveSlopeMethod(), prob, [prob], t)
+        TuLiPa.updateheadlosscosts!(TuLiPa.ReservoirCurveSlopeMethod(), prob, t)
         TuLiPa.solve!(prob)
-        TuLiPa.resetheadlosscosts!(prob)
         !isnothing(storagevalues) && final_save_storagevalues(prob, cuts, storagevalues)
     end
 end 
