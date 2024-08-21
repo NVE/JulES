@@ -70,7 +70,7 @@ function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{Subsys
     return out
 end
 
-function get_core_cp(input::AbstractJulESInput) 
+function get_core_main(input::AbstractJulESInput) 
     return first(get_cores(input))
 end 
 
@@ -100,14 +100,16 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     
     distribution_method_mp = get_distribution_method_mp(input)
     default = "bysize" 
-    valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced"]
+    valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced", "core_main"]
     # Check if distribution_method is valid
     if !(distribution_method_mp in valid_methods_mp)
-        println("distribution method $distribution_method_mp is not valid. Using $default")
-        distribution_method_mp = default
+        error("distribution method $distribution_method_mp is not valid")
     end
 
-    if distribution_method_mp == "randdumb"
+    if distribution_method_mp == "core_main"
+        dist_mp = Tuple{SubsystemIx, CoreId}[]
+        push!(dist_mp, (subsystems[1][1], get_core_main(input)))
+    elseif distribution_method_mp == "randdumb"
         dist_mp = _distribute_subsystems_randdumb!(subsystems, cores)
     elseif distribution_method_mp == "random"
         dist_mp = _distribute_subsystems_random!(subsystems, cores) 
@@ -129,16 +131,17 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     #Distributing scenarioproblems sp
     distribution_method_sp = get_distribution_method_sp(input)
     default = "withmp"
-    valid_methods_sp = ["withmp", "greedy"]
+    valid_methods_sp = ["withmp", "greedy", "even"]
 
      # Check if distribution_method_sp is valid
      if !(distribution_method_sp in valid_methods_sp)
-        println("distribution method $distribution_method_sp is not valid. Using $default")
-        distribution_method_sp = default
+        error("distribution method $distribution_method_sp is not valid")
     end
 
     if distribution_method_sp == "withmp"
         dist_sp = _distribute_sp_with_mp!(input, dist_mp)
+    elseif distribution_method_sp == "even"
+        dist_sp = _distribute_sp_even!(input, dist_mp)
     elseif distribution_method_sp == "greedy"
         #Using _get_core_load!() to get the core loads
         core_loads = _get_core_load!(input, subsystems, dist_mp)
@@ -182,14 +185,35 @@ end
 """The original way to distribute scenario problems. Each sp is on the same core as its master problem"""
 function _distribute_sp_with_mp!(input::AbstractJulESInput, dist_mp::Vector{Tuple{SubsystemIx, CoreId}})
     N = get_numscen_stoch(input)
-        dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(dist_mp))
-        i = 0
-        for scen in 1:N
-            for (sub, core) in dist_mp
-                i += 1
-                dist_sp[i] = (scen, sub, core)
+    dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, N*length(dist_mp))
+    i = 0
+    for scen in 1:N
+        for (sub, core) in dist_mp
+            i += 1
+            dist_sp[i] = (scen, sub, core)
+        end
+    end
+    return dist_sp
+end
+
+"""Divide the scenario problems evenly on the available cores"""
+function _distribute_sp_even!(input::AbstractJulESInput, dist_mp::Vector{Tuple{SubsystemIx, CoreId}})
+    S = get_numscen_stoch(input)
+    C = length(get_cores(input))
+    dist_sp = Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}(undef, S*length(dist_mp))
+
+    core = 1
+    for (subix, __) in dist_mp
+        for scenix in 1:S
+            i = (subix-1)*S + scenix
+            dist_sp[i] = (scenix, subix, core)
+
+            core += 1
+            if core > C
+                core = 1
             end
         end
+    end
     return dist_sp
 end
 
@@ -441,6 +465,9 @@ end
 
 """Function to sort subsystems by decending number of dataelements """
 function get_subsystem_ids_by_decending_size(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+    if length(subsystems) == 1
+        return [ix for (ix, sub) in subsystems] # if only_subsystemmodel
+    end
     subsystems = [(length(get_dataelements(s)), ix) for (ix, s) in subsystems]
     sort!(subsystems, rev=true)
     return [ix for (n, ix) in subsystems]
