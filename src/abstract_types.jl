@@ -8,6 +8,7 @@ abstract type AbstractScenarioModellingMethod end
 Interface:
     TuLiPa.assemble!(m::AbstractInflowModel)
     TuLiPa.getid(m::AbstractInflowModel) -> TuLiPa.Id
+    numstates(m::AbstractInflowModel) -> Int  ( == length(u0))
     estimate_u0(m::AbstractInflowModel, t::ProbTime) -> u0::Vector{Float64}
     predict(m::AbstractInflowModel, u0::::Vector{Float64}, t::ProbTime) -> Q::Vector{Float64}
 """

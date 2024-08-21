@@ -147,6 +147,7 @@ function get_distribution_method_sp(input::DefaultJulESInput, default::String="w
 end
 
 get_iprogtype(input::DefaultJulESInput) = get(input.dataset, "iprogtype", "direct")
+has_ifm_results(input::DefaultJulESInput) = get_iprogtype(input) != "direct"
 get_ifm_normfactors(input::DefaultJulESInput) = get(input.dataset, "ifm_normfactors", Dict{String, Float64}())
 get_ifm_elements(input::DefaultJulESInput) = get(input.dataset, "ifm_elements", JulES.TuLiPa.DataElement[])
 
@@ -613,13 +614,18 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     statenames::Vector{String}
     statematrix::Array{Float64} # end states after each step
 
+    ifm_stations::Vector{String}
+    ifm_u0::Vector{Matrix{Float64}}
+    ifm_Q::Matrix{Float64}
+
     function DefaultJulESOutput(input)
         return new(Dict(),Dict(),Dict(),Dict(),[],
         Dict(),
         [],[],[],[],[],[],[],
         [],[],
         [],[],[],[],[],[],
-        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[])
+        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
+        [], [], Matrix{Float64}(undef, (0,0)))
     end
 end
 
@@ -709,6 +715,22 @@ function init_local_output()
             @spawnat core init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
         end
     end
+
+    if has_ifm_results(db.input)
+        db.output.ifm_stations = collect(get_ifm_names(db.input))
+        num_states = get_ifm_numstates()
+        num_stations = length(db.output.ifm_stations)
+        @assert length(db.output.ifm_u0) == 0
+        for __ in 1:num_states
+            push!(db.output.ifm_u0, zeros(Float64, (num_stations, steps)))
+        end
+        db.output.ifm_Q = zeros(Float64, (num_stations, steps))
+    end
+end
+
+function get_ifm_numstates()
+    # TODO: find common numstates by calling numstates on each ifm and verify all ifm of same type
+    return 2
 end
 
 function init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
@@ -729,10 +751,81 @@ function get_numstates(subix)
     return length(db.mp[subix].states)
 end
 
+function collect_ifm_u0(stepnr)
+    db = get_local_db()
+    d = Dict{String, Vector{Float64}}()
+    for core in get_cores(db.input)
+        fetched = fetch(@spawnat core local_collect_ifm_u0(stepnr))
+        if fetched isa RemoteException
+            throw(fetched)
+        end
+        for (name, x) in fetched
+            @assert !haskey(d, name)
+            d[name] = x
+        end
+    end
+    return d
+end
+
+function local_collect_ifm_u0(stepnr)
+    db = get_local_db()
+    d = Dict{String, Vector{Float64}}()
+    for (name, core) in db.dist_ifm
+        if core == db.core
+            (stored_stepnr, u0) = db.div[IFM_DB_STATE_KEY][name]
+            @assert stored_stepnr == stepnr
+            d[name] = u0
+        end
+    end
+    return d
+end
+
+function collect_ifm_Q(stepnr)
+    db = get_local_db()
+    d = Dict{String, Float64}()
+    for core in get_cores(db.input)
+        fetched = fetch(@spawnat core local_collect_ifm_Q(stepnr))
+        if fetched isa RemoteException
+            throw(fetched)
+        end
+        for (name, x) in fetched
+            @assert !haskey(d, name)
+            d[name] = x
+        end
+    end
+    return d
+end
+
+function local_collect_ifm_Q(stepnr)
+    db = get_local_db()
+    d = Dict{String, Float64}()
+    for (name, core) in db.dist_ifm
+        if core == db.core
+            (stored_stepnr, Q) = db.div[IFM_DB_FLOW_KEY][name]
+            @assert stored_stepnr == stepnr
+            d[name] = Q
+        end
+    end
+    return d
+end
+
 function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     db = get_local_db()
     settings = get_settings(db)
     steps = get_steps(db)
+
+    if has_ifm_results(db.input)
+        u0 = collect_ifm_u0(stepnr)
+        for (i, station) in enumerate(db.output.ifm_stations)
+            for (j, v) in enumerate(u0[station])
+                db.output.ifm_u0[j][i, stepnr] = v
+            end
+        end
+        ifm_Q = collect_ifm_Q(stepnr)
+        for (i, station) in enumerate(db.output.ifm_stations)
+            db.output.ifm_Q[i, stepnr] = ifm_Q[station]
+        end
+    end
 
     if has_result_times(settings)
         for (scenix, core) in db.dist_ppp
@@ -758,7 +851,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
             @spawnat core reset_maintiming_sp(scenix, subix)
         end
-    end
+    end    
 
     if has_result_scenarios(settings)
         db.output.scenweights_sim[stepnr, :] .= [get_probability(scen) for scen in get_scenarios(db.scenmod_sim)]
@@ -1446,7 +1539,14 @@ function get_output_main_local()
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
 
-        #data[]
+        if has_ifm_results(db.input)
+            data["ifm_names"] = db.output.ifm_stations
+            data["ifm_index"] =  x3
+            for stateix in eachindex(db.output.ifm_u0)
+                data["ifm_startstates_$(stateix)"] = db.output.ifm_u0[stateix]
+            end
+            data["ifm_steamflow"] =  db.output.ifm_Q
+        end
     end
 
     return data

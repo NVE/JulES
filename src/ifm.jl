@@ -247,6 +247,7 @@ end
 
 TuLiPa.getid(m::TwoStateBucketIfm) = m.id
 TuLiPa.assemble!(m::TwoStateBucketIfm) = true
+numstates(::TwoStateBucketIfm) = 2
 estimate_u0(m::TwoStateBucketIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
 
@@ -297,7 +298,7 @@ end
 
 TuLiPa.getid(m::TwoStateNeuralODEIfm) = m.id
 TuLiPa.assemble!(m::TwoStateNeuralODEIfm) = true
-
+numstates(::TwoStateNeuralODEIfm) = 2
 estimate_u0(m::TwoStateNeuralODEIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
 
@@ -423,11 +424,20 @@ end
 
 # --- Functions used in run_serial in connection with inflow models ---
 
+const IFM_DB_STATE_KEY = "ifm_step_u0"
+const IFM_DB_FLOW_KEY = "ifm_step_Q"
+
 """
 Create inflow models and store some of them locally according to db.dist_ifm
 """
 function create_ifm()
     db = get_local_db()
+
+    @assert !haskey(db.div, IFM_DB_STATE_KEY)
+    db.div[IFM_DB_STATE_KEY] = Dict{String, Tuple{Int, Vector{Float64}}}()
+    @assert !haskey(db.div, IFM_DB_FLOW_KEY)
+    db.div[IFM_DB_FLOW_KEY] = Dict{String, Tuple{Int, Float64}}()
+
     elements = get_ifm_elements(db)
     t0 = time()
     modelobjects = TuLiPa.getmodelobjects(elements)
@@ -442,12 +452,45 @@ function create_ifm()
     end
 end
 
+function save_ifm_u0(db, inflow_name, stepnr, u0)
+    if !haskey(db.div[IFM_DB_STATE_KEY], inflow_name)
+        db.div[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
+    else
+        (stored_stepnr, __) = db.div[IFM_DB_STATE_KEY][inflow_name]
+        if stored_stepnr != stepnr
+            db.div[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
+        end
+    end
+end
+
+function save_ifm_Q(db, inflow_name, stepnr, Q)
+    if !haskey(db.div[IFM_DB_FLOW_KEY], inflow_name)
+        db.div[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
+    else
+        (stored_stepnr, __) = db.div[IFM_DB_FLOW_KEY][inflow_name]
+        if stored_stepnr != stepnr
+            db.div[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
+        end
+    end
+end
+
 """
 Sequentially solve inflow models stored locally. 
 Each inflow model is solved for each scenario.
 """
-function solve_ifm(t)
+function solve_ifm(t, stepnr)
     db = get_local_db()
+
+    steplen_ms = Millisecond(get_steplength(db.input))
+    ifmstep_ms = TuLiPa.getduration(ONEDAY_MS_TIMEDELTA)
+    @assert steplen_ms >= ifmstep_ms
+    nifmsteps = div(steplen_ms.value, ifmstep_ms.value)
+    remainder_ms = steplen_ms - ifmstep_ms * nifmsteps
+    steplen_f = float(steplen_ms.value)
+    ifmstep_f = float(ifmstep_ms.value)
+    remainder_f = float(remainder_ms.value)
+
+
     normfactors = get_ifm_normfactors(db)
     scenarios = get_scenarios(db.scenmod_sim)
     for (inflow_name, core) in db.dist_ifm
@@ -458,6 +501,26 @@ function solve_ifm(t)
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
             u0 = estimate_u0(inflow_model, t)
+
+            # save in familiar unit
+            # TODO: extend interface with get_basin_area(::AbstractInflowModel) ?
+            u0_mm3 = u0 .* inflow_model.handler.basin_area ./ 1000.0 
+            save_ifm_u0(db, inflow_name, stepnr, u0_mm3)
+
+            # predict mean Q for over clearing period and store result
+            # can be used to measure goodness of ifm model
+            Q = predict(inflow_model, u0, t)
+            @assert nifmsteps <= length(Q)
+            mean_Q = 0.0
+            for i in 1:nifmsteps
+                mean_Q += Q[i] * ifmstep_f
+            end
+            if nifmsteps > 0
+                mean_Q += Q[nifmsteps] * remainder_f
+            end
+            mean_Q /= steplen_f
+            save_ifm_Q(db, inflow_name, stepnr, mean_Q)
+
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)
                 Q = predict(inflow_model, u0, scentime)
