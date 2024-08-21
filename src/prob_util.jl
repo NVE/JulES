@@ -168,24 +168,43 @@ function update_startstates(stepnr, t)
             startstates_max!(dummystorages, t, db.startstates)
         end
     else
-        get_startstates_from_cp(db.startstates, db.core_cp)
+        get_startstates_from_main_prob(db.startstates, db.core_main, db.input)
     end
 end
 
-function get_startstates_from_cp(startstates, core)
-    future = @spawnat core get_startstates_from_cp()
+function get_startstates_from_main_prob(startstates, core, input)
+    if get_onlysubsystemmodel(input)
+        future = @spawnat core get_startstates_from_mp()
+    else
+        future = @spawnat core get_startstates_from_cp()
+    end
 
     ret = fetch(future)
     if ret isa RemoteException
         throw(ret)
     end
 
-    startstates_cp = ret
+    startstates_main = ret
 
-    for (k, v) in startstates_cp
+    for (k, v) in startstates_main
         startstates[k] = v
     end
     return 
+end
+
+function get_startstates_from_mp()
+    db = get_local_db()
+    prob = db.mp[first(db.dist_mp[1])].prob
+
+    startstates = Dict{String, Float64}()
+    startstates_ = get_states(TuLiPa.getobjects(prob))
+    TuLiPa.getoutgoingstates!(prob, startstates_)
+
+    for var in keys(startstates_)
+        value = round(startstates_[var], digits=10) # avoid approx 0 negative values, ignored by solvers so no problem?
+        startstates[TuLiPa.getinstancename(first(TuLiPa.getvarout(var)))] = value
+    end
+    return startstates
 end
 
 function setstartstates!(p::TuLiPa.Prob, startstates::Dict{String, Float64})

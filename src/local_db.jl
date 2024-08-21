@@ -23,7 +23,7 @@ between time steps. See fields ppp, evp, mp, sp and cp.
 Some fields hold info about on which cores problems are stored. 
 This also enables transfer of data between e.g. optimizion problems
 residing on different cores. See fields dist_ppp, dist_evp, dist_mp, 
-dist_sp and core_cp.
+dist_sp and core_main.
 
 Many of the fields contain timing data. This is useful both for results
 and to inform dynamic load balancer.
@@ -67,7 +67,7 @@ mutable struct LocalDB
     dist_evp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
     dist_mp::Vector{Tuple{ScenarioIx, CoreId}}
     dist_sp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}
-    core_cp::CoreId
+    core_main::CoreId
 
     # time_cp::Float64
 
@@ -109,7 +109,7 @@ mutable struct LocalDB
             Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_evp
             Tuple{SubsystemIx, CoreId}[],               # dist_mp
             Tuple{ScenarioIx, SubsystemIx, CoreId}[],   # dist_sp
-            -1,   # core_cp
+            -1,   # core_main
 
             Dict(),   # div
 
@@ -141,7 +141,7 @@ get_dist_ppp(db::LocalDB) = db.dist_ppp
 get_dist_evp(db::LocalDB) = db.dist_evp
 get_dist_mp(db::LocalDB) = db.dist_mp
 get_dist_sp(db::LocalDB) = db.dist_sp
-get_core_cp(db::LocalDB) = db.core_cp
+get_core_main(db::LocalDB) = db.core_main
 get_div(db::LocalDB) = db.div
 
 get_ifm(db::LocalDB) = db.ifm

@@ -11,7 +11,6 @@ struct DefaultJulESInput <: AbstractJulESInput
     weatheryear::Int
     onlysubsystemmodel::Bool # TODO: can probably remove this
     
-
     steps::Int
     steplength::Millisecond
     simstarttime::TuLiPa.ProbTime
@@ -111,7 +110,11 @@ Returns the subsystem distribution method from the config file. If there is no d
 function get_distribution_method_mp(input::DefaultJulESInput, default::String="bysize")
     settings = get_settings(input)
     # Retrieve the distribution method value
-    method = get(settings["problems"]["stochastic"],"distribution_method_mp", default)
+    if !get_onlysubsystemmodel(input)
+        method = get(settings["problems"]["stochastic"],"distribution_method_mp", default)
+    else
+        method = "core_main"
+    end
     # Check if the method is not nothing and not an empty string
     if !isnothing(method) && !isempty(method)
         return method
@@ -129,7 +132,11 @@ function get_distribution_method_sp(input::DefaultJulESInput, default::String="w
     settings = get_settings(input)
     
     # Retrieve the distribution method value
-    method = get(settings["problems"]["stochastic"],"distribution_method_sp", default)
+    if !get_onlysubsystemmodel(input)
+        method = get(settings["problems"]["stochastic"],"distribution_method_sp", default)
+    else
+        method = "even"
+    end
 
     # Check if the method is not nothing and not an empty string
     if !isnothing(method) && !isempty(method)
@@ -141,61 +148,72 @@ end
 
 get_iprogtype(input::DefaultJulESInput) = get(input.dataset, "iprogtype", "direct")
 has_ifm_results(input::DefaultJulESInput) = get_iprogtype(input) != "direct"
-get_ifm_normfactors(input::DefaultJulESInput) = input.dataset["ifm_normfactors"]
-get_ifm_elements(input::DefaultJulESInput) = input.dataset["ifm_elements"]
+get_ifm_normfactors(input::DefaultJulESInput) = get(input.dataset, "ifm_normfactors", Dict{String, Float64}())
+get_ifm_elements(input::DefaultJulESInput) = get(input.dataset, "ifm_elements", JulES.TuLiPa.DataElement[])
 
 function get_ifm_names(input::DefaultJulESInput)
-    s1 = Set(input.dataset["ifm_names"])
-    s2 = Set([e.instancename for e in input.dataset["ifm_elements"] if e.conceptname == ABSTRACT_INFLOW_MODEL])
-    return String[i for i in intersect(s1, s2)]
+    if haskey(input.dataset, "ifm_names")
+        s1 = Set(input.dataset["ifm_names"])
+        s2 = Set([e.instancename for e in input.dataset["ifm_elements"] if e.conceptname == ABSTRACT_INFLOW_MODEL])
+        return String[i for i in intersect(s1, s2)]
+    else
+        return String[]
+    end
 end
 
 function get_ifm_replacemap(input::DefaultJulESInput) 
-    names = Set(get_ifm_names(input))
-    aggnames = Set(keys(get_ifm_weights(input)))
     d = Dict{String, String}()
-    for (k, v) in input.dataset["ifm_replacemap"]
-        if (v in names) || (v in aggnames)
-            d[k] = v
+    if haskey(input.dataset, "ifm_replacemap")
+        names = Set(get_ifm_names(input))
+        aggnames = Set(keys(get_ifm_weights(input)))
+        d = Dict{String, String}()
+        for (k, v) in input.dataset["ifm_replacemap"]
+            if (v in names) || (v in aggnames)
+                d[k] = v
+            end
         end
     end
     return d
 end
 
 function get_ifm_weights(input::DefaultJulESInput)
-    w = input.dataset["ifm_weights"]
-    # remove stations from w that does not exist
-    # and update weights accordingly
-    names = get_ifm_names(input)
-    missings_dict = Dict()
-    for k in keys(w)
-        for station in keys(w[k])
-            if !(station in names)
-                if haskey(missings_dict, k) == false
-                    missings_dict[k] = Set()
+    if haskey(input.dataset, "ifm_weights")
+        w = input.dataset["ifm_weights"]
+        # remove stations from w that does not exist
+        # and update weights accordingly
+        names = get_ifm_names(input)
+        missings_dict = Dict()
+        for k in keys(w)
+            for station in keys(w[k])
+                if !(station in names)
+                    if haskey(missings_dict, k) == false
+                        missings_dict[k] = Set()
+                    end
+                    push!(missings_dict[k], station)
                 end
-                push!(missings_dict[k], station)
             end
         end
-    end
-    for k in keys(missings_dict)
-        sum_nonmissing = sum(weight for (station, weight) in w[k] if !(station in missings_dict[k]))
-        for (station, weight) in w[k]
-            if !(station in missings_dict[k])
-                w[k][station] = weight / sum_nonmissing
+        for k in keys(missings_dict)
+            sum_nonmissing = sum(weight for (station, weight) in w[k] if !(station in missings_dict[k]))
+            for (station, weight) in w[k]
+                if !(station in missings_dict[k])
+                    w[k][station] = weight / sum_nonmissing
+                end
             end
         end
-    end
-    for k in keys(missings_dict)
-        for station in missings_dict[k]
-            delete!(w[k], station)
+        for k in keys(missings_dict)
+            for station in missings_dict[k]
+                delete!(w[k], station)
+            end
         end
-    end
-    for (__, weights) in w
-        @assert isapprox(round(sum(values(weights)); digits=4), 1.0)
-    end
+        for (__, weights) in w
+            @assert isapprox(round(sum(values(weights)); digits=4), 1.0)
+        end
 
-    return w
+        return w
+    else
+        return Dict{String, Dict{String, Float64}}()
+    end
 end 
 
 
@@ -224,7 +242,7 @@ function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weather
     
     simulationyears = mainconfig["simulationyears"]
     extrasteps = mainconfig["extrasteps"]
-    steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
+    steplength = get_steplength(settings)
     steps = Int(ceil((TuLiPa.getisoyearstart(datayear + simulationyears) - TuLiPa.getisoyearstart(datayear)).value/steplength.value) + extrasteps);
     
     # Phasein settings
@@ -238,6 +256,16 @@ function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weather
     simstarttime, scenmod_data = get_datascenarios(datayear, weatheryear, weekstart, datanumscen, tnormaltype)
 
     return (steps, steplength, simstarttime, scenmod_data, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
+end
+
+function get_steplength(settings)
+    if haskey(settings["horizons"], "clearing")
+        return steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
+    elseif haskey(settings["horizons"], "master")
+        return steplength = parse_duration(settings["horizons"]["master"], "termduration")
+    else
+        error("No key clearing or master for settings[horizons]")
+    end
 end
 
 function get_tnormal(type::String, datatime::DateTime, scenariotime::DateTime)
@@ -325,24 +353,28 @@ function parse_methods(s::String)
         return TuLiPa.JuMPHiGHSMethod()
     elseif s == "KMeansAHMethod()"
         return TuLiPa.KMeansAHMethod()
+    elseif s == "PercentilesAHMethod()"
+        return TuLiPa.PercentilesAHMethod()
     end
 end
 
 function get_numscen_sim(input::AbstractJulESInput)
     settings = get_settings(input)
-    if haskey(settings["scenariogeneration"], "simulation")
-        return settings["scenariogeneration"]["simulation"]["numscen"]
-    else
-        return get_numscen_data(input)
+    if !isnothing(settings["scenariogeneration"])
+        if haskey(settings["scenariogeneration"], "simulation")
+            return settings["scenariogeneration"]["simulation"]["numscen"]
+        end
     end
+    return get_numscen_data(input)
 end
 function get_numscen_stoch(input::AbstractJulESInput)
     settings = get_settings(input)
-    if haskey(settings["scenariogeneration"], "stochastic")
-        return settings["scenariogeneration"]["stochastic"]["numscen"]
-    else
-        return get_numscen_sim(input)
+    if !isnothing(settings["scenariogeneration"])
+        if haskey(settings["scenariogeneration"], "stochastic")
+            return settings["scenariogeneration"]["stochastic"]["numscen"]
+        end
     end
+    return get_numscen_sim(input)
 end
 
 function get_simperiod(input::AbstractJulESInput)
@@ -398,6 +430,8 @@ function get_rhsdata(rhsdata::Dict, datayear::Int64, weatheryearstart::Int64, we
     method = rhsdata["function"]
     if method == "DynamicExogenPriceAHData"
         return TuLiPa.DynamicExogenPriceAHData(TuLiPa.Id("Balance", rhsdata["balance"])) # TODO: If dynamic use tphasein
+    elseif method == "FindFirstDynamicExogenPriceAHData"
+        return TuLiPa.FindFirstDynamicExogenPriceAHData() # TODO: If dynamic use tphasein
     elseif method == "StaticRHSAHData"
         return TuLiPa.StaticRHSAHData("Power", datayear, weatheryearstart, weatheryearstop)
     elseif method == "DynamicRHSAHData"
@@ -438,7 +472,7 @@ function build_sequentialhorizon(term, commodity, settings, n_durations)
     if get_shrinkable(settings["horizons"][term])
         startafter = parse_duration(settings["horizons"]["shrinkable"], "startafter")
         shrinkatleast = parse_duration(settings["horizons"]["shrinkable"], "shrinkatleast")
-        minperiod = parse_duration(settings["horizons"]["clearing"], "termduration")
+        minperiod = get_steplength(settings)
         horizon = TuLiPa.ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
     end
 
@@ -458,7 +492,7 @@ function build_adaptivehorizon(term, commodity, settings, n_durations, datayear)
     if get_shrinkable(settings["horizons"][term])
         startafter = parse_duration(settings["horizons"]["shrinkable"], "startafter")
         shrinkatleast = parse_duration(settings["horizons"]["shrinkable"], "shrinkatleast")
-        minperiod = parse_duration(settings["horizons"]["clearing"], "termduration")
+        minperiod = get_steplength(settings)
         horizon = TuLiPa.ShrinkableHorizon(horizon, startafter, shrinkatleast, minperiod)
     end
 
@@ -492,6 +526,10 @@ function get_n_durations(term, commodity, settings)
         subterms = [ClearingTermName, ShortTermName]
     elseif term == ClearingTermName
         subterms = [ClearingTermName]
+    elseif term == MasterTermName
+        subterms = [MasterTermName]
+    elseif term == SubTermName
+        subterms = [MasterTermName, SubTermName]
     end
 
     n_durations = []
@@ -853,21 +891,37 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                         end
                     end
                 end
+            elseif haskey(settings["problems"], "stochastic")
+                statevars = db.mp[subix].cuts.statevars
+                for scenix in 1:get_numscen_stoch(db.input)
+                    for (j, statevar) in enumerate(statevars)
+                        core_stoch = get_core_sp(db, scenix, subix)
+                        f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
+                        db.output.storagevalues[subix][stepnr, dim+scenix, j] = fetch(f)
+                    end
+                end
             end
         end
     end
 
     if haskey(settings["results"], "mainresults")
-        termduration = parse_duration(settings["horizons"]["clearing"], "termduration")
-        periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
-        periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+        termduration = get_steplength(db.input)
+        if get_onlysubsystemmodel(db.input)
+            periodduration_power = parse_duration(settings["horizons"]["master"]["Power"], "periodduration")
+            periodduration_hydro = parse_duration(settings["horizons"]["master"]["Hydro"], "periodduration")
+            prob_results = db.mp[first(db.dist_mp[1])].prob
+        else
+            periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
+            periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+            prob_results = db.cp.prob
+        end
         numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
         numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
         if stepnr == 1 # TODO: move to init
-            db.output.modelobjects = Dict(zip([TuLiPa.getid(obj) for obj in TuLiPa.getobjects(db.cp.prob)], TuLiPa.getobjects(db.cp.prob)))
+            db.output.modelobjects = Dict(zip([TuLiPa.getid(obj) for obj in TuLiPa.getobjects(prob_results)], TuLiPa.getobjects(prob_results)))
             if settings["results"]["mainresults"] == "all"
-                resultobjects = TuLiPa.getobjects(db.cp.prob) # collect results for all areas
+                resultobjects = TuLiPa.getobjects(prob_results) # collect results for all areas
             else
                 resultobjects = TuLiPa.getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
             end
@@ -903,7 +957,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
         powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
         hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
-        TuLiPa.get_results!(db.cp.prob, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+        TuLiPa.get_results!(prob_results, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 
     if has_result_prices_ppp(settings)
@@ -1061,7 +1115,7 @@ function get_output_storagevalues(output, steplength, skipmax)
     settings = get_settings(db)
     
     if has_result_storagevalues(settings)
-        f = @spawnat db.core_cp get_output_storagevalues_local(output, steplength, skipmax)
+        f = @spawnat db.core_main get_output_storagevalues_local(output, steplength, skipmax)
         storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
         
         output[StorageValues] = cat(storagevalues..., dims=3)
@@ -1132,7 +1186,7 @@ function get_output_ppp_prices(output)
     settings = get_settings(db)
     
     if has_result_prices_ppp(settings)
-        f = @spawnat db.core_cp get_output_prices_ppp_local()
+        f = @spawnat db.core_main get_output_prices_ppp_local()
         ret = fetch(f)
         if ret isa RemoteException
             throw(ret)
@@ -1168,7 +1222,7 @@ function get_output_memory(output)
     settings = get_settings(db)
 
     if has_result_memory(settings)
-        names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ifm", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ifm", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_cp", "div", "ifm_output", "ifm_derived"]
+        names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ifm", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ifm", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_main", "div", "ifm_output", "ifm_derived"]
         df = DataFrame(DataFrame([[] for _ = names] , names))
         cores = get_cores(db)
         for core in cores # TODO: Do sync
@@ -1200,7 +1254,7 @@ end
 function get_output_scenarios(output)
     db = get_local_db()
 
-    wait(@spawnat db.core_cp get_output_scenarios_local(output))
+    wait(@spawnat db.core_main get_output_scenarios_local(output))
 end
 
 function get_output_scenarios_local(data)
@@ -1213,7 +1267,7 @@ end
 function get_output_timing(output, steplength, skipmax)
     db = get_local_db()
 
-    wait(@spawnat db.core_cp get_output_timing_local(output, steplength, skipmax))
+    wait(@spawnat db.core_main get_output_timing_local(output, steplength, skipmax))
 end
 
 function get_output_timing_local(data, steplength, skipmax)
@@ -1357,7 +1411,7 @@ get_skipmed_impact(subix) = get_skipmed_impact(get_local_db().subsystems[subix])
 
 function get_output_main()
     db = get_local_db()
-    future = @spawnat db.core_cp get_output_cp_local()
+    future = @spawnat db.core_main get_output_main_local()
     ret = fetch(future)
     if ret isa RemoteException
         throw(ret)
@@ -1370,7 +1424,7 @@ function get_timing_cp_local()
     return db.output.timing_cp
 end
 
-function get_output_cp_local()
+function get_output_main_local()
     db = get_local_db()
     settings = get_settings(db)
     mainconfig = get_mainconfig(db)
@@ -1378,8 +1432,12 @@ function get_output_cp_local()
     data = Dict()
 
     # Final update of statevariables
-    startstates_cp = get_startstates_from_cp()
-    for (k, v) in startstates_cp
+    if get_onlysubsystemmodel(db.input)
+        startstates_main = get_startstates_from_mp()
+    else
+        startstates_main =  get_startstates_from_cp()
+    end
+    for (k, v) in startstates_main
         db.startstates[k] = v
     end
     steps = get_steps(db)
@@ -1391,9 +1449,14 @@ function get_output_cp_local()
     end
 
     if haskey(settings["results"], "mainresults")
-        steplength = parse_duration(settings["horizons"]["clearing"], "termduration")
-        periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
-        periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+        steplength = get_steplength(db.input)
+        if get_onlysubsystemmodel(db.input)
+            periodduration_power = parse_duration(settings["horizons"]["master"]["Power"], "periodduration")
+            periodduration_hydro = parse_duration(settings["horizons"]["master"]["Hydro"], "periodduration")
+        else
+            periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
+            periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+        end
 
         # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)
         rhstermtotals = dropdims(sum(db.output.rhstermvalues,dims=1),dims=1)
