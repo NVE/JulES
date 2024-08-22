@@ -3,6 +3,8 @@
 # TODO: add data element for observations for an ifm (and extend interface with set_observations)
 # TODO: add data element for forecast for an ifm (and extend interface with set_forecast)
 
+# TODO: Use Float32 instead of Float64 in historical time vectors?
+
 struct TwoStateIfmData
     P::Vector{Float32}   
     T::Vector{Float32}  
@@ -200,7 +202,7 @@ function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::TuLiPa.ProbTime)
     itp_Lday = interpolate(m.data_pred.timepoints, m.data_pred.Lday, itp_method)
 
     (S0, G0) = u0
-    (Q, OED_sol) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
+    (Q, __) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
 
     Q = Float64.(Q)
 
@@ -353,7 +355,6 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     basin_area = TuLiPa.getdictvalue(value, "BasinArea", Float64, elkey)
 
     deps = TuLiPa.Id[]
-    # errs = String[]
 
     all_ok = true
 
@@ -371,7 +372,6 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
 
     if all_ok == false
         return (false, deps)
-        # return (false, deps, errs)
     end
 
     # TODO: Maybe make this user input in future?
@@ -395,7 +395,6 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
 
     return (true, deps)
-    # return (true, deps, errs)
 end
 
 
@@ -475,6 +474,7 @@ function solve_ifm(t, stepnr)
             end
             inflow_model = db.ifm[inflow_name]
             normalize_factor = normfactors[inflow_name]
+
             u0 = estimate_u0(inflow_model, t)
 
             # save in familiar unit mm3 (u0 in mm converted to m in calculation)
@@ -706,13 +706,13 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
     return (true, deps)
 end
 
-# TODO: Maybe support MixedInflowParam
+# TODO: Maybe support MixedInflowParam to use external forecast first year and ifm for rest?
 
 """
 Used by JulES in appropriate places to embed scenix info 
 into data elements of type ModeledInflowParam
 """
-function add_scenix_to_InflowParam(elements, scenix)
+function add_scenix_to_InflowParam(elements, scenix::Int)
     for e in elements
         if e.typename == "ModeledInflowParam"
             e.value["ScenarioIndex"] = scenix
@@ -726,7 +726,7 @@ if Param is embedded with a known station_id behind IFM_STATION_ID_KEY
 The original Param must have Level and Profile keys, but this is how we 
 normally set up inflow parameters anyway, so this should be ok.
 """
-function copy_elements_iprogtype_old(elements, iprogtype, ifm_names)
+function copy_elements_iprogtype_old(elements, iprogtype::String, ifm_names::Vector{String})
     if iprogtype == "ifm"
         elements1 = TuLiPa.DataElement[]
         for e in elements
