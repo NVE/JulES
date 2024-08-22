@@ -3,8 +3,6 @@
 # TODO: add data element for observations for an ifm (and extend interface with set_observations)
 # TODO: add data element for forecast for an ifm (and extend interface with set_forecast)
 
-# TODO: Add get_station_id(::TuLiPa.AbstractInflow) so that we can repoace ifm_replacemap
-
 struct TwoStateIfmData
     P::Vector{Float32}   
     T::Vector{Float32}  
@@ -405,6 +403,7 @@ end
 
 const IFM_DB_STATE_KEY = "ifm_step_u0"
 const IFM_DB_FLOW_KEY = "ifm_step_Q"
+const IFM_STATION_ID_KEY = "ifm_station_id"
 
 """
 Create inflow models and store some of them locally according to db.dist_ifm
@@ -645,7 +644,7 @@ end
 
 
 """
-ModeledInflowParam is actually a stateful PrognosisSeriesParam under-the-hood,
+ModeledInflowParam is actually a stateful TuLiPa.PrognosisSeriesParam under-the-hood,
 but where the prognosis part is created and managed by JulES and not 
 given as user input
 """
@@ -707,57 +706,49 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
     return (true, deps)
 end
 
-# TODO: Support MixedInflowParam
+# TODO: Maybe support MixedInflowParam
 
-# TODO: Add AbstractInflow in TuLiPa and check conceptname instead
 """
 Used by JulES in appropriate places to embed scenix info 
-into data elements of type ModeledInflowParam or MixedInflowParam
+into data elements of type ModeledInflowParam
 """
 function add_scenix_to_InflowParam(elements, scenix)
     for e in elements
-        if e.typename == "ModeledInflowParam" || e.typename == "MixedInflowParam"
+        if e.typename == "ModeledInflowParam"
             e.value["ScenarioIndex"] = scenix
         end
     end
 end
 
 """
-Return copy of elements with replacement of PrognosisSeriesParam 
-in ifm_replacemap in accordance with value of iprogtype
+Return copy of elements with replacement of Param with ModeledInflowParam 
+if Param is embedded with a known station_id behind IFM_STATION_ID_KEY
+The original Param must have Level and Profile keys, but this is how we 
+normally set up inflow parameters anyway, so this should be ok.
 """
-function copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
+function copy_elements_iprogtype_old(elements, iprogtype, ifm_names)
     if iprogtype == "ifm"
         elements1 = TuLiPa.DataElement[]
         for e in elements
-            if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
-                new_e = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
-                    Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"]))
-                push!(elements1, new_e)
-            else
-                push!(elements1, e)
+            if e.conceptname == TuLiPa.PARAM_CONCEPT
+                if value isa Dict
+                    if haskey(value, IFM_STATION_ID_KEY)
+                        station_id = value[IFM_STATION_ID_KEY]
+                        if station_id in ifm_names
+                            new_e = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
+                            Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"]))
+                            push!(elements1, new_e)
+                        else
+                            push!(elements1, e)
+                        end
+                    end
+                end
             end
         end
-
-    elseif startswith(iprogtype, "mix")
-        # TODO: Validate ndays > 0 in constructor of DefaultJulESInput
-        ndays = parse(Int, iprogtype[4:end])
-        elements1 = TuLiPa.DataElement[]
-        for e in elements
-            if e.typename == "PrognosisSeriesParam" && haskey(ifm_replacemap, e.instancename)
-                new_value = copy(e.value::Dict)
-                new_value["ndays"] = ndays
-                new_e = TuLiPa.DataElement(e.conceptname, "MixedInflowParam", e.instancename, new_value)
-                push!(elements1, new_e)
-            else
-                push!(elements1, e)
-            end
-        end
-
     else
         @assert iprogtype == "direct"
         elements1 = copy(elements)
     end
-
     return elements1
 end
+
