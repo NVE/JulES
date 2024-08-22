@@ -730,7 +730,7 @@ function copy_elements_iprogtype_old(elements, iprogtype::String, ifm_names::Vec
         for e in elements
             if e.conceptname == TuLiPa.PARAM_CONCEPT
                 if e.value isa Dict
-                    if haskey(value, IFM_STATION_ID_KEY)
+                    if haskey(e.value, IFM_STATION_ID_KEY)
                         station_id = e.value[IFM_STATION_ID_KEY]
                         if station_id in ifm_names
                             new_e = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
