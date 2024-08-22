@@ -269,8 +269,6 @@ predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict
 get_numstates(m::TwoStateBucketIfm) =  get_numstates(m.handler)
 get_statename(m::TwoStateBucketIfm, i::Int) = get_statename(m.handler, i)
 get_basin_area_m2(m::TwoStateBucketIfm) = get_basin_area_m2(m.handler)
-get_station_id(m::TwoStateBucketIfm) = TuLiPa.getinstancename(m.id)
-
 
 function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
     common_includeTwoStateIfm!(TwoStateBucketIfm, toplevel, lowlevel, elkey, value)
@@ -324,7 +322,6 @@ predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = pred
 get_numstates(m::TwoStateNeuralODEIfm) =  get_numstates(m.handler)
 get_statename(m::TwoStateNeuralODEIfm, i::Int) = get_statename(m.handler, i)
 get_basin_area_m2(m::TwoStateNeuralODEIfm) = get_basin_area_m2(m.handler)
-get_station_id(m::TwoStateNeuralODEIfm) = TuLiPa.getinstancename(m.id)
 
 function includeTwoStateNeuralODEIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
     common_includeTwoStateIfm!(TwoStateNeuralODEIfm, toplevel, lowlevel, elkey, value)

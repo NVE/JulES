@@ -13,7 +13,6 @@ Interface:
     get_numstates(m::AbstractInflowModel) -> Int  ( == length(u0))
     get_statename(::AbstractInflowModel, i::Int) -> String
     get_basin_area_m2(::AbstractInflowModel) -> Float64
-    get_station_id(::AbstractInflowModel) -> String
 """
 abstract type AbstractInflowModel end
 const ABSTRACT_INFLOW_MODEL = "AbstractInflowModel"
