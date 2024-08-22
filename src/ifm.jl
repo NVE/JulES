@@ -727,25 +727,25 @@ function copy_elements_iprogtype_old(elements, iprogtype::String, ifm_names::Vec
     if iprogtype == "ifm"
         elements1 = TuLiPa.DataElement[]
         for e in elements
+            maybe_new_element = e
             if e.conceptname == TuLiPa.PARAM_CONCEPT
                 if e.value isa Dict
                     if haskey(e.value, IFM_STATION_ID_KEY)
                         station_id = e.value[IFM_STATION_ID_KEY]
                         if station_id in ifm_names
-                            new_e = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
-                            Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"], 
-                                IFM_STATION_ID_KEY => station_id))
-                            push!(elements1, new_e)
-                        else
-                            push!(elements1, e)
+                            maybe_new_element = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
+                                Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"], 
+                                    IFM_STATION_ID_KEY => station_id))
                         end
                     end
                 end
             end
+            push!(elements1, maybe_new_element)
         end
     else
         @assert iprogtype == "direct"
         elements1 = copy(elements)
     end
+    @assert length(elements) == length(elements1)
     return elements1
 end
