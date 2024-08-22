@@ -1,9 +1,14 @@
-# TODO: Illustrate how data_obs, data_pred and data_forecast are updated over time
+"""
+Implementation of inflow models (ifm) TwoStateBucketIfm and TwoStateNeuralODEIfm
+and integration with JulES
+"""
 
+# TODO: Illustrate how data_obs, data_pred and data_forecast are updated over time
 # TODO: add data element for observations for an ifm (and extend interface with set_observations)
 # TODO: add data element for forecast for an ifm (and extend interface with set_forecast)
-
 # TODO: Use Float32 instead of Float64 in historical time vectors?
+
+const ONEDAY_MS_TIMEDELTA = TuLiPa.MsTimeDelta(Day(1))
 
 struct TwoStateIfmData
     P::Vector{Float32}   
@@ -29,8 +34,6 @@ struct TwoStateIfmData
 end
 
 getndays(x::TwoStateIfmData) = length(x.P)
-
-const ONEDAY_MS_TIMEDELTA = TuLiPa.MsTimeDelta(Day(1))
 
 mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor, 
                                 U <: AbstractTwoStateIfmDataUpdater, 
@@ -80,6 +83,7 @@ end
 
 get_numstates(m::TwoStateIfmHandler) = 2
 get_basin_area_m2(m::TwoStateIfmHandler) = m.basin_area
+
 function get_statename(::TwoStateIfmHandler, i::Int)
     if i == 1
         return "snow"
@@ -211,11 +215,10 @@ function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::TuLiPa.ProbTime)
     return Q
 end
 
-
 struct SimpleIfmDataUpdater <: AbstractTwoStateIfmDataUpdater
 end
 
-function update_prediction_data(m::TwoStateIfmHandler, updater::SimpleIfmDataUpdater, t::TuLiPa.ProbTime)
+function update_prediction_data(m::TwoStateIfmHandler, ::SimpleIfmDataUpdater, t::TuLiPa.ProbTime)
     if m.ndays_forecast > 0
         # use forecast for P and T if available
         ndays_before_estimate_u0_call = m.ndays_forecast + m.ndays_forecast_used
@@ -393,7 +396,6 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
 
     return (true, deps)
 end
-
 
 # --- Functions used in run_serial in connection with inflow models ---
 
@@ -747,4 +749,3 @@ function copy_elements_iprogtype_old(elements, iprogtype::String, ifm_names::Vec
     end
     return elements1
 end
-
