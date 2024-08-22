@@ -615,6 +615,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     statematrix::Array{Float64} # end states after each step
 
     ifm_stations::Vector{String}
+    ifm_statenames::Vector{String}
     ifm_u0::Vector{Matrix{Float64}}
     ifm_Q::Matrix{Float64}
 
@@ -625,7 +626,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         [],[],
         [],[],[],[],[],[],
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
-        [], [], Matrix{Float64}(undef, (0,0)))
+        [], [], [], Matrix{Float64}(undef, (0,0)))
     end
 end
 
@@ -718,6 +719,7 @@ function init_local_output()
 
     if has_ifm_results(db.input)
         db.output.ifm_stations = collect(get_ifm_names(db.input))
+        db.output.ifm_statenames = collect(get_ifm_statenames())
         num_states = get_ifm_numstates()
         num_stations = length(db.output.ifm_stations)
         @assert length(db.output.ifm_u0) == 0
@@ -731,6 +733,11 @@ end
 function get_ifm_numstates()
     # TODO: find common numstates by calling get_numstates on each ifm and verify all ifm of same type
     return 2
+end
+
+function get_ifm_statenames()
+    # TODO: find common statenames by calling get_statenames on each ifm and verify all ifm of same type
+    return ["snow", "ground"]
 end
 
 function init_prices_ppp(scenix, num_balances, numperiods_long, numperiods_med, numperiods_short)
@@ -1543,7 +1550,8 @@ function get_output_main_local()
             data["ifm_names"] = db.output.ifm_stations
             data["ifm_index"] =  x3
             for stateix in eachindex(db.output.ifm_u0)
-                data["ifm_startstates_$(stateix)"] = db.output.ifm_u0[stateix]
+                statename = db.output.ifm_statenames[stateix]
+                data["ifm_startstates_$(statename)_$(stateix)"] = db.output.ifm_u0[stateix]
             end
             data["ifm_steamflow"] =  db.output.ifm_Q
         end
