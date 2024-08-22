@@ -678,9 +678,7 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
     # This way, model objects holding reference to such Param, will use updated 
     # prognosis from db when called upon by update!(prob, t)
     db = get_local_db()
-    replacemap = get_ifm_replacemap(db.input)
-    haskey(replacemap, elkey.instancename) || error("Instance name not found in replacemap for $elkey")
-    inflow_name = replacemap[elkey.instancename]
+    inflow_name = value[IFM_STATION_ID_KEY]
     ifm_weights = get_ifm_weights(db)
     ifm_names = get_ifm_names(db.input)
     if haskey(ifm_weights, inflow_name)
@@ -736,7 +734,8 @@ function copy_elements_iprogtype_old(elements, iprogtype::String, ifm_names::Vec
                         station_id = value[IFM_STATION_ID_KEY]
                         if station_id in ifm_names
                             new_e = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
-                            Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"]))
+                            Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"], 
+                                IFM_STATION_ID_KEY => station_id))
                             push!(elements1, new_e)
                         else
                             push!(elements1, e)
