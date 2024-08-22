@@ -729,7 +729,7 @@ function init_local_output()
 end
 
 function get_ifm_numstates()
-    # TODO: find common numstates by calling numstates on each ifm and verify all ifm of same type
+    # TODO: find common numstates by calling get_numstates on each ifm and verify all ifm of same type
     return 2
 end
 

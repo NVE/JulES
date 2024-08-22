@@ -1,5 +1,10 @@
 # TODO: Illustrate how data_obs, data_pred and data_forecast are updated over time
 
+# TODO: add data element for observations for an ifm (and extend interface with set_observations)
+# TODO: add data element for forecast for an ifm (and extend interface with set_forecast)
+
+# TODO: Add get_station_id(::TuLiPa.AbstractInflow) so that we can repoace ifm_replacemap
+
 struct TwoStateIfmData
     P::Vector{Float32}   
     T::Vector{Float32}  
@@ -70,6 +75,18 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         return new{P, U, T1, T2, T3}(predictor, updater, basin_area, m3s_per_mm, hist_P, hist_T, hist_Lday, 
             ndays_pred, ndays_obs, ndays_forecast, data_pred, 
             data_obs, data_forecast, nothing, 0)
+    end
+end
+
+get_numstates(m::TwoStateIfmHandler) = 2
+get_basin_area_m2(m::TwoStateIfmHandler) = m.basin_area
+function get_statename(::TwoStateIfmHandler, i::Int)
+    if i == 1
+        return "snow"
+    elseif i == 2
+        return "ground"
+    else
+        error("Only state ix 1 and 2 supported")
     end
 end
 
@@ -247,9 +264,13 @@ end
 
 TuLiPa.getid(m::TwoStateBucketIfm) = m.id
 TuLiPa.assemble!(m::TwoStateBucketIfm) = true
-numstates(::TwoStateBucketIfm) = 2
 estimate_u0(m::TwoStateBucketIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateBucketIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
+get_numstates(m::TwoStateBucketIfm) =  get_numstates(m.handler)
+get_statename(m::TwoStateBucketIfm, i::Int) = get_statename(m.handler, i)
+get_basin_area_m2(m::TwoStateBucketIfm) = get_basin_area_m2(m.handler)
+get_station_id(m::TwoStateBucketIfm) = TuLiPa.getinstancename(m.id)
+
 
 function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
     common_includeTwoStateIfm!(TwoStateBucketIfm, toplevel, lowlevel, elkey, value)
@@ -298,9 +319,12 @@ end
 
 TuLiPa.getid(m::TwoStateNeuralODEIfm) = m.id
 TuLiPa.assemble!(m::TwoStateNeuralODEIfm) = true
-numstates(::TwoStateNeuralODEIfm) = 2
 estimate_u0(m::TwoStateNeuralODEIfm, t::TuLiPa.ProbTime) = estimate_u0(m.handler, t)
 predict(m::TwoStateNeuralODEIfm, u0::Vector{Float64}, t::TuLiPa.ProbTime) = predict(m.handler, u0, t)
+get_numstates(m::TwoStateNeuralODEIfm) =  get_numstates(m.handler)
+get_statename(m::TwoStateNeuralODEIfm, i::Int) = get_statename(m.handler, i)
+get_basin_area_m2(m::TwoStateNeuralODEIfm) = get_basin_area_m2(m.handler)
+get_station_id(m::TwoStateNeuralODEIfm) = TuLiPa.getinstancename(m.id)
 
 function includeTwoStateNeuralODEIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
     common_includeTwoStateIfm!(TwoStateNeuralODEIfm, toplevel, lowlevel, elkey, value)
@@ -308,11 +332,6 @@ end
 
 function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
     TuLiPa.checkkey(toplevel, elkey)
-
-    OBSERVED_PERCIPITATION = "ObservedPercipitation"
-    OBSERVED_TEMPERATURE = "ObservedTemperature"
-    FORECASTED_PERCIPITATION = "ForecastedPercipitation"
-    FORECASTED_TEMPERATURE = "ForecastedTemperature"
 
     model_params = TuLiPa.getdictvalue(value, "ModelParams", String, elkey)
 
@@ -334,34 +353,6 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     end
 
     basin_area = TuLiPa.getdictvalue(value, "BasinArea", Float64, elkey)
-
-    if haskey(value, OBSERVED_PERCIPITATION)
-        obs_P = TuLiPa.getdictvalue(value, OBSERVED_PERCIPITATION,   Vector{Real}, elkey)
-    else
-        obs_P = nothing
-    end
-    if haskey(value, OBSERVED_TEMPERATURE)
-        obs_T = TuLiPa.getdictvalue(value, OBSERVED_TEMPERATURE,   Vector{Real}, elkey)
-    else
-        obs_T = nothing
-    end
-    
-    if haskey(value, FORECASTED_PERCIPITATION)
-        forecast_P = TuLiPa.getdictvalue(value, FORECASTED_PERCIPITATION,   Vector{Real}, elkey)
-    else
-        forecast_P = nothing
-    end
-    if haskey(value, FORECASTED_TEMPERATURE)
-        forecast_T = TuLiPa.getdictvalue(value, FORECASTED_TEMPERATURE,   Vector{Real}, elkey)
-    else
-        forecast_T = nothing
-    end
-
-    isnothing(obs_P) && (!isnothing(obs_T)) && error("Missing $OBSERVED_PERCIPITATION for $elkey")
-    isnothing(obs_T) && (!isnothing(obs_P)) && error("Missing $OBSERVED_TEMPERATURE for $elkey")
-
-    isnothing(obs_P) && (!isnothing(obs_T)) && error("Missing $FORECASTED_PERCIPITATION for $elkey")
-    isnothing(obs_T) && (!isnothing(obs_P)) && error("Missing $FORECASTED_TEMPERATURE for $elkey")
 
     deps = TuLiPa.Id[]
     # errs = String[]
@@ -385,24 +376,6 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         # return (false, deps, errs)
     end
 
-    if !(isnothing(obs_P) || isnothing(obs_T))
-        dummy_Lday = zeros(eltype(obs_P), length(obs_P))
-        data_obs = TwoStateIfmData(obs_P, obs_T, dummy_Lday)
-        ndays_obs == getndays(data_obs)
-    else
-        data_obs = nothing
-        ndays_obs = 365
-    end
-
-    if !(isnothing(forecast_P) || isnothing(forecast_T))
-        dummy_Lday = zeros(eltype(forecast_P), length(forecast_P))
-        data_forecast = TwoStateIfmData(forecast_P, forecast_T, dummy_Lday)
-        ndays_forecast = getndays(data_forecast)
-    else
-        data_forecast = nothing
-        ndays_forecast = 0
-    end
-
     # TODO: Maybe make this user input in future?
     updater = SimpleIfmDataUpdater()
 
@@ -412,6 +385,12 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         moments = JLD2.load_object(moments)
         model_params = (model_params, moments)
     end
+
+    data_forecast = nothing
+    data_obs = nothing
+    ndays_obs = 365
+    data_forecast = nothing
+    ndays_forecast = 0
 
     id = TuLiPa.getobjkey(elkey)
     toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
@@ -439,11 +418,7 @@ function create_ifm()
     db.div[IFM_DB_FLOW_KEY] = Dict{String, Tuple{Int, Float64}}()
 
     elements = get_ifm_elements(db)
-    t0 = time()
     modelobjects = TuLiPa.getmodelobjects(elements)
-    t1 = time()
-    sec = t1 - t0
-    println("getmodelobjects(ifm_elements) took $sec")
     for (inflow_name, core) in db.dist_ifm
         if core == db.core
             id = TuLiPa.Id(ABSTRACT_INFLOW_MODEL, inflow_name)
@@ -481,6 +456,7 @@ Each inflow model is solved for each scenario.
 function solve_ifm(t, stepnr)
     db = get_local_db()
 
+    # setup utility variables to save results below
     steplen_ms = Millisecond(get_steplength(db.input))
     ifmstep_ms = TuLiPa.getduration(ONEDAY_MS_TIMEDELTA)
     @assert steplen_ms >= ifmstep_ms
@@ -502,12 +478,11 @@ function solve_ifm(t, stepnr)
             normalize_factor = normfactors[inflow_name]
             u0 = estimate_u0(inflow_model, t)
 
-            # save in familiar unit
-            # TODO: extend interface with get_basin_area(::AbstractInflowModel) ?
-            u0_mm3 = u0 .* inflow_model.handler.basin_area ./ 1000.0 
+            # save in familiar unit mm3 (u0 in mm converted to m in calculation)
+            u0_mm3 = (u0 ./ 1000.0) .* get_basin_area_m2(inflow_model) ./ 1e6 
             save_ifm_u0(db, inflow_name, stepnr, u0_mm3)
 
-            # predict mean Q for over clearing period and store result
+            # predict mean Q for clearing period and store result
             # can be used to measure goodness of ifm model
             Q = predict(inflow_model, u0, t)
             @assert nifmsteps <= length(Q)
@@ -732,19 +707,9 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
     return (true, deps)
 end
 
-"""
-MixedInflowParam...
-"""
-# TODO: Complete this
-# struct MixedInflowParam{P1, P2} <: Param
-#     directparam::P1
-#     ifmparam::P2
-#     ndays::Int
-# end
-# function includeMixedInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
-# end
-# TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "MixedInflowParam")] = includeMixedInflowParam!
+# TODO: Support MixedInflowParam
 
+# TODO: Add AbstractInflow in TuLiPa and check conceptname instead
 """
 Used by JulES in appropriate places to embed scenix info 
 into data elements of type ModeledInflowParam or MixedInflowParam
