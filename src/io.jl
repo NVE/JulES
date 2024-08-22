@@ -161,21 +161,6 @@ function get_ifm_names(input::DefaultJulESInput)
     end
 end
 
-function get_ifm_replacemap(input::DefaultJulESInput) 
-    d = Dict{String, String}()
-    if haskey(input.dataset, "ifm_replacemap")
-        names = Set(get_ifm_names(input))
-        aggnames = Set(keys(get_ifm_weights(input)))
-        d = Dict{String, String}()
-        for (k, v) in input.dataset["ifm_replacemap"]
-            if (v in names) || (v in aggnames)
-                d[k] = v
-            end
-        end
-    end
-    return d
-end
-
 function get_ifm_weights(input::DefaultJulESInput)
     if haskey(input.dataset, "ifm_weights")
         w = input.dataset["ifm_weights"]
