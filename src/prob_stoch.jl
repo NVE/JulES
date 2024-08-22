@@ -612,9 +612,9 @@ function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
     return 
 end
 
-function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term, stochastic)
+function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term, stochastic, ismaster)
     horizons = get_horizons(db)
-    subelements = get_subelements(db, subsystem)
+    subelements = get_subelements(db, subsystem, ismaster)
     numscen_sim = get_numscen_sim(db.input)
     numscen_stoch = get_numscen_stoch(db.input)
     local numperiods_powerhorizon::Int
@@ -632,12 +632,15 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
     return subelements, numperiods_powerhorizon, probhorizons
 end
 
-function get_subelements(db, subsystem::ExogenSubsystem)
-    return copy_elements_iprogtype(get_elements(db.input), get_iprogtype(db.input), get_ifm_replacemap(db.input))
+function get_subelements(db, ::ExogenSubsystem, ismaster::Bool)
+    elements = get_elements(db.input)
+    ismaster && return copy(elements)
+    return copy_elements_iprogtype(elements, get_iprogtype(db.input), get_ifm_replacemap(db.input))
 end
 
-function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem})
+function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem}, ismaster::Bool)
     elements = get_elements(db.input)
+    ismaster && return copy(elements)
     return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_replacemap(db.input))
 end
 
@@ -653,7 +656,7 @@ function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{Exog
         startduration = parse_duration(settings["horizons"]["master"], "termduration")
         endduration = startduration + parse_duration(settings["horizons"]["sub"], "termduration")
     end
-    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term, true)
+    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term, true, master)
 
     return subelements, numperiods_powerhorizon, horizons
 end
@@ -669,7 +672,7 @@ function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{EVPS
         startduration = parse_duration(settings["horizons"]["clearing"], "termduration")
         endduration = get_duration_stoch(subsystem)
     end
-    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, true)
+    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, true, master)
 
     return subelements, numperiods_powerhorizon, horizons
 end
