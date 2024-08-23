@@ -723,7 +723,7 @@ if Param is embedded with a known station_id behind IFM_STATION_ID_KEY
 The original Param must have Level and Profile keys, but this is how we 
 normally set up inflow parameters anyway, so this should be ok.
 """
-function copy_elements_iprogtype_old(elements, iprogtype::String, ifm_names::Vector{String})
+function copy_elements_iprogtype(elements, iprogtype::String, ifm_names::Vector{String})
     if iprogtype == "ifm"
         elements1 = TuLiPa.DataElement[]
         for e in elements
