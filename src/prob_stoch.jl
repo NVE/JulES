@@ -640,7 +640,7 @@ end
 
 function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem}, ismaster::Bool)
     elements = get_elements(db.input)
-    ismaster && return copy(elements)
+    ismaster && return copy(elements[subsystem.dataelements])
     return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_names(db.input))
 end
 
