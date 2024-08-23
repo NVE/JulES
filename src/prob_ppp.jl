@@ -84,8 +84,9 @@ function make_obj(elements::Vector{TuLiPa.DataElement}, hydro_horizon::TuLiPa.Ho
     db = get_local_db()
     iprogtype = get_iprogtype(db.input)
     ifm_names = get_ifm_names(db.input)
+    ifm_derivednames = keys(get_ifm_weights(db.input))
 
-    elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_names)
+    elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_names, ifm_derivednames)
 
     add_scenix_to_InflowParam(elements1, scenix)
 
