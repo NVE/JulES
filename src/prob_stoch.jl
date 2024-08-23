@@ -1,4 +1,19 @@
-function create_mp(db::LocalDB, subix::SubsystemIx)
+mutable struct MasterProblem
+    prob::TuLiPa.Prob
+    cuts::TuLiPa.SimpleSingleCuts
+    states::Dict{TuLiPa.StateVariableInfo, Float64}
+    div::Dict
+end
+
+mutable struct ScenarioProblem # TODO: Should the others be mutable as well?
+    prob::TuLiPa.Prob
+    horizons::Dict{CommodityName, TuLiPa.Horizon}
+    scenslopes::Vector{Float64}
+    scenconstant::Float64
+    div::Dict
+end
+
+function create_mp(db, subix::SubsystemIx)
     scenix = 1 # TODO: Which scenario should be represented in the master problem? Not important due to phasein?
     settings = get_settings(db)
 
@@ -34,7 +49,7 @@ function create_mp(db::LocalDB, subix::SubsystemIx)
     return
 end
 
-function create_sp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
+function create_sp(db, scenix::ScenarioIx, subix::SubsystemIx)
     subsystem = get_subsystems(db)[subix]
     settings = get_settings(db)
 
@@ -362,7 +377,7 @@ function update_local_price(db, scenix, term_ppp, bid, stepnr)
     db.prices_ppp[(scenix, term_ppp, bid)] = (stepnr, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
 end
 
-function get_core_ppp(db::LocalDB, scenix)
+function get_core_ppp(db, scenix)
     for (_scenix, _core) in db.dist_ppp
         if _scenix == scenix
             return _core
@@ -507,7 +522,7 @@ function update_endconditions_sp(scenix, subix, t)
     return
 end
 
-function get_core_evp(db::LocalDB, scenix, subix)
+function get_core_evp(db, scenix, subix)
     for (_scenix, _subix, _core) in db.dist_evp
         if (_scenix == scenix) && (_subix == subix)
             return _core
@@ -515,7 +530,7 @@ function get_core_evp(db::LocalDB, scenix, subix)
     end
 end
 
-function get_core_sp(db::LocalDB, scenix, subix)
+function get_core_sp(db, scenix, subix)
     for (_scenix, _subix, _core) in db.dist_sp
         if (_scenix == scenix) && (_subix == subix)
             return _core

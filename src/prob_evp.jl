@@ -1,4 +1,9 @@
-function create_evp(db::LocalDB, scenix::ScenarioIx, subix::SubsystemIx)
+struct EndValueProblem
+    prob::TuLiPa.Prob
+    div::Dict
+end
+
+function create_evp(db, scenix::ScenarioIx, subix::SubsystemIx)
     subsystem = get_subsystems(db)[subix]
     settings = get_settings(db)
 

@@ -1,3 +1,10 @@
+struct ClearingProblem
+    prob::TuLiPa.Prob
+    endstates::Dict{String, Float64} # startstates in next iteration
+    div::Dict
+end
+# TODO: also preallocate clearingstates?
+
 get_prob(cp::ClearingProblem) = cp.prob
 get_endstates(cp::ClearingProblem) = cp.endstates
 

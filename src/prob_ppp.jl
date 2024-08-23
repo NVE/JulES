@@ -1,9 +1,17 @@
+struct PricePrognosisProblem
+    longprob::TuLiPa.Prob
+    medprob::TuLiPa.Prob
+    shortprob::TuLiPa.Prob
+    nonstoragestates_short::Dict{TuLiPa.StateVariableInfo, Float64}
+    div::Dict
+end
+
 get_longprob(ppp::PricePrognosisProblem) = ppp.longprob
 get_medprob(ppp::PricePrognosisProblem) = ppp.medprob
 get_shortprob(ppp::PricePrognosisProblem) = ppp.shortprob
 get_nonstoragestates_short(ppp::PricePrognosisProblem) = ppp.nonstoragestates_short
 
-function create_ppp(db::LocalDB, scenix::Int)
+function create_ppp(db, scenix::Int)
     settings = get_settings(db.input)
 
     if haskey(get_dataset(db), "elements_ppp")
