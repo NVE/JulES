@@ -83,9 +83,9 @@ end
 function make_obj(elements::Vector{TuLiPa.DataElement}, hydro_horizon::TuLiPa.Horizon, power_horizon::TuLiPa.Horizon, scenix::Int; validate::Bool=false)
     db = get_local_db()
     iprogtype = get_iprogtype(db.input)
-    ifm_replacemap = get_ifm_replacemap(db.input)
+    ifm_names = get_ifm_names(db.input)
 
-    elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_replacemap)
+    elements1 = copy_elements_iprogtype(elements, iprogtype, ifm_names)
 
     add_scenix_to_InflowParam(elements1, scenix)
 
