@@ -635,13 +635,13 @@ end
 function get_subelements(db, ::ExogenSubsystem, ismaster::Bool)
     elements = get_elements(db.input)
     ismaster && return copy(elements)
-    return copy_elements_iprogtype(elements, get_iprogtype(db.input), get_ifm_replacemap(db.input))
+    return copy_elements_iprogtype(elements, get_iprogtype(db.input), get_ifm_names(db.input))
 end
 
 function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem}, ismaster::Bool)
     elements = get_elements(db.input)
     ismaster && return copy(elements)
-    return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_replacemap(db.input))
+    return copy_elements_iprogtype(elements[subsystem.dataelements], get_iprogtype(db.input), get_ifm_names(db.input))
 end
 
 function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{ExogenSubsystem}, master)
