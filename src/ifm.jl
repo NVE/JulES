@@ -723,7 +723,7 @@ if Param is embedded with a known station_id behind IFM_STATION_ID_KEY
 The original Param must have Level and Profile keys, but this is how we 
 normally set up inflow parameters anyway, so this should be ok.
 """
-function copy_elements_iprogtype(elements, iprogtype::String, ifm_names::Vector{String})
+function copy_elements_iprogtype(elements, iprogtype, ifm_names, ifm_derivednames)
     if iprogtype == "ifm"
         elements1 = TuLiPa.DataElement[]
         for e in elements
@@ -732,7 +732,7 @@ function copy_elements_iprogtype(elements, iprogtype::String, ifm_names::Vector{
                 if e.value isa Dict
                     if haskey(e.value, IFM_STATION_ID_KEY)
                         station_id = e.value[IFM_STATION_ID_KEY]
-                        if station_id in ifm_names
+                        if (station_id in ifm_names) || (station_id in ifm_derivednames) 
                             maybe_new_element = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
                                 Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"], 
                                     IFM_STATION_ID_KEY => station_id))
