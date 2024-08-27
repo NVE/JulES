@@ -7,6 +7,7 @@ and integration with JulES
 # TODO: add data element for observations for an ifm (and extend interface with set_observations)
 # TODO: add data element for forecast for an ifm (and extend interface with set_forecast)
 # TODO: Use Float32 instead of Float64 in historical time vectors?
+# TODO: Replace all calls to Day(n) with Millisecond(86400000*n) for better performance 
 
 const ONEDAY_MS_TIMEDELTA = TuLiPa.MsTimeDelta(Day(1))
 
@@ -215,6 +216,7 @@ function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::TuLiPa.ProbTime)
     return Q
 end
 
+# TODO: Add AutoCorrIfmDataUpdater that use value w(t)*x(t0) + (1-w(t-t0))*x(t), where w(0) = 1 and w -> 0 for larger inputs
 struct SimpleIfmDataUpdater <: AbstractTwoStateIfmDataUpdater
 end
 
@@ -381,6 +383,14 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
 
     if !isnothing(moments)
         moments = JLD2.load_object(moments)
+        # TODO: make this loop over model_params and thus support n ( == length(model_params)) levels
+        model_params = ComponentArray(
+            level_1 = ComponentArray(weight = model_params[1][1], bias = model_params[1][2]),
+            level_2 = ComponentArray(weight = model_params[2][1], bias = model_params[2][2]),
+            level_3 = ComponentArray(weight = model_params[3][1], bias = model_params[3][2]),
+            level_4 = ComponentArray(weight = model_params[4][1], bias = model_params[4][2]),
+            level_5 = ComponentArray(weight = model_params[5][1], bias = model_params[5][2]),
+            level_6 = ComponentArray(weight = model_params[6][1], bias = model_params[6][2]))
         model_params = (model_params, moments)
     end
 
@@ -555,8 +565,9 @@ function solve_ifm(t, stepnr)
 end
 
 """
-Ensure that all cores have the latest output for all inflow models for all scenarios.
-A core holding output from an inflow model, copies the output to the local db on all other cores.
+Ensure that all cores have the latest output for all inflow models 
+for all scenarios. A core holding output from an inflow model, 
+copies the output to the local db on all other cores.
 """
 function synchronize_ifm_output()
     db = get_local_db()
