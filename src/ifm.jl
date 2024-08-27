@@ -555,8 +555,9 @@ function solve_ifm(t, stepnr)
 end
 
 """
-Ensure that all cores have the latest output for all inflow models for all scenarios.
-A core holding output from an inflow model, copies the output to the local db on all other cores.
+Ensure that all cores have the latest output for all inflow models 
+for all scenarios. A core holding output from an inflow model, 
+copies the output to the local db on all other cores.
 """
 function synchronize_ifm_output()
     db = get_local_db()
