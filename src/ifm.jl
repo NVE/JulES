@@ -279,7 +279,7 @@ function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa
     common_includeTwoStateIfm!(TwoStateBucketIfm, toplevel, lowlevel, elkey, value)
 end
 
-struct TwoStateNeuralODEIfmPredictor{P, NN} <: AbstractTwoStateIfmPredictor
+struct TwoStateNeuralODEIfmPredictor{NN, P} <: AbstractTwoStateIfmPredictor
     nn::NN
     nn_params::P
     mean_S::Float32
@@ -293,7 +293,7 @@ struct TwoStateNeuralODEIfmPredictor{P, NN} <: AbstractTwoStateIfmPredictor
     function TwoStateNeuralODEIfmPredictor(model_params)
         (nn, __) = initialize_NN_model()
         (nn_params, d) = model_params
-        return new{typeof(nn_params), typeof(nn)}(nn_params, nn, 
+        return new{typeof(nn), typeof(nn_params)}(nn, nn_params, 
             d["mean_S"], d["mean_G"], d["mean_P"], d["mean_T"], 
             d["std_S"], d["std_G"], d["std_P"], d["std_T"])
     end
