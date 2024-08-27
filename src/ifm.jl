@@ -342,7 +342,7 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         moments = TuLiPa.getdictvalue(value, "Moments", String, elkey)
     end
 
-    hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation",   TuLiPa.TIMEVECTORPARSETYPES, elkey)
+    hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation", TuLiPa.TIMEVECTORPARSETYPES, elkey)
     hist_T = TuLiPa.getdictvalue(value, "HistoricalTemperature", TuLiPa.TIMEVECTORPARSETYPES, elkey)
     hist_Lday = TuLiPa.getdictvalue(value, "HistoricalDaylight", TuLiPa.TIMEVECTORPARSETYPES, elkey)
 
