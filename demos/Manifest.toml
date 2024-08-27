@@ -820,7 +820,7 @@ version = "1.23.0"
 
 [[deps.JulES]]
 deps = ["CSV", "Clustering", "ComponentArrays", "DataFrames", "Dates", "Distributed", "Distributions", "Interpolations", "JLD2", "JSON", "Lux", "OrdinaryDiffEq", "Random", "Statistics", "Test", "TuLiPa", "YAML"]
-git-tree-sha1 = "bcaae2990b8113b92aa20b86ee5e4f8b25ca10f6"
+git-tree-sha1 = "ba9b60c27ce61b414702c607246913aa9d2d534d"
 repo-rev = "redesign_distributed"
 repo-url = "https://github.com/NVE/JulES.git"
 uuid = "05c5cb9d-dcc3-436a-b9c7-df36424a75d6"
@@ -2044,7 +2044,7 @@ version = "1.4.0"
 
 [[deps.TuLiPa]]
 deps = ["CSV", "Clustering", "DataFrames", "Dates", "HiGHS", "Interpolations", "JSON", "JuMP", "PrecompileTools", "Random", "Statistics", "Test"]
-git-tree-sha1 = "71ea9e2414c3dfe268e62253844ace8f526fda7c"
+git-tree-sha1 = "e40e10d1053ea1e79022025b5666d33bf6926c8b"
 repo-rev = "redesign_JulES"
 repo-url = "https://github.com/NVE/TuLiPa.git"
 uuid = "970f5c25-cd7d-4f04-b50d-7a4fe2af6639"
