@@ -391,6 +391,8 @@ function get_aggzonecopl(aggzone::Dict)
     return aggzonecopl
 end
 
+get_result_prices_ppp(settings::Dict)::Int = get(settings["results"], "prices_ppp", 0)
+
 has_statedependentprod(settings::Dict)::Bool = get(settings, "statedependentprod", false)
 has_statedependentpump(settings::Dict)::Bool = get(settings, "statedependentpump", false)
 has_headlosscost(settings::Dict)::Bool = get(settings, "statedependentpump", false)
@@ -400,7 +402,6 @@ has_result_times(settings::Dict)::Bool = get(settings["results"], "times", false
 has_result_scenarios(settings::Dict)::Bool = get(settings["results"], "scenarios", false)
 has_result_memory(settings::Dict)::Bool = get(settings["results"], "memory", false)
 has_result_storagevalues(settings::Dict)::Bool = get(settings["results"], "storagevalues", false)
-has_result_prices_ppp(settings::Dict)::Bool = get(settings["results"], "prices_ppp", false)
 
 function get_outputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     if mainconfig["outputindex"] == "datayear"
@@ -672,8 +673,8 @@ function init_local_output()
         end
     end
 
-    if has_result_prices_ppp(settings)
-        collect_interval = settings["results"]["prices_ppp"]
+    collect_interval = get_result_prices_ppp(settings)
+    if collect_interval != 0
         collect_steps = div(steps, collect_interval) + 1
 
         for (id, obj) in first(get_dummyobjects_ppp(db))
@@ -952,8 +953,8 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         TuLiPa.get_results!(prob_results, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
     end
 
-    if has_result_prices_ppp(settings)
-        collect_interval = settings["results"]["prices_ppp"]
+    collect_interval = get_result_prices_ppp(settings)
+    if collect_interval != 0
         if (stepnr-1) % collect_interval == 0
             collect_step = div((stepnr-1), collect_interval) + 1
 
@@ -1177,7 +1178,7 @@ function get_output_ppp_prices(output)
     db = get_local_db()
     settings = get_settings(db)
     
-    if has_result_prices_ppp(settings)
+    if get_result_prices_ppp(settings) != 0
         f = @spawnat db.core_main get_output_prices_ppp_local()
         ret = fetch(f)
         if ret isa RemoteException
