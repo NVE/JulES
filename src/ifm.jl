@@ -294,8 +294,8 @@ struct TwoStateNeuralODEIfmPredictor{NN, P} <: AbstractTwoStateIfmPredictor
         (nn, __) = initialize_NN_model()
         (nn_params, d) = model_params
         return new{typeof(nn), typeof(nn_params)}(nn, nn_params, 
-            d["mean_S"], d["mean_G"], d["mean_P"], d["mean_T"], 
-            d["std_S"], d["std_G"], d["std_P"], d["std_T"])
+            d["mean_S0"], d["mean_S1"], d["mean_P"], d["mean_T"], 
+            d["std_S0"], d["std_S1"], d["std_P"], d["std_T"])
     end
 end
 
