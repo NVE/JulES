@@ -7,6 +7,7 @@ and integration with JulES
 # TODO: add data element for observations for an ifm (and extend interface with set_observations)
 # TODO: add data element for forecast for an ifm (and extend interface with set_forecast)
 # TODO: Use Float32 instead of Float64 in historical time vectors?
+# TODO: Replace all calls to Day(n) with Millisecond(86400000*n) for better performance 
 
 const ONEDAY_MS_TIMEDELTA = TuLiPa.MsTimeDelta(Day(1))
 
@@ -215,6 +216,7 @@ function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::TuLiPa.ProbTime)
     return Q
 end
 
+# TODO: Add AutoCorrIfmDataUpdater that use value w(t)*x(t0) + (1-w(t-t0))*x(t), where w(0) = 1 and w -> 0 for larger inputs
 struct SimpleIfmDataUpdater <: AbstractTwoStateIfmDataUpdater
 end
 
