@@ -383,14 +383,14 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
 
     if !isnothing(moments)
         moments = JLD2.load_object(moments)
-        # TODO: make this loop over model_params and thus support n ( == length(model_params)) levels
+        # TODO: make this loop over model_params and thus support n ( == length(model_params)) layers
         model_params = ComponentArray(
-            level_1 = ComponentArray(weight = model_params[1][1], bias = model_params[1][2]),
-            level_2 = ComponentArray(weight = model_params[2][1], bias = model_params[2][2]),
-            level_3 = ComponentArray(weight = model_params[3][1], bias = model_params[3][2]),
-            level_4 = ComponentArray(weight = model_params[4][1], bias = model_params[4][2]),
-            level_5 = ComponentArray(weight = model_params[5][1], bias = model_params[5][2]),
-            level_6 = ComponentArray(weight = model_params[6][1], bias = model_params[6][2]))
+            layer_1 = ComponentArray(weight = model_params[1][1], bias = model_params[1][2]),
+            layer_2 = ComponentArray(weight = model_params[2][1], bias = model_params[2][2]),
+            layer_3 = ComponentArray(weight = model_params[3][1], bias = model_params[3][2]),
+            layer_4 = ComponentArray(weight = model_params[4][1], bias = model_params[4][2]),
+            layer_5 = ComponentArray(weight = model_params[5][1], bias = model_params[5][2]),
+            layer_6 = ComponentArray(weight = model_params[6][1], bias = model_params[6][2]))
         model_params = (model_params, moments)
     end
 
