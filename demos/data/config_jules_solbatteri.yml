@@ -20,8 +20,10 @@ data:
     chargecap: 7.0 # MW
     lossbattery: 0.075 # the whole loss when the battery charges
     solarcap: 15.0 # MW
-    price: "Prices_HydroCen_LowEmission_2030_1958-2015.csv"
-    solar: "testprofiles_1981_2010.csv"
+    pricedata: "Prices_HydroCen_LowEmission_2030_1958-2015.csv"
+    pricecolumn: "Vestsyd"
+    solardata: "testprofiles_1981_2010.csv"
+    solarcolumn: "SolarGER"
     
 #############################################################
 hourly:
