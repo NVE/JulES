@@ -279,7 +279,7 @@ function includeTwoStateBucketIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuLiPa
     common_includeTwoStateIfm!(TwoStateBucketIfm, toplevel, lowlevel, elkey, value)
 end
 
-struct TwoStateNeuralODEIfmPredictor{P, NN} <: AbstractTwoStateIfmPredictor
+struct TwoStateNeuralODEIfmPredictor{NN, P} <: AbstractTwoStateIfmPredictor
     nn::NN
     nn_params::P
     mean_S::Float32
@@ -293,9 +293,9 @@ struct TwoStateNeuralODEIfmPredictor{P, NN} <: AbstractTwoStateIfmPredictor
     function TwoStateNeuralODEIfmPredictor(model_params)
         (nn, __) = initialize_NN_model()
         (nn_params, d) = model_params
-        return new{typeof(nn_params), typeof(nn)}(nn_params, nn, 
-            d["mean_S"], d["mean_G"], d["mean_P"], d["mean_T"], 
-            d["std_S"], d["std_G"], d["std_P"], d["std_T"])
+        return new{typeof(nn), typeof(nn_params)}(nn, nn_params, 
+            d["mean_S0"], d["mean_S1"], d["mean_P"], d["mean_T"], 
+            d["std_S0"], d["std_S1"], d["std_P"], d["std_T"])
     end
 end
 
@@ -342,7 +342,7 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
         moments = TuLiPa.getdictvalue(value, "Moments", String, elkey)
     end
 
-    hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation",   TuLiPa.TIMEVECTORPARSETYPES, elkey)
+    hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation", TuLiPa.TIMEVECTORPARSETYPES, elkey)
     hist_T = TuLiPa.getdictvalue(value, "HistoricalTemperature", TuLiPa.TIMEVECTORPARSETYPES, elkey)
     hist_Lday = TuLiPa.getdictvalue(value, "HistoricalDaylight", TuLiPa.TIMEVECTORPARSETYPES, elkey)
 
@@ -381,16 +381,16 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
 
     model_params = JLD2.load_object(model_params)
 
-    if !isnothing(moments)
+    is_nn = !isnothing(moments)
+    if is_nn
+        # convert model_params, stored with simpler data structure for stability between versions,
+        # into ComponentArray, which the NN-model needs
+        # (the simpler data structure is Vector{Tuple{Vector{Float32}, Vector{Float32}}})
+        _subarray(i) = ComponentArray(weight = model_params[i][1], bias = model_params[i][2])
+        _tuple(i) = (Symbol("layer_", i), _subarray(i))
+        model_params = ComponentArray(NamedTuple(_tuple(i) for i in eachindex(model_params)))
+        # add moments, which is needed to normalize state inputs to the NN-model
         moments = JLD2.load_object(moments)
-        # TODO: make this loop over model_params and thus support n ( == length(model_params)) levels
-        model_params = ComponentArray(
-            level_1 = ComponentArray(weight = model_params[1][1], bias = model_params[1][2]),
-            level_2 = ComponentArray(weight = model_params[2][1], bias = model_params[2][2]),
-            level_3 = ComponentArray(weight = model_params[3][1], bias = model_params[3][2]),
-            level_4 = ComponentArray(weight = model_params[4][1], bias = model_params[4][2]),
-            level_5 = ComponentArray(weight = model_params[5][1], bias = model_params[5][2]),
-            level_6 = ComponentArray(weight = model_params[6][1], bias = model_params[6][2]))
         model_params = (model_params, moments)
     end
 
