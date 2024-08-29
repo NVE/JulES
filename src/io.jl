@@ -232,12 +232,20 @@ function get_timeparams(mainconfig::Dict, settings::Dict, datayear::Int, weather
     
     # Phasein settings
     phaseinoffset = steplength # phase in straight away from second stage scenarios
-    phaseindelta = parse_duration(settings["time"]["probtime"], "phaseindelta") # Phase in the second stage scenario over 5 weeks
-    phaseinsteps = settings["time"]["probtime"]["phaseinsteps"] # Phase in second stage scenario in 5 steps
+    if haskey(settings["time"]["probtime"], "phaseintime")
+        phaseindelta = parse_duration(settings["time"]["probtime"], "phaseindelta") # Phase in the second stage scenario over 5 weeks
+    else
+        phaseindelta = Millisecond(0)
+    end
+    phaseinsteps = get(settings["time"]["probtime"], "phaseinsteps", 0) # Phase in second stage scenario in 5 steps
 
     # Make standard time and scenario uncertainty times
     tnormaltype = settings["time"]["probtime"]["normaltime"]
-    tphaseintype = settings["time"]["probtime"]["phaseintime"]
+    if haskey(settings["time"]["probtime"], "phaseintime")
+        tphaseintype = settings["time"]["probtime"]["phaseintime"]
+    else
+        tphaseintype = tnormaltype
+    end
     simstarttime, scenmod_data = get_datascenarios(datayear, weatheryear, weekstart, datanumscen, tnormaltype)
 
     return (steps, steplength, simstarttime, scenmod_data, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
@@ -279,10 +287,6 @@ function get_scentime(simtime::TuLiPa.ProbTime, scenario::AbstractScenario, inpu
         return TuLiPa.PhaseinPrognosisTime(datasimtime, datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif timetype == "PhaseinFixedDataTwoTime"
         return TuLiPa.PhaseinFixedDataTwoTime(datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
-    elseif timetype == "PrognosisTime"
-        return TuLiPa.PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
-    elseif timetype == "FixedDataTwoTime"
-        return TuLiPa.FixedDataTwoTime(datasimtime, weatherscenariotime)
     else
         error("$timetype not implementet in getscenariotime-function")
     end
@@ -901,7 +905,11 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         termduration = get_steplength(db.input)
         if get_onlysubsystemmodel(db.input)
             periodduration_power = parse_duration(settings["horizons"]["master"]["Power"], "periodduration")
-            periodduration_hydro = parse_duration(settings["horizons"]["master"]["Hydro"], "periodduration")
+            if haskey(settings["horizons"]["master"], "Hydro")
+                periodduration_hydro = parse_duration(settings["horizons"]["master"]["Hydro"], "periodduration")
+            else
+                periodduration_hydro = periodduration_power
+            end
             prob_results = db.mp[first(db.dist_mp[1])].prob
         else
             periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
@@ -1445,7 +1453,11 @@ function get_output_main_local()
         steplength = get_steplength(db.input)
         if get_onlysubsystemmodel(db.input)
             periodduration_power = parse_duration(settings["horizons"]["master"]["Power"], "periodduration")
-            periodduration_hydro = parse_duration(settings["horizons"]["master"]["Hydro"], "periodduration")
+            if haskey(settings["horizons"]["master"], "Hydro")
+                periodduration_hydro = parse_duration(settings["horizons"]["master"]["Hydro"], "periodduration")
+            else
+                periodduration_hydro = periodduration_power
+            end
         else
             periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
             periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")

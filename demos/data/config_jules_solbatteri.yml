@@ -32,10 +32,6 @@ hourly:
         weatheryearstop: 1996 # diff from prognose
         probtime:
             normaltime: FixedDataTwoTime # diff from prognose
-            phaseintime: PhaseinFixedDataTwoTime # diff from prognose
-            phaseindelta_days: 5
-            phaseinsteps: 5
-        
         skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
     scenariogeneration: # if empty use all datascenarios
     problems:
@@ -58,15 +54,9 @@ hourly:
             Power:
                 function: SequentialHorizon
                 periodduration_hours: 1
-            Hydro:
-                function: SequentialHorizon
-                periodduration_hours: 1
         master: 
             termduration_hours: 48
             Power:
-                function: SequentialHorizon
-                periodduration_hours: 1
-            Hydro:
                 function: SequentialHorizon
                 periodduration_hours: 1
     results:
