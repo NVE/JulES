@@ -24,6 +24,7 @@ mutable struct WeatherScenario <: AbstractScenario
     parentscenario::Int # index of parent scenario
 end
 get_probability(scen::WeatherScenario) = scen.p_weather
+set_probability!(scen::WeatherScenario, value::Float64) = scen.p_weather = value
 
 # Calculates end values with deterministic end value models
 # TODO: Add name

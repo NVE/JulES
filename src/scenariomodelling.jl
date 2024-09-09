@@ -26,8 +26,8 @@ mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenari
     a::Float64 # parameter
     b::Float64 # parameter
     c::Float64 # parameter
-    usedensity::Bool # parameter
     scendelta::TuLiPa.MsTimeDelta # parameter
+    usedensity::Bool # parameter
     function SumInflowQuantileMethod(scenarios, objects, maxquantile, a, b, c, scendelta; usedensity=false)
         inflowfactors = Vector{Float64}(undef, length(scenarios))
         return new{eltype(scenarios)}(scenarios, inflowfactors, objects, maxquantile, a, b, c, scendelta, usedensity)
@@ -70,7 +70,7 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     # Calculate total energy inflow in the system for the scenariodelta
     totalsumenergyinflow = zeros(length(scenariooptions))
     for obj in scenmod.objects
-        if obj isa Balance
+        if obj isa TuLiPa.BaseBalance
             if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
                 if haskey(obj.metadata, TuLiPa.GLOBALENEQKEY)
@@ -102,18 +102,22 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     for i in 1:numscen
         qvalue = qvalues[i]
         idx = findmin(abs.(totalsumenergyinflow.-qvalue))[2]
-        scenmod.scenarios[i] = scenariooptions[idx]
+        scenmod.scenarios[i] = deepcopy(scenariooptions[idx])
         scenmod.inflowfactors[i] = qvalue/totalsumenergyinflow[idx]
     end
 
     # How much should each scenario be weighted - combination of weighting function and probability density
     x = collect(-numscen+1:2:numscen-1)
     y = (scenmod.a .* x .^ 2 .+ x .* scenmod.b .+ scenmod.c) .* d
-    for i in numscen
+    for i in 1:numscen
         scenmod.scenarios[i].p_weather = y[i]/sum(y)
     end
-    @assert sum([scenario.p_weather for scenario in scenmod.scenarios]) == 1
 
+    scenariosum = sum([scenario.p_weather for scenario in scenmod.scenarios])
+    if !isapprox(scenariosum, 1, atol=0.0001)
+        println([scenario.p_weather for scenario in scenmod.scenarios])
+        error("Sum of scenarios not 1, it is $(scenariosum)")
+    end
     return
 end
 
@@ -131,7 +135,7 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
 	parts = scenmod.parts
 
     for obj in scenmod.objects
-        if obj isa TuLiPa.Balance
+        if obj isa TuLiPa.BaseBalance
             if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
                 enekvglobal = 1.0 # if no energy equivalent, assume inflow is already demoninated in GWh
                 if haskey(obj.metadata, TuLiPa.GLOBALENEQKEY)
@@ -178,11 +182,11 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
         # Weight based on amount of scenarios in cluster and weight of options
         scenmod.scenarios[i].p_weather = sum(weightsoptions[idxs])
     end
-    if !isapprox(sum([scenario.p_weather for scenario in scenmod.scenarios]), 1, atol=0.0001)
-        println(sum([scenario.p_weather for scenario in scenmod.scenarios]))
-        error("Sum of scenarios not 1")
+    scenariosum = sum([scenario.p_weather for scenario in scenmod.scenarios])
+    if !isapprox(scenariosum, 1, atol=0.0001)
+        println([scenario.p_weather for scenario in scenmod.scenarios])
+        error("Sum of scenarios not 1, it is $(scenariosum)")
     end
-
 
     return
 end
