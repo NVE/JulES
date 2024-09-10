@@ -406,6 +406,7 @@ has_result_times(settings::Dict)::Bool = get(settings["results"], "times", false
 has_result_scenarios(settings::Dict)::Bool = get(settings["results"], "scenarios", false)
 has_result_memory(settings::Dict)::Bool = get(settings["results"], "memory", false)
 has_result_storagevalues(settings::Dict)::Bool = get(settings["results"], "storagevalues", false)
+has_result_hydrolevels_water(settings::Dict)::Bool = get(settings["results"], "hydrolevels_water", false)
 
 function get_outputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
     if mainconfig["outputindex"] == "datayear"
@@ -587,6 +588,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     consumption::Array{Float64}
     hydrolevels::Array{Float64}
     batterylevels::Array{Float64}
+    othervalues::Dict
     
     modelobjects::Dict
     powerbalances::Vector
@@ -600,6 +602,8 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     demandarrows::Dict
     hydrostorages::Vector
     batterystorages::Vector
+    otherobjects::Dict
+    otherbalances::Dict
 
     statenames::Vector{String}
     statematrix::Array{Float64} # end states after each step
@@ -614,9 +618,10 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         Dict(),
         [],[],[],[],[],[],[],
         [],[],
-        [],[],[],[],[],[],
-        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],[],[],
-        [], [], [], Matrix{Float64}(undef, (0,0)))
+        [],[],[],[],[],[],Dict(),
+        Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],Dict(),Dict(),
+        [],[],
+        [],[],[],Matrix{Float64}(undef, (0,0)))
     end
 end
 
@@ -946,6 +951,26 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.consumption = zeros(Int(numperiods_powerhorizon*steps), length(db.output.demands))
             db.output.hydrolevels = zeros(Int(numperiods_hydrohorizon*steps), length(db.output.hydrostorages))
             db.output.batterylevels = zeros(Int(numperiods_powerhorizon*steps), length(db.output.batterystorages))
+
+            if haskey(settings["results"], "otherterms")
+                otherinfo = settings["results"]["otherterms"]
+                otherobjects, otherbalances = TuLiPa.order_result_objects_other(resultobjects, otherinfo)
+                db.output.otherobjects = otherobjects
+                db.output.otherbalances = otherbalances
+    
+                for key in keys(otherinfo)
+                    db.output.othervalues[key] = Dict()
+            
+                    for commodity in keys(otherinfo[key])
+                        horizon = TuLiPa.get_horizon_commodity(resultobjects, commodity)
+                        if key == "RHSTerms"
+                            db.output.othervalues[key][commodity] = zeros(TuLiPa.getnumperiods(horizon)*steps, length(otherobjects[key][commodity]))
+                        elseif key == "Vars"
+                            db.output.othervalues[key][commodity] = zeros(TuLiPa.getnumperiods(horizon)*steps, length(otherobjects[key][commodity]))
+                        end
+                    end
+                end
+            end
         end
 
         if stepnr == 2 
@@ -959,6 +984,10 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
         hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
         TuLiPa.get_results!(prob_results, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+
+        if haskey(settings["results"], "otherterms")
+            TuLiPa.get_results!(stepnr, prob_results, db.output.otherobjects, db.output.otherbalances, db.output.othervalues, db.output.modelobjects, t)
+        end
     end
 
     collect_interval = get_result_prices_ppp(settings)
@@ -1506,7 +1535,7 @@ function get_output_main_local()
             end
         end
 
-        # Indexes
+        # Indexes TODO: Replace with generic (for each commodity, and for state)
         dim = get_outputindex(mainconfig, get_datayear(db), get_weatheryear(db))
         x1 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_power*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
         x2 = [TuLiPa.getisoyearstart(dim) + Week(mainconfig["weekstart"]-1) + periodduration_hydro*(t-1) for t in 1:first(size(hydrolevels1))]; # reservoir resolution
@@ -1527,6 +1556,9 @@ function get_output_main_local()
         data["resnames"] = hydronames
         data["resmatrix"] = hydrolevels1
         data["resindex"] =  x2
+        if has_result_hydrolevels_water(settings)
+            data["resmatrix_water"] = db.output.hydrolevels
+        end
 
         data["batnames"] = batterynames
         data["batmatrix"] = db.output.batterylevels
@@ -1543,6 +1575,15 @@ function get_output_main_local()
         data["demandvalues"] = demandvalues
         data["demandnames"] = demandnames
         data["demandbalancenames"] = demandbalancenames
+
+        if haskey(settings["results"], "otherterms")
+            for key in keys(db.output.othervalues)
+                for commodity in keys(db.output.othervalues[key])
+                    data["othernames_" * key * "_" * commodity] = [TuLiPa.getinstancename(id) for id in db.output.otherobjects[key][commodity]] |> Vector{String}
+                    data["othervalues_" * key * "_" * commodity] = db.output.othervalues[key][commodity]
+                end
+            end
+        end
 
         if has_ifm_results(db.input)
             data["ifm_names"] = db.output.ifm_stations
