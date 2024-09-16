@@ -86,6 +86,7 @@ function solve_stoch(t, stepnr, skipmed)
                     update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, settings)
                 end
                 maintiming[1] = @elapsed TuLiPa.update!(mp.prob, t)
+                maintiming[4] = @elapsed set_minstoragevalue!(mp.prob, minstoragevaluerule)
 
                 @sync for _core in get_cores(db)
                     @spawnat _core update_sps(t, stepnr, subix)
@@ -123,6 +124,7 @@ end
 function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
     if has_headlosscost(settings["problems"]["stochastic"]["master"])
         TuLiPa.updateheadlosscosts!(TuLiPa.ReservoirCurveSlopeMethod(), prob, t)
+        set_minstoragevalue!(prob, minstoragevaluerule)
         TuLiPa.solve!(prob)
         !isnothing(storagevalues) && final_save_storagevalues(prob, cuts, storagevalues)
     end
