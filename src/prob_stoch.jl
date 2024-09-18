@@ -86,7 +86,7 @@ function solve_stoch(t, stepnr, skipmed)
                     update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, settings)
                 end
                 maintiming[1] = @elapsed TuLiPa.update!(mp.prob, t)
-                maintiming[4] = @elapsed set_minstoragevalue!(mp.prob, minstoragevaluerule)
+                maintiming[4] += @elapsed set_minstoragevalue!(mp.prob, minstoragevaluerule)
 
                 @sync for _core in get_cores(db)
                     @spawnat _core update_sps(t, stepnr, subix)
