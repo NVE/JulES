@@ -411,6 +411,7 @@ end
 
 const IFM_DB_STATE_KEY = "ifm_step_u0"
 const IFM_DB_FLOW_KEY = "ifm_step_Q"
+const IFM_DB_ALLFLOW_KEY = "ifm_step_allQ"
 const IFM_STATION_ID_KEY = "ifm_station_id"
 
 """
@@ -423,6 +424,8 @@ function create_ifm()
     db.div[IFM_DB_STATE_KEY] = Dict{String, Tuple{Int, Vector{Float64}}}()
     @assert !haskey(db.div, IFM_DB_FLOW_KEY)
     db.div[IFM_DB_FLOW_KEY] = Dict{String, Tuple{Int, Float64}}()
+    @assert !haskey(db.div, IFM_DB_ALLFLOW_KEY)
+    db.div[IFM_DB_ALLFLOW_KEY] = Dict{String, Vector{Float64}}()
 
     elements = get_ifm_elements(db)
     modelobjects = TuLiPa.getmodelobjects(elements)

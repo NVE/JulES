@@ -1,5 +1,6 @@
 main:
     inputpath: "data"
+    function: nve_vassdrag
     numcores: 7
     
     datayears: [2021]

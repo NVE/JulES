@@ -612,6 +612,8 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     ifm_statenames::Vector{String}
     ifm_u0::Vector{Matrix{Float64}}
     ifm_Q::Matrix{Float64}
+    ifm_allQ::Array{Float64}
+    actualQ::Matrix{Float64}
 
     function DefaultJulESOutput(input)
         return new(Dict(),Dict(),Dict(),Dict(),[],
@@ -621,7 +623,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         [],[],[],[],[],[],Dict(),
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],Dict(),Dict(),
         [],[],
-        [],[],[],Matrix{Float64}(undef, (0,0)))
+        [],[],[],Matrix{Float64}(undef, (0,0)),[],Matrix{Float64}(undef, (0,0)))
     end
 end
 
@@ -811,6 +813,61 @@ function local_collect_ifm_Q(stepnr)
     return d
 end
 
+function collect_ifm_allQ(stepnr)
+    db = get_local_db()
+
+    stoch_scenixs = [scenario.parentscenario for scenario in db.scenmod_stoch.scenarios]
+    futures = []
+    @sync for (name, core) in db.dist_ifm
+        f = @spawnat core collect_ifm_allQ_local(stoch_scenixs, name, stepnr)
+        push!(futures, f)
+    end
+
+    if stepnr == 1
+        db.output.ifm_allQ = zeros(Float64, (length(db.output.ifm_stations), get_steps(db), last(size(fetch(futures[1])))))
+    end
+
+    for (i, f) in enumerate(futures)
+        db.output.ifm_allQ[i, stepnr, :] .= fetch(f)
+    end
+end
+
+function collect_ifm_allQ_local(stoch_scenixs, name, stepnr)
+    db = get_local_db()
+
+    if stepnr == 1
+        db.div[IFM_DB_ALLFLOW_KEY][name] = zeros(length(db.ifm_output[name][1][2]))
+    else
+        fill!(db.div[IFM_DB_ALLFLOW_KEY][name], 0.0)
+    end
+
+    Q_sum = db.div[IFM_DB_ALLFLOW_KEY][name]
+    for (_name, core) in db.dist_ifm
+        if (core == db.core) && (_name == name)
+            for (i, scenix) in enumerate(stoch_scenixs)
+                Q_sum .+= db.ifm_output[name][scenix][2]*get_probability(db.scenmod_stoch.scenarios[i])
+            end
+            return Q_sum
+        end
+    end
+end
+
+function get_profile_from_resultobjects_rhsterm(resultobjects, station, ifm_rhsterm_to_station)
+    for obj in resultobjects
+        if obj isa TuLiPa.BaseBalance
+            if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
+                for rhsterm in TuLiPa.getrhsterms(obj)
+                    rhstermname = TuLiPa.getinstancename(TuLiPa.getid(rhsterm))
+                    if ifm_rhsterm_to_station[rhstermname] == station
+                        return rhsterm.param.param.profile
+                    end
+                end
+            end
+        end
+    end
+    return error("Station $(station) not found in resultobjects")
+end
+
 function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     db = get_local_db()
     settings = get_settings(db)
@@ -827,6 +884,8 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         for (i, station) in enumerate(db.output.ifm_stations)
             db.output.ifm_Q[i, stepnr] = ifm_Q[station]
         end
+
+        collect_ifm_allQ(stepnr)
     end
 
     if has_result_times(settings)
@@ -968,6 +1027,25 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                         elseif key == "Vars"
                             db.output.othervalues[key][commodity] = zeros(TuLiPa.getnumperiods(horizon)*steps, length(otherobjects[key][commodity]))
                         end
+                    end
+                end
+            end
+
+            if has_ifm_results(db.input)
+                db = get_local_db()
+                steplength = get_steplength(db)
+                steplength_days = steplength/Day(1)
+                pred_days = length(db.ifm_output[db.output.ifm_stations[1]][1][2])
+                num_values = Int(pred_days + steplength_days*(get_steps(db)-1))
+                ifm_rhsterm_to_station = db.input.dataset["ifm_rhsterm_to_station"] 
+
+                db.output.actualQ = zeros(Float64, (length(db.output.ifm_stations), num_values))
+                for (i, station) in enumerate(db.output.ifm_stations)
+                    profile = get_profile_from_resultobjects_rhsterm(resultobjects, station, ifm_rhsterm_to_station)
+                    delta = TuLiPa.MsTimeDelta(Day(1))
+                    for j in 1:num_values
+                        start = t + Day(j-1)
+                        db.output.actualQ[i, j] = TuLiPa.getweightedaverage(profile, TuLiPa.getscenariotime(start), delta)
                     end
                 end
             end
@@ -1587,12 +1665,14 @@ function get_output_main_local()
 
         if has_ifm_results(db.input)
             data["ifm_names"] = db.output.ifm_stations
-            data["ifm_index"] =  x3
+            data["ifm_index"] = x3
             for stateix in eachindex(db.output.ifm_u0)
                 statename = db.output.ifm_statenames[stateix]
                 data["ifm_startstates_$(statename)_$(stateix)"] = db.output.ifm_u0[stateix]
             end
-            data["ifm_steamflow"] =  db.output.ifm_Q
+            data["ifm_steamflow"] = db.output.ifm_Q
+            data["ifm_allsteamflow"] = db.output.ifm_allQ
+            data["actualsteamflow"] = db.output.actualQ
         end
     end
 
