@@ -120,7 +120,8 @@ function make_modelobjects_evp(db, scenix, subix, startduration, endduration)
     add_scenix_to_InflowParam(subelements, scenix)
 
     aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))
-    change_elements!(subelements, aggzonecopl=aggzonecopl)
+    keep_hydroramping = has_keephydroramping_evp(get_settings(db.input))
+    change_elements!(subelements, aggzonecopl=aggzonecopl, keep_hydroramping=keep_hydroramping)
 
     add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
 

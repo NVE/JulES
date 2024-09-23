@@ -401,6 +401,9 @@ has_statedependentprod(settings::Dict)::Bool = get(settings, "statedependentprod
 has_statedependentpump(settings::Dict)::Bool = get(settings, "statedependentpump", false)
 has_headlosscost(settings::Dict)::Bool = get(settings, "statedependentpump", false)
 has_onlyagghydro(settings::Dict)::Bool = get(settings["problems"], "onlyagghydro", false)
+has_keephydroramping_evp(settings::Dict)::Bool = get(settings["problems"]["endvalue"], "keep_hydroramping", false)
+has_keephydroramping_master(settings::Dict)::Bool = get(settings["problems"]["stochastic"]["master"], "keep_hydroramping", false)
+has_keephydroramping_subs(settings::Dict)::Bool = get(settings["problems"]["stochastic"]["subs"], "keep_hydroramping", false)
 
 has_result_times(settings::Dict)::Bool = get(settings["results"], "times", false)
 has_result_scenarios(settings::Dict)::Bool = get(settings["results"], "scenarios", false)

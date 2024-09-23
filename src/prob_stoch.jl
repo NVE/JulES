@@ -555,6 +555,7 @@ end
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
 function make_modelobjects_stochastic(db, scenix, subix, master)
     subsystem = get_subsystems(db)[subix]
+    settings = get_settings(db.input)
 
     subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons_stochastic(db, scenix, subsystem, master)
 
@@ -565,8 +566,13 @@ function make_modelobjects_stochastic(db, scenix, subix, master)
     end
     add_scenix_to_InflowParam(subelements, ifmscenix)
 
-    aggzonecopl = get_aggzonecopl(get_aggzone(get_settings(db.input)))
-    change_elements!(subelements, aggzonecopl=aggzonecopl)
+    aggzonecopl = get_aggzonecopl(get_aggzone(settings))
+    if master
+        keep_hydroramping = has_keephydroramping_master(settings)
+    else
+        keep_hydroramping = has_keephydroramping_subs(settings)
+    end
+    change_elements!(subelements, aggzonecopl=aggzonecopl, keep_hydroramping=keep_hydroramping)
 
     add_prices!(subelements, subsystem, numperiods_powerhorizon, aggzonecopl)
 
@@ -588,7 +594,7 @@ function make_modelobjects_stochastic(db, scenix, subix, master)
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
-function change_elements!(elements::Vector{TuLiPa.DataElement}; aggzonecopl::Dict=Dict()) # TODO: Replace with more user settings    
+function change_elements!(elements::Vector{TuLiPa.DataElement}; aggzonecopl::Dict=Dict(), keep_hydroramping::Bool=false) # TODO: Replace with more user settings    
     delix = []
     powerbasebalances = []
     for (i,element) in enumerate(elements)
@@ -604,7 +610,9 @@ function change_elements!(elements::Vector{TuLiPa.DataElement}; aggzonecopl::Dic
 
         # TODO: Get these from config
         if element.typename == "HydroRampingWithout"
-            push!(delix,i)
+            if !keep_hydroramping
+                push!(delix,i)
+            end
         end
     end
     for deli in sort(delix; rev=true)
