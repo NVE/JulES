@@ -868,7 +868,7 @@ function get_profile_from_resultobjects_rhsterm(resultobjects, station, ifm_rhst
             end
         end
     end
-    return error("Station $(station) not found in resultobjects")
+    return nothing
 end
 
 function update_output(t::TuLiPa.ProbTime, stepnr::Int)
@@ -1043,12 +1043,14 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 ifm_rhsterm_to_station = db.input.dataset["ifm_rhsterm_to_station"] 
 
                 db.output.actualQ = zeros(Float64, (length(db.output.ifm_stations), num_values))
+                delta = TuLiPa.MsTimeDelta(Day(1))
                 for (i, station) in enumerate(db.output.ifm_stations)
                     profile = get_profile_from_resultobjects_rhsterm(resultobjects, station, ifm_rhsterm_to_station)
-                    delta = TuLiPa.MsTimeDelta(Day(1))
-                    for j in 1:num_values
-                        start = t + Day(j-1)
-                        db.output.actualQ[i, j] = TuLiPa.getweightedaverage(profile, TuLiPa.getscenariotime(start), delta)
+                    if !isnothing(profile)
+                        for j in 1:num_values
+                            start = t + Day(j-1)
+                            db.output.actualQ[i, j] = TuLiPa.getweightedaverage(profile, TuLiPa.getscenariotime(start), delta)
+                        end
                     end
                 end
             end
