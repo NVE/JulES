@@ -861,8 +861,10 @@ function get_profile_from_resultobjects_rhsterm(resultobjects, station, ifm_rhst
             if TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(obj))) == "Hydro"
                 for rhsterm in TuLiPa.getrhsterms(obj)
                     rhstermname = TuLiPa.getinstancename(TuLiPa.getid(rhsterm))
-                    if ifm_rhsterm_to_station[rhstermname] == station
-                        return rhsterm.param.param.profile
+                    if haskey(ifm_rhsterm_to_station, rhstermname)
+                        if ifm_rhsterm_to_station[rhstermname] == station
+                            return rhsterm.param.param.profile
+                        end
                     end
                 end
             end
