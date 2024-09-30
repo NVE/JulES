@@ -295,6 +295,7 @@ end
 function add_scenariotimeperiod_int!(elements::Vector{TuLiPa.DataElement}, start::Int, stop::Int)
     push!(elements, TuLiPa.getelement(TuLiPa.TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
             ("Start", TuLiPa.getisoyearstart(start)), ("Stop", TuLiPa.getisoyearstart(stop))))
+    return
 end
 
 function get_scentnormal(simtime::TuLiPa.ProbTime, scenario::AbstractScenario, input::AbstractJulESInput)
@@ -371,7 +372,8 @@ function get_simperiod(input::AbstractJulESInput)
     N = get_steps(input)
     steplength = get_steplength(input)
     skipmed = Millisecond(Hour(0))
-    skipmax = Millisecond(Hour(steplength*(input.settings["time"]["skipmax"]-1)))
+    skipmax_steps = input.settings["time"]["skipmax"]::Int
+    skipmax = Millisecond(Hour(steplength*(skipmax_steps-1)))
 
     return (t, N, steplength, skipmed, skipmax)
 end
@@ -728,6 +730,7 @@ function init_local_output()
         end
         db.output.ifm_Q = zeros(Float64, (num_stations, steps))
     end
+    return
 end
 
 function get_ifm_numstates()
@@ -833,6 +836,7 @@ function collect_ifm_allQ(stepnr)
     for (i, f) in enumerate(futures)
         db.output.ifm_allQ[i, stepnr, :] .= fetch(f)
     end
+    return
 end
 
 function collect_ifm_allQ_local(stoch_scenixs, name, stepnr)
@@ -1073,6 +1077,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         if haskey(settings["results"], "otherterms")
             TuLiPa.get_results!(stepnr, prob_results, db.output.otherobjects, db.output.otherbalances, db.output.othervalues, db.output.modelobjects, t)
         end
+        return
     end
 
     collect_interval = get_result_prices_ppp(settings)
@@ -1107,6 +1112,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             end
         end
     end
+    return
 end
 
 function get_enddual_stoch(scenix, subix, objid)
@@ -1239,6 +1245,7 @@ function get_output_storagevalues(output, steplength, skipmax)
         output["scenarionames"] = scenarionames
         output["skipfactor"] = skipfactor
     end
+    return
 end
 
 function get_output_storagevalues_local(output, steplength, skipmax)
@@ -1316,6 +1323,7 @@ function get_output_ppp_prices(output)
         output["prices_short"] = ps
         output["deltas_short"] = ds
     end
+    return
 end
 
 function get_output_prices_ppp_local()
@@ -1351,6 +1359,7 @@ function get_output_memory(output)
         end
         println(df)
     end
+    return
 end
 
 function get_output_memory_local()
@@ -1370,6 +1379,7 @@ function get_output_scenarios(output)
     db = get_local_db()
 
     wait(@spawnat db.core_main get_output_scenarios_local(output))
+    return
 end
 
 function get_output_scenarios_local(data)
@@ -1377,12 +1387,14 @@ function get_output_scenarios_local(data)
 
     data["scenweights_sim"] = db.output.scenweights_sim
     data["scenweights_stoch"] = db.output.scenweights_stoch
+    return
 end
 
 function get_output_timing(output, steplength, skipmax)
     db = get_local_db()
 
     wait(@spawnat db.core_main get_output_timing_local(output, steplength, skipmax))
+    return
 end
 
 function get_output_timing_local(data, steplength, skipmax)
@@ -1520,6 +1532,7 @@ function get_output_timing_local(data, steplength, skipmax)
             data["clearingtimes"] = timing_cp
         end
     end
+    return
 end
 
 get_skipmed_impact(subix) = get_skipmed_impact(get_local_db().subsystems[subix])
@@ -1682,6 +1695,5 @@ function get_output_main_local()
             data["actualsteamflow"] = db.output.actualQ
         end
     end
-
     return data
 end
