@@ -498,12 +498,12 @@ function calculate_normalize_factor(ifm_model)
     itp_T = JulES.interpolate(timepoints, T, itp_method)
     itp_Lday = JulES.interpolate(timepoints, Lday, itp_method)
     
-    res = JulES.predict(ifm_model.handler.predictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints);
+    res = JulES.predict(ifm_model.handler.predictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
     (Q, _) = res
     Q = Float64.(Q)
     Q .= Q .* ifm_model.handler.m3s_per_mm
 
-    return 1 / sum(Q)
+    return 1 / mean(Q)
 end
 
 """
@@ -534,12 +534,12 @@ function solve_ifm(t, stepnr)
             inflow_model = db.ifm[inflow_name]
             
 
-            #if haskey(normfactors, inflow_name) == false
-            normalize_factor = calculate_normalize_factor(inflow_model) 
+            if haskey(normfactors, inflow_name) == false
+                normalize_factor = calculate_normalize_factor(inflow_model) 
                 # TODO: bruk info om hvor lang hist perioden er, start ett år før det, regn ut snittet av døgnverdiene, 1/snitet = normalizefactor
-            #else
-                #normalize_factor = normfactors[inflow_name]
-            #end
+            else
+                normalize_factor = normfactors[inflow_name]
+            end
 
             u0 = estimate_u0(inflow_model, t)
 
