@@ -1236,7 +1236,7 @@ function get_output_storagevalues(output, steplength, skipmax)
     settings = get_settings(db)
     
     if has_result_storagevalues(settings)
-        f = @spawnat db.core_main get_output_storagevalues_local(output, steplength, skipmax)
+        f = @spawnat db.core_main get_output_storagevalues_local(steplength, skipmax)
         storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
         
         output[StorageValues] = cat(storagevalues..., dims=3)
@@ -1248,7 +1248,7 @@ function get_output_storagevalues(output, steplength, skipmax)
     return
 end
 
-function get_output_storagevalues_local(output, steplength, skipmax)
+function get_output_storagevalues_local(steplength, skipmax)
     db = get_local_db()
     settings = get_settings(db)
 
