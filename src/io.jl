@@ -1345,33 +1345,45 @@ function get_output_memory(output)
     settings = get_settings(db)
 
     if has_result_memory(settings)
-        names = ["coreid", "sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ifm", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ifm", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_main", "div", "ifm_output", "ifm_derived"]
-        df = DataFrame(DataFrame([[] for _ = names] , names))
         cores = get_cores(db)
-        for core in cores # TODO: Do sync
+        names = ["sum_unique", "core", "input", "output", "horizons", "dummyobjects", "dummyobjects_ppp", "startstates", "subsystems", "subsystems_evp", "subsystems_stoch", "scenmod_sim", "scenmod_stoch", "ifm", "ppp", "prices_ppp", "evp", "mp", "sp", "cp", "dist_ifm", "dist_ppp", "dist_evp", "dist_mp", "dist_sp", "core_main", "div", "ifm_output", "ifm_derived", "sum"]
+        
+        results = zeros(length(names), length(cores))
+        futures = []
+        @sync for core in cores
             f = @spawnat core get_output_memory_local()
-            push!(df, fetch(f))
+            push!(futures, f)
         end
-        df[!, :sum] = sum(eachcol(select(df, Not(:coreid, :sum_unique))))
-        df = permutedims(df, "coreid")
+
+        for (i, f) in enumerate(futures)
+            results[:, i] .= fetch(f)
+        end
+
+        df = DataFrame(results, Symbol.(cores))
         if length(cores) > 1
-            df[!, :sum] = sum(eachcol(select(df, Not(:coreid))))
+            df[!, :sum] = sum(results, dims=2)
         end
+        df = insertcols(df, 1, :core_id => names)
+
         println(df)
     end
-    return
+
+    return nothing
 end
 
-function get_output_memory_local()
+function get_output_memory_local()::Vector{Float64}
     db = get_local_db()
+    values = Vector{Float64}(undef, 2 + length(fieldnames(typeof(db))))
 
-    values = Any[string(db.core), Base.summarysize(db)/1e6]
-
-    for field in fieldnames(typeof(db))
+    for (i, field) in enumerate(fieldnames(typeof(db)))
         field_value = getfield(db, field)
-        field_memory_size = Base.summarysize(field_value)/1e6
-        push!(values, field_memory_size)
+        field_memory_size = Base.summarysize(field_value) / 1e6
+        values[i + 1] = field_memory_size
     end
+
+    values[end] = sum(values[1:end-1])
+    values[1] = Base.summarysize(db) / 1e6
+
     return values
 end
 
