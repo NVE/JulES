@@ -3,6 +3,7 @@ Implementation of inflow models (ifm) TwoStateBucketIfm and TwoStateNeuralODEIfm
 and integration with JulES
 """
 
+# TODO: Add return nothing to many functions
 # TODO: Illustrate how data_obs, data_pred and data_forecast are updated over time
 # TODO: add data element for observations for an ifm (and extend interface with set_observations)
 # TODO: add data element for forecast for an ifm (and extend interface with set_forecast)

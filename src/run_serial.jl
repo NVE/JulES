@@ -48,6 +48,7 @@ function init_extensions(input::AbstractJulESInput)
     @sync for core in cores
         @spawnat core add_local_extensions()
     end
+    return
 end
 
 function add_local_extensions()
@@ -182,6 +183,7 @@ Updated after each simulation step
 function add_local_output()
     db = get_local_db()
     wait(@spawnat db.core_main init_local_output())
+    return
 end
 
 """
@@ -694,6 +696,7 @@ function add_local_cp()
     if db.core == db.core_main
         create_cp()
     end
+    return
 end
 
 function add_local_problems()
@@ -832,10 +835,12 @@ end
 function set_scenmodchanges_sim(changes)
     db = get_local_db()
     set_changes(db.scenmod_sim, changes)
+    return
 end
 function set_scenmodchanges_stoch(changes)
     db = get_local_db()
     set_changes(db.scenmod_stoch, changes)
+    return
 end
 
 function update_scenmod(scenmodmethod, scenmodmethodoptions, renumber, simtime, skipmed)
@@ -845,6 +850,7 @@ function update_scenmod(scenmodmethod, scenmodmethodoptions, renumber, simtime, 
         choose_scenarios!(scenmodmethod, scenmodmethodoptions, simtime, db.input) # see JulES/scenariomodelling.jl
         renumber && renumber_scenmodmethod!(scenmodmethod)
     end
+    return
 end
 
 function update_scenmod_sim()
@@ -859,6 +865,7 @@ function update_scenmod_sim()
             @spawnat core set_scenmodchanges_sim(changes)
         end
     end
+    return
 end
 function update_scenmod_stoch(simtime, skipmed)
     db = get_local_db()
@@ -872,4 +879,5 @@ function update_scenmod_stoch(simtime, skipmed)
             @spawnat core set_scenmodchanges_stoch(changes)
         end
     end
+    return
 end

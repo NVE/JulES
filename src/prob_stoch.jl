@@ -45,7 +45,6 @@ function create_mp(db, subix::SubsystemIx)
     end
 
     db.mp[subix] = MasterProblem(prob, cuts, states, div)
-
     return
 end
 
@@ -63,7 +62,6 @@ function create_sp(db, scenix::ScenarioIx, subix::SubsystemIx)
     div[MainTiming] = zeros(3)
 
     db.sp[(scenix, subix)] = ScenarioProblem(prob, horizons, zeros(length(states)), -1.0, div)
-
     return
 end
 
@@ -98,7 +96,7 @@ function solve_stoch(t, stepnr, skipmed)
             end
         end
     end
-
+    return
 end
 
 function update_sps(t, stepnr, subix)
@@ -117,6 +115,7 @@ function update_sps(t, stepnr, subix)
             maintiming[1] = @elapsed update_sp(t, _scenix, subix)
         end
     end
+    return
 end
 
 # Util functions for solve_stoch ----------------------------------------------------------------------------------------------
@@ -128,6 +127,7 @@ function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
         TuLiPa.solve!(prob)
         !isnothing(storagevalues) && final_save_storagevalues(prob, cuts, storagevalues)
     end
+    return
 end 
 
 function final_save_storagevalues(prob, cuts, storagevalues)
@@ -315,7 +315,6 @@ function get_scencutparameters!(sp::ScenarioProblem, states::Dict{TuLiPa.StateVa
         sp.scenconstant -= slope * value
         sp.scenslopes[i] = slope
     end
-
     return
 end
 
@@ -371,12 +370,14 @@ function update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
         updated, allvalues = db.prices_ppp[(scenix, term_ppp, bid)]
         obj.price.values .= allvalues[periods]
     end
+    return
 end
 
 function update_local_price(db, scenix, term_ppp, bid, stepnr)
     core_ppp = get_core_ppp(db, scenix)
     future = @spawnat core_ppp get_prices_from_core(scenix, term_ppp, bid)
     db.prices_ppp[(scenix, term_ppp, bid)] = (stepnr, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
+    return
 end
 
 function get_core_ppp(db, scenix)
@@ -520,7 +521,6 @@ function update_endconditions_sp(scenix, subix, t)
             TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), numperiods, dual_ppp)
         end
     end
-
     return
 end
 
@@ -550,6 +550,7 @@ end
 
 function update_probabilities(cuts, scenmod)
     cuts.probabilities = [get_probability(scenario) for scenario in scenmod.scenarios]
+    return
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
@@ -589,7 +590,6 @@ function make_modelobjects_stochastic(db, scenix, subix, master)
             end
         end
     end
-
     return collect(values(modelobjects)), horizons
 end
 
@@ -653,7 +653,6 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
             numperiods_powerhorizon = TuLiPa.getnumperiods(horizon)
         end
     end
-
     return subelements, numperiods_powerhorizon, probhorizons
 end
 

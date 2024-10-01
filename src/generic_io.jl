@@ -70,9 +70,7 @@ function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{Subsys
     return out
 end
 
-function get_core_main(input::AbstractJulESInput) 
-    return first(get_cores(input))
-end 
+get_core_main(input::AbstractJulESInput) = first(get_cores(input))
 
 """
 Will try to distribute small and large subsystems evenly on cores.

@@ -72,6 +72,7 @@ function solve_cp(t, stepnr, skipmed)
             get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
         end
     end
+    return
 end
 
 # Util functions for solve_cp ----------------------------------------------------------------------------------
@@ -132,6 +133,7 @@ function update_statedependent_cp(db, stepnr, t)
             end
         end
     end
+    return
 end
 
 function get_headlosscost_data_from_mp(subix, t) # TODO: get method from config
@@ -158,6 +160,7 @@ function update_nonstoragestates_cp(db)
             TuLiPa.setoutgoingstates!(db.cp.prob, nonstoragestates_short)
         end
     end
+    return
 end
 
 function get_nonstoragestates_short(scenix)
@@ -185,6 +188,7 @@ function update_cuts(db, skipmed)
             TuLiPa.updatecuts!(db.cp.prob, cuts_cp)
         end
     end
+    return
 end
 
 function get_lightcuts(subix)
@@ -213,6 +217,7 @@ function update_startstates_cp(db, stepnr, t)
     else
         set_startstates!(db.cp.prob, TuLiPa.getobjects(db.cp.prob), db.startstates)
     end
+    return
 end
 
 # Util functions create_cp ------------------------------------------------------------------------------------
@@ -249,4 +254,5 @@ function get_startstates!(clearing::TuLiPa.Prob, detailedrescopl::Dict, enekvglo
             end
         end
     end
+    return
 end

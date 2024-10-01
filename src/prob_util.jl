@@ -2,6 +2,7 @@
 function add_scenariotimeperiod_vector!(elements::Vector{TuLiPa.DataElement}, start::Int, stop::Int)
     push!(elements, getelement(TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
             ("Start", getisoyearstart(start)), ("Stop", getisoyearstart(stop))))
+    return
 end
 
 # Insert horizons into commodities. E.g. all batteries will have the power horizon, since they interact with the power market
@@ -19,6 +20,7 @@ function set_horizon!(elements::Vector{TuLiPa.DataElement}, commodity::String, h
     # Else, add commodity to element list
     push!(elements, TuLiPa.getelement(TuLiPa.COMMODITY_CONCEPT, "BaseCommodity", commodity, 
         (TuLiPa.HORIZON_CONCEPT, horizon)))
+    return
 end
 
 # The hydropower storages in the dataset needs boundary conditions for the state variables
@@ -29,6 +31,7 @@ function add_StartEqualStopAllStorages!(modelobjects::Dict)
             modelobjects[TuLiPa.getid(trait)] = trait
         end
     end
+    return
 end
 
 # Power balances needs slack variable for when the inelastic supply (wind, solar, RoR) is higher than the inelastic demand
@@ -54,6 +57,7 @@ function add_PowerUpperSlack!(modelobjects::Dict) # add after object manipulatio
             end
         end 
     end
+    return
 end
 
 # Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution
@@ -63,6 +67,7 @@ function remove_startupcosts!(modelobjects::Dict)
             delete!(modelobjects, id)
         end
     end
+    return
 end
 
 # Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution
@@ -72,6 +77,7 @@ function remove_transmissionramping!(modelobjects::Dict)
             delete!(modelobjects, id)
         end
     end
+    return
 end
 
 # Remove hydroramping. Does not make sense to have them when the horizon does not have a fine time-resolution
@@ -81,6 +87,7 @@ function remove_hydrorampingwithout!(modelobjects::Dict)
             delete!(modelobjects, id)
         end
     end
+    return
 end
 function remove_hydroramping!(modelobjects::Dict)
     for (id,obj) in modelobjects
@@ -88,6 +95,7 @@ function remove_hydroramping!(modelobjects::Dict)
             delete!(modelobjects, id)
         end
     end
+    return
 end
 
 # Set start and end reservoir as a percentage of capacity
@@ -104,6 +112,7 @@ function set_startstoragepercentage!(prob::TuLiPa.Prob, storages::Vector, start:
         
         TuLiPa.setingoingstates!(prob, states)
     end
+    return
 end
 
 function set_endstoragepercentage!(prob::TuLiPa.Prob, storages::Vector, endtime::TuLiPa.ProbTime, percentage::Float64)
@@ -119,6 +128,7 @@ function set_endstoragepercentage!(prob::TuLiPa.Prob, storages::Vector, endtime:
         
         TuLiPa.setoutgoingstates!(prob, states)
     end
+    return
 end
 
 # Initialize dict of statevariables from list of modelobjects
@@ -170,6 +180,7 @@ function update_startstates(stepnr, t)
     else
         get_startstates_from_main_prob(db.startstates, db.core_main, db.input)
     end
+    return
 end
 
 function get_startstates_from_main_prob(startstates, core, input)
@@ -225,6 +236,7 @@ function get_startstates!(startstates::Dict, problemconfig::Dict, dataset::Dict,
     elseif haskey(dataset, startstorages["function"])
         merge!(startstates, dataset[startstorages["function"]])
     end
+    return
 end
 
 # Initialize max startstates and cap at maximum
@@ -250,6 +262,7 @@ function set_startstates!(prob::TuLiPa.Prob, objects::Vector, startstates::Dict)
         end
         TuLiPa.setingoingstates!(prob, states)
     end
+    return
 end
 
 function set_endstates!(prob::TuLiPa.Prob, objects::Vector, startstates::Dict)
@@ -260,6 +273,7 @@ function set_endstates!(prob::TuLiPa.Prob, objects::Vector, startstates::Dict)
         end
         TuLiPa.setoutgoingstates!(prob, states)
     end
+    return
 end
 
 function get_startstoragepercentage(storages::Vector, start::TuLiPa.ProbTime, percentage::Float64)

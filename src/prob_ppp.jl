@@ -125,6 +125,8 @@ function simplify!(modelobjects::Dict; aggzone::Dict=Dict(), removestartup::Bool
 
     # Only calculate AdaptiveHorizon based on residual loads in these areas
     length(residualarealist) > 0 && TuLiPa.residualloadareas!(modelobjects, residualarealist)
+
+    return
 end
 
 function solve_ppp(t, steplength, stepnr, skipmed)
@@ -182,6 +184,7 @@ function solve_ppp(t, steplength, stepnr, skipmed)
             end
         end
     end
+    return
 end
 
 # Dual values from long problem used as end values for med problem
@@ -203,6 +206,7 @@ function update_nonstoragestates!(ppp, db, sph, stepnr, steplength)
     else
         TuLiPa.getoutgoingstates!(ppp.shortprob, ppp.nonstoragestates_short)
     end
+    return
 end
 
 function synchronize_horizons(skipmed)

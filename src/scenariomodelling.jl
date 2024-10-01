@@ -50,12 +50,14 @@ get_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowCluste
 
 function set_changes(scenmod::NoScenarioModellingMethod, changes::Vector{WeatherScenario})
     scenmod.scenarios = changes
+    return
 end
 function set_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario}, Vector{Float64}})
     scenarios, inflowfactors = changes
 
     scenmod.scenarios = scenarios
     scenmod.inflowfactors = inflowfactors
+    return
 end
 
 get_inflowfactors(scenmod::AbstractScenarioModellingMethod) = [1/length(scenmod.scenarios) for s in 1:length(scenmod.scenarios)]
@@ -219,4 +221,5 @@ function renumber_scenmodmethod!(scenmod::AbstractScenarioModellingMethod)
     for (i, scenario) in enumerate(get_scenarios(scenmod))
         scenario.parentscenario = i
     end
+    return
 end
