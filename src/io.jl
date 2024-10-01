@@ -1361,7 +1361,7 @@ function get_output_memory(output)
 
         df = DataFrame(results, Symbol.(cores))
         if length(cores) > 1
-            df[!, :sum] = sum(results, dims=2)
+            insertcols(df, :sum => dropdims(sum(results, dims=2), dims=2))
         end
         df = insertcols(df, 1, :core_id => names)
 
