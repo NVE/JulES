@@ -1368,10 +1368,10 @@ function get_output_memory(output)
         println(df)
     end
 
-    return nothing
+    return
 end
 
-function get_output_memory_local()::Vector{Float64}
+function get_output_memory_local()
     db = get_local_db()
     values = Vector{Float64}(undef, 2 + length(fieldnames(typeof(db))))
 
@@ -1549,7 +1549,7 @@ end
 
 get_skipmed_impact(subix) = get_skipmed_impact(get_local_db().subsystems[subix])
 
-function get_output_main()
+function get_output_main()::Dict
     db = get_local_db()
     future = @spawnat db.core_main get_output_main_local()
     ret = fetch(future)
