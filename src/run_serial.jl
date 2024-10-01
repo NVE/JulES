@@ -706,25 +706,25 @@ function add_local_problems()
 
     for (scenix, core) in db.dist_ppp
         if core == db.core
-            create_ppp(db, scenix)
+            create_ppp(scenix)
         end
     end
 
     for (scenix, subix, core) in db.dist_evp
         if core == db.core
-            create_evp(db, scenix, subix)
+            create_evp(scenix, subix)
         end
     end
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            create_mp(db, subix)
+            create_mp(subix)
         end
     end
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            create_sp(db, scenix, subix)
+            create_sp(scenix, subix)
         end
     end
     return
