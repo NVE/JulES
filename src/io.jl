@@ -148,7 +148,6 @@ end
 
 get_iprogtype(input::DefaultJulESInput) = get(input.dataset, "iprogtype", "direct")
 has_ifm_results(input::DefaultJulESInput) = get_iprogtype(input) != "direct"
-get_ifm_normfactors(input::DefaultJulESInput) = get(input.dataset, "ifm_normfactors", Dict{String, Float64}())
 get_ifm_elements(input::DefaultJulESInput) = get(input.dataset, "ifm_elements", JulES.TuLiPa.DataElement[])
 
 function get_ifm_names(input::DefaultJulESInput)
