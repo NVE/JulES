@@ -153,7 +153,7 @@ get_ifm_output(db::LocalDB) = db.ifm_output
 get_ifm_derived(db::LocalDB) = db.ifm_derived
 
 get_ifm_weights(db::LocalDB) = get_ifm_weights(get_input(db))
-get_ifm_normfactors(db::LocalDB) = db.ifm_normfactors #get_ifm_normfactors(get_input(db))
+get_ifm_normfactors(db::LocalDB) = db.ifm_normfactors
 get_ifm_elements(db::LocalDB) = get_ifm_elements(get_input(db))
 
 get_cores(db::LocalDB) = get_cores(get_input(db))

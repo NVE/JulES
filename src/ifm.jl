@@ -471,38 +471,29 @@ function save_ifm_Q(db, inflow_name, stepnr, Q)
 end
 
 function calculate_normalize_factor(ifm_model)
+    start_with_buffer = ifm_model.handler.scen_start - Day(ifm_model.handler.ndays_obs) # Add ndays_obs days buffer
+    days_with_buffer = Day(ifm_model.handler.scen_stop - start_with_buffer) |> Dates.value
+    timepoints_with_buffer = (1:days_with_buffer)
+    days = Dates.value(Day(ifm_model.handler.scen_stop - ifm_model.handler.scen_start))    
+    timepoints_start = days_with_buffer - days 
 
-    S0 = 0
-    G0 = 0
-    itp_Lday = ifm_model.handler.hist_Lday
-    itp_P = ifm_model.handler.hist_P
-    itp_T = ifm_model.handler.hist_T
-    
-    
-    days = Dates.value( Day(ifm_model.handler.scen_stop - ifm_model.handler.scen_start))
-    
-    timepoints = collect((1: days))
-    
-    P = Vector{Float64}([i for i in timepoints])
-    T = Vector{Float64}([i for i in timepoints])
-    Lday =Vector{Float64}([i for i in timepoints])
-    for i in timepoints
+    P = zeros(length(timepoints_with_buffer))
+    T = zeros(length(timepoints_with_buffer))
+    Lday = zeros(length(timepoints_with_buffer))
+    for i in timepoints_with_buffer
         start = ifm_model.handler.scen_start + Day(i - 1)
-        P[i] = TuLiPa.getweightedaverage(itp_P, start, JulES.ONEDAY_MS_TIMEDELTA)
-        T[i] = TuLiPa.getweightedaverage(itp_T, start, JulES.ONEDAY_MS_TIMEDELTA)
-        Lday[i] = TuLiPa.getweightedaverage(itp_Lday, start, JulES.ONEDAY_MS_TIMEDELTA)
+        P[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_P, start, JulES.ONEDAY_MS_TIMEDELTA)
+        T[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_T, start, JulES.ONEDAY_MS_TIMEDELTA)
+        Lday[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_Lday, start, JulES.ONEDAY_MS_TIMEDELTA)
     end
-    
-    itp_method = JulES.SteffenMonotonicInterpolation()
-    itp_P = JulES.interpolate(timepoints, P, itp_method)
-    itp_T = JulES.interpolate(timepoints, T, itp_method)
-    itp_Lday = JulES.interpolate(timepoints, Lday, itp_method)
-    
-    res = JulES.predict(ifm_model.handler.predictor, S0, G0, itp_Lday, itp_P, itp_T, timepoints)
-    (Q, _) = res
-    Q = Float64.(Q)
-    Q .= Q .* ifm_model.handler.m3s_per_mm
 
+    itp_method = JulES.SteffenMonotonicInterpolation()
+    itp_P = JulES.interpolate(timepoints_with_buffer, P, itp_method)
+    itp_T = JulES.interpolate(timepoints_with_buffer, T, itp_method)
+    itp_Lday = JulES.interpolate(timepoints_with_buffer, Lday, itp_method)
+    Q, _ = JulES.predict(ifm_model.handler.predictor, 0, 0, itp_Lday, itp_P, itp_T, timepoints_with_buffer)
+    Q = Float64.(Q)[timepoints_start:end]
+    Q .= Q .* ifm_model.handler.m3s_per_mm
     return 1 / mean(Q)
 end
 
@@ -522,8 +513,6 @@ function solve_ifm(t, stepnr)
     steplen_f = float(steplen_ms.value)
     ifmstep_f = float(ifmstep_ms.value)
     remainder_f = float(remainder_ms.value)
-
-
     normfactors = get_ifm_normfactors(db)
     scenarios = get_scenarios(db.scenmod_sim)
     for (inflow_name, core) in db.dist_ifm
@@ -532,11 +521,10 @@ function solve_ifm(t, stepnr)
                 db.ifm_output[inflow_name] = Dict()
             end
             inflow_model = db.ifm[inflow_name]
-            
 
             if haskey(normfactors, inflow_name) == false
                 normalize_factor = calculate_normalize_factor(inflow_model) 
-                # TODO: bruk info om hvor lang hist perioden er, start ett år før det, regn ut snittet av døgnverdiene, 1/snitet = normalizefactor
+                normfactors[inflow_name] = normalize_factor
             else
                 normalize_factor = normfactors[inflow_name]
             end
