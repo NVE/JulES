@@ -10,6 +10,7 @@ mutable struct ScenarioProblem # TODO: Should the others be mutable as well?
     horizons::Dict{CommodityName, TuLiPa.Horizon}
     scenslopes::Vector{Float64}
     scenconstant::Float64
+    states_mp::Dict{TuLiPa.StateVariableInfo, Float64}
     div::Dict
 end
 
@@ -56,7 +57,7 @@ function create_sp(scenix::ScenarioIx, subix::SubsystemIx)
     settings = get_settings(db)
 
     modelobjects, probhorizons = make_modelobjects_stochastic(db.input, db.horizons, subsystem, scenix, false)
-    states = get_states(modelobjects) # different order than mp.cuts.statevars, so only use length
+    states_mp = fetch(@spawnat get_core_mp(db.dist_mp, subix) get_states_mp(subix))
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
     prob = TuLiPa.buildprob(probmethod, modelobjects)
@@ -64,7 +65,7 @@ function create_sp(scenix::ScenarioIx, subix::SubsystemIx)
     div = Dict()
     div[MainTiming] = zeros(3)
 
-    db.sp[(scenix, subix)] = ScenarioProblem(prob, probhorizons, zeros(length(states)), -1.0, div)
+    db.sp[(scenix, subix)] = ScenarioProblem(prob, probhorizons, zeros(length(states_mp)), -1.0, states_mp, div)
     return
 end
 
@@ -237,9 +238,9 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
                 if TuLiPa.getnumcuts(mp.cuts) != 0
-                    f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                    f = @spawnat _core solve_sp(_scenix, _subix, collect(values(mp.states)))
                 else
-                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix, mp.states)
+                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix, collect(values(mp.states)))
                 end
                 push!(futures, f)
             end
@@ -266,16 +267,21 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
     return
 end
 
-function solve_sp(scenix::ScenarioIx, subix::SubsystemIx, states::Dict{TuLiPa.StateVariableInfo, Float64})
+function solve_sp(scenix::ScenarioIx, subix::SubsystemIx, state_values::Vector{Float64})
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
     maintiming = sp.div[MainTiming]
 
-    maintiming[3] += @elapsed TuLiPa.setingoingstates!(sp.prob, states)
+    maintiming[3] += @elapsed begin
+        for (i, key) in enumerate(collect(keys(sp.states_mp)))
+            sp.states_mp[key] = state_values[i]
+        end
+        TuLiPa.setingoingstates!(sp.prob, sp.states_mp)
+    end
     maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
-        get_scencutparameters!(sp, states)
+        get_scencutparameters!(sp, sp.states_mp)
 
         objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
         scenslopes = sp.scenslopes
@@ -284,16 +290,21 @@ function solve_sp(scenix::ScenarioIx, subix::SubsystemIx, states::Dict{TuLiPa.St
     return (scenix, objectivevalue, scenslopes, scenconstant)
 end
 
-function solve_sp_with_startreservoirs(scenix::ScenarioIx, subix::SubsystemIx, states::Dict{TuLiPa.StateVariableInfo, Float64})
+function solve_sp_with_startreservoirs(scenix::ScenarioIx, subix::SubsystemIx, state_values::Vector{Float64})
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
     maintiming = sp.div[MainTiming]
 
-    maintiming[3] += @elapsed set_startstates!(sp.prob, TuLiPa.getstorages(TuLiPa.getobjects(sp.prob)), db.startstates)
+    maintiming[3] += @elapsed begin
+        for (i, key) in enumerate(collect(keys(sp.states_mp)))
+            sp.states_mp[key] = state_values[i]
+        end
+        set_startstates!(sp.prob, TuLiPa.getstorages(TuLiPa.getobjects(sp.prob)), db.startstates)
+    end
     maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
-        get_scencutparameters!(sp, states) # TODO: Even better replacing states with db.startstates?
+        get_scencutparameters!(sp, sp.states_mp) # TODO: Even better replacing states with db.startstates?
 
         objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
         scenslopes = sp.scenslopes
@@ -535,6 +546,20 @@ function get_core_sp(dist_sp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}, sc
             return _core
         end
     end
+end
+
+function get_core_mp(dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, subix::SubsystemIx)
+    for (_subix, _core) in dist_mp
+        if _subix == subix
+            return _core
+        end
+    end
+end
+
+function get_states_mp(subix::SubsystemIx)
+    db = get_local_db()
+
+    return db.mp[subix].states
 end
 
 function get_balancedual_evp(scenix::ScenarioIx, subix::SubsystemIx, bid::TuLiPa.Id, period::Int)
