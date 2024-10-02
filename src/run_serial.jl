@@ -736,13 +736,16 @@ function step_jules(t, steplength, stepnr, skipmed)
     cores = get_cores(db)
     firstcore = first(cores)
 
-    if mod(stepnr, 20) == 0
-        @sync for core in cores
-            @spawnat core GC.gc()
+    println(t)
+    println("Garbage collection")
+    @time begin
+        if mod(stepnr, 20) == 0
+            @sync for core in cores
+                @spawnat core GC.gc()
+            end
         end
     end
     
-    println(t)
     println("Startstates")
     @time begin
         @sync for core in cores
