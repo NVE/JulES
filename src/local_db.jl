@@ -76,6 +76,9 @@ mutable struct LocalDB
     ifm_output::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
     ifm_derived::Dict{String, Dict{ScenarioIx, Tuple{Vector{DateTime}, Vector{Float64}}}}
 
+    ifm_normfactors::Dict{String, Float64}
+
+
     function LocalDB()
         return new(
             -1,
@@ -115,7 +118,7 @@ mutable struct LocalDB
 
             Dict(),   # ifm_output
             Dict(),   # ifm_weighted
-
+            Dict(),
         )
     end
 end
@@ -150,7 +153,7 @@ get_ifm_output(db::LocalDB) = db.ifm_output
 get_ifm_derived(db::LocalDB) = db.ifm_derived
 
 get_ifm_weights(db::LocalDB) = get_ifm_weights(get_input(db))
-get_ifm_normfactors(db::LocalDB) = get_ifm_normfactors(get_input(db))
+get_ifm_normfactors(db::LocalDB) = db.ifm_normfactors
 get_ifm_elements(db::LocalDB) = get_ifm_elements(get_input(db))
 
 get_cores(db::LocalDB) = get_cores(get_input(db))

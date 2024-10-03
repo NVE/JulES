@@ -62,8 +62,11 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
     prev_t::Union{TuLiPa.ProbTime, Nothing}
     ndays_forecast_used::Int
 
+    scen_start::Any
+    scen_stop::Any
+
     function TwoStateIfmHandler(predictor, updater, basin_area, hist_P, hist_T, hist_Lday, 
-            ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+            ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)
         @assert ndays_forecast >= 0
         @assert ndays_pred >= ndays_forecast
         @assert ndays_obs > 0
@@ -79,7 +82,7 @@ mutable struct TwoStateIfmHandler{P <: AbstractTwoStateIfmPredictor,
         T3 = typeof(hist_Lday)
         return new{P, U, T1, T2, T3}(predictor, updater, basin_area, m3s_per_mm, hist_P, hist_T, hist_Lday, 
             ndays_pred, ndays_obs, ndays_forecast, data_pred, 
-            data_obs, data_forecast, nothing, 0)
+            data_obs, data_forecast, nothing, 0, scen_start, scen_stop)
     end
 end
 
@@ -260,10 +263,10 @@ struct TwoStateBucketIfm{H} <: AbstractInflowModel
     handler::H
 
     function TwoStateBucketIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
-                                ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+                                ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)
         predictor = TwoStateBucketIfmPredictor(model_params)
         handler = TwoStateIfmHandler(predictor, updater, basin_area, hist_P, hist_T, hist_Lday, 
-                                        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)        
+                                        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)        
         return new{typeof(handler)}(id, handler)
     end
 end
@@ -313,10 +316,10 @@ struct TwoStateNeuralODEIfm{H} <: AbstractInflowModel
     handler::H
 
     function TwoStateNeuralODEIfm(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
-                                    ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+                                    ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)
         predictor = TwoStateNeuralODEIfmPredictor(model_params)
         handler = TwoStateIfmHandler(predictor, updater, basin_area, hist_P, hist_T, hist_Lday, 
-                                    ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)  
+                                    ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)  
         return new{typeof(handler)}(id, handler)
     end
 end
@@ -401,9 +404,17 @@ function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict,
     data_forecast = nothing
     ndays_forecast = 0
 
+
+    
+    periodkey = TuLiPa.Id(TuLiPa.TIMEPERIOD_CONCEPT, "ScenarioTimePeriod")
+    period = lowlevel[periodkey]
+    scen_start = period["Start"]
+    scen_stop  = period["Stop"]
+
+
     id = TuLiPa.getobjkey(elkey)
     toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
-        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast)
+        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)
 
     return (true, deps)
 end
@@ -460,6 +471,33 @@ function save_ifm_Q(db, inflow_name, stepnr, Q)
     end
 end
 
+function calculate_normalize_factor(ifm_model)
+    start_with_buffer = ifm_model.handler.scen_start - Day(ifm_model.handler.ndays_obs) # Add ndays_obs days buffer
+    days_with_buffer = Day(ifm_model.handler.scen_stop - start_with_buffer) |> Dates.value
+    timepoints_with_buffer = (1:days_with_buffer)
+    days = Dates.value(Day(ifm_model.handler.scen_stop - ifm_model.handler.scen_start))    
+    timepoints_start = days_with_buffer - days 
+
+    P = zeros(length(timepoints_with_buffer))
+    T = zeros(length(timepoints_with_buffer))
+    Lday = zeros(length(timepoints_with_buffer))
+    for i in timepoints_with_buffer
+        start = ifm_model.handler.scen_start + Day(i - 1)
+        P[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_P, start, JulES.ONEDAY_MS_TIMEDELTA)
+        T[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_T, start, JulES.ONEDAY_MS_TIMEDELTA)
+        Lday[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_Lday, start, JulES.ONEDAY_MS_TIMEDELTA)
+    end
+
+    itp_method = JulES.SteffenMonotonicInterpolation()
+    itp_P = JulES.interpolate(timepoints_with_buffer, P, itp_method)
+    itp_T = JulES.interpolate(timepoints_with_buffer, T, itp_method)
+    itp_Lday = JulES.interpolate(timepoints_with_buffer, Lday, itp_method)
+    Q, _ = JulES.predict(ifm_model.handler.predictor, 0, 0, itp_Lday, itp_P, itp_T, timepoints_with_buffer)
+    Q = Float64.(Q)[timepoints_start:end]
+    Q .= Q .* ifm_model.handler.m3s_per_mm
+    return 1 / mean(Q)
+end
+
 """
 Sequentially solve inflow models stored locally. 
 Each inflow model is solved for each scenario.
@@ -476,8 +514,6 @@ function solve_ifm(t, stepnr)
     steplen_f = float(steplen_ms.value)
     ifmstep_f = float(ifmstep_ms.value)
     remainder_f = float(remainder_ms.value)
-
-
     normfactors = get_ifm_normfactors(db)
     scenarios = get_scenarios(db.scenmod_sim)
     for (inflow_name, core) in db.dist_ifm
@@ -486,7 +522,13 @@ function solve_ifm(t, stepnr)
                 db.ifm_output[inflow_name] = Dict()
             end
             inflow_model = db.ifm[inflow_name]
-            normalize_factor = normfactors[inflow_name]
+
+            if haskey(normfactors, inflow_name) == false
+                normalize_factor = calculate_normalize_factor(inflow_model) 
+                normfactors[inflow_name] = normalize_factor
+            else
+                normalize_factor = normfactors[inflow_name]
+            end
 
             u0 = estimate_u0(inflow_model, t)
 
