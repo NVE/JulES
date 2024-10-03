@@ -147,6 +147,13 @@ function get_states(modelobjects::Vector)
     return states
 end
 
+# Step info-----------------------------------------------------------------------
+function update_stepinfo(t)
+    db = get_local_db()
+    db.div["t"] = t
+    return
+end
+
 # Startstates-------------------------------------------------------------------------------------
 function update_startstates(stepnr, t)
     db = get_local_db()

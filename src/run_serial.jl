@@ -745,6 +745,14 @@ function step_jules(t, steplength, stepnr, skipmed)
             end
         end
     end
+
+    println(t)
+    println("Step info")
+    @time begin
+        @sync for core in cores
+            @spawnat core update_stepinfo(t)
+        end
+    end
     
     println("Startstates")
     @time begin
