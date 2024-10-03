@@ -143,7 +143,6 @@ get_dist_mp(db::LocalDB) = db.dist_mp
 get_dist_sp(db::LocalDB) = db.dist_sp
 get_core_main(db::LocalDB) = db.core_main
 get_div(db::LocalDB) = db.div
-get_t(db::LocalDB) = db.div["t"]::TuLiPa.ProbTime # TODO: Remove?
 
 get_ifm(db::LocalDB) = db.ifm
 get_dist_ifm(db::LocalDB) = db.dist_ifm
