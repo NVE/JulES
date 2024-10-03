@@ -11,7 +11,8 @@ get_medprob(ppp::PricePrognosisProblem) = ppp.medprob
 get_shortprob(ppp::PricePrognosisProblem) = ppp.shortprob
 get_nonstoragestates_short(ppp::PricePrognosisProblem) = ppp.nonstoragestates_short
 
-function create_ppp(db, scenix::Int)
+function create_ppp(scenix::ScenarioIx)
+    db = get_local_db()
     settings = get_settings(db.input)
 
     if haskey(get_dataset(db), "elements_ppp")

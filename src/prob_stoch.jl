@@ -10,15 +10,18 @@ mutable struct ScenarioProblem # TODO: Should the others be mutable as well?
     horizons::Dict{CommodityName, TuLiPa.Horizon}
     scenslopes::Vector{Float64}
     scenconstant::Float64
+    states_mp::Dict{TuLiPa.StateVariableInfo, Float64}
     div::Dict
 end
 
-function create_mp(db, subix::SubsystemIx)
+function create_mp(subix::SubsystemIx)
+    db = get_local_db()
     scenix = 1 # TODO: Which scenario should be represented in the master problem? Not important due to phasein?
     settings = get_settings(db)
 
     # TODO: Not use ifm here as in clearnig?
-    modelobjects, horizons = make_modelobjects_stochastic(db, scenix, subix, true)
+    subsystem = get_subsystems(db)[subix]
+    modelobjects, probhorizons = make_modelobjects_stochastic(db.input, db.horizons, subsystem, scenix, true)
 
     maxcuts = settings["problems"]["stochastic"]["maxcuts"] # preallocate fixed number of cuts, no cut selection
     lb = settings["problems"]["stochastic"]["lb"] # lower bound of the future value in the first iteration
@@ -48,12 +51,13 @@ function create_mp(db, subix::SubsystemIx)
     return
 end
 
-function create_sp(db, scenix::ScenarioIx, subix::SubsystemIx)
+function create_sp(scenix::ScenarioIx, subix::SubsystemIx)
+    db = get_local_db()
     subsystem = get_subsystems(db)[subix]
     settings = get_settings(db)
 
-    modelobjects, horizons = make_modelobjects_stochastic(db, scenix, subix, false)
-    states = get_states(modelobjects) # different order than mp.cuts.statevars, so only use length
+    modelobjects, probhorizons = make_modelobjects_stochastic(db.input, db.horizons, subsystem, scenix, false)
+    states_mp = fetch(@spawnat get_core_mp(db.dist_mp, subix) get_states_mp(subix))
 
     probmethod = parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])
     prob = TuLiPa.buildprob(probmethod, modelobjects)
@@ -61,11 +65,11 @@ function create_sp(db, scenix::ScenarioIx, subix::SubsystemIx)
     div = Dict()
     div[MainTiming] = zeros(3)
 
-    db.sp[(scenix, subix)] = ScenarioProblem(prob, horizons, zeros(length(states)), -1.0, div)
+    db.sp[(scenix, subix)] = ScenarioProblem(prob, probhorizons, zeros(length(states_mp)), -1.0, states_mp, div)
     return
 end
 
-function solve_stoch(t, stepnr, skipmed)
+function solve_stoch(t::TuLiPa.ProbTime, stepnr::Int, skipmed::Millisecond)
     db = get_local_db()
     settings = get_settings(db)
 
@@ -81,7 +85,7 @@ function solve_stoch(t, stepnr, skipmed)
                     update_probabilities(mp.cuts, db.scenmod_stoch) # TODO: Add possibility for scenario modelling per subsystem
                     set_startstates!(mp.prob, TuLiPa.getstorages(TuLiPa.getobjects(mp.prob)), db.startstates)
                     update_prices_mp(stepnr, subix, subsystem)
-                    update_statedependent_mp(stepnr, subsystem, mp.prob, db.startstates, settings)
+                    update_statedependent_mp(stepnr, mp.prob, db.startstates, settings)
                 end
                 maintiming[1] = @elapsed TuLiPa.update!(mp.prob, t)
                 maintiming[4] += @elapsed set_minstoragevalue!(mp.prob, minstoragevaluerule)
@@ -99,7 +103,7 @@ function solve_stoch(t, stepnr, skipmed)
     return
 end
 
-function update_sps(t, stepnr, subix)
+function update_sps(t::TuLiPa.ProbTime, stepnr::Int, subix::SubsystemIx)
     db = get_local_db()
     subsystem = db.subsystems[subix]
 
@@ -120,7 +124,7 @@ end
 
 # Util functions for solve_stoch ----------------------------------------------------------------------------------------------
 
-function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
+function final_solve_mp(t::TuLiPa.ProbTime, prob::TuLiPa.Prob, cuts, storagevalues::Union{Nothing, Matrix{Float64}}, settings::Dict)
     if has_headlosscost(settings["problems"]["stochastic"]["master"])
         TuLiPa.updateheadlosscosts!(TuLiPa.ReservoirCurveSlopeMethod(), prob, t)
         set_minstoragevalue!(prob, minstoragevaluerule)
@@ -130,7 +134,7 @@ function final_solve_mp(t::TuLiPa.ProbTime, prob, cuts, storagevalues, settings)
     return
 end 
 
-function final_save_storagevalues(prob, cuts, storagevalues)
+function final_save_storagevalues(prob::TuLiPa.Prob, cuts, storagevalues::Matrix{Float64})
     for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
         obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
         balance = TuLiPa.getbalance(obj)
@@ -144,7 +148,7 @@ function final_save_storagevalues(prob, cuts, storagevalues)
 end
 
 
-function save_storagevalues(prob, cuts, storagevalues)
+function save_storagevalues(prob::TuLiPa.Prob, cuts, storagevalues::Union{Nothing, Matrix{Float64}})
     if !isnothing(storagevalues)
         for (j, statevar) in enumerate(cuts.statevars)
             obj = get_obj_from_id(cuts.objects, first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
@@ -180,7 +184,7 @@ Two possibilities to warm start benders solve:
 - Start with solving master problem if cuts from previous step are available. NB! we reuse cuts although scenarios can have changed
 - Start with solving subproblems with start reservoirs from db.startstates if cuts from previous step are NOT available
 """
-function solve_benders(stepnr, subix)
+function solve_benders(stepnr::Int, subix::SubsystemIx)
     db = get_local_db()
     settings = get_settings(db)
 
@@ -194,17 +198,9 @@ function solve_benders(stepnr, subix)
     end
     ub = 0.0
     lb = mp.cuts.lower_bound
+    prev_lb = 0
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-
-    while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1) && count < 15
-        maintiming[4] += @elapsed begin
-            if (count == 1 && cutreuse)
-                TuLiPa.updatecuts!(mp.prob, mp.cuts)
-            elseif count != 0
-                TuLiPa.updatelastcut!(mp.prob, mp.cuts)
-            end
-        end
-
+    while !(((abs((ub-lb)/ub)) < reltol) || abs(ub-lb) < 1)
         maintiming[2] += @elapsed begin
             if TuLiPa.getnumcuts(mp.cuts) != 0
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
@@ -225,14 +221,9 @@ function solve_benders(stepnr, subix)
                     count += 1
                 end
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
+                prev_lb = lb
                 lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
                 TuLiPa.getoutgoingstates!(mp.prob, mp.states)
-            end
-        end
-
-        maintiming[4] += @elapsed begin
-            if TuLiPa.getnumcuts(mp.cuts) != 0
-
             end
         end
 
@@ -240,9 +231,9 @@ function solve_benders(stepnr, subix)
         @sync for (_scenix, _subix, _core) in db.dist_sp
             if _subix == subix
                 if TuLiPa.getnumcuts(mp.cuts) != 0
-                    f = @spawnat _core solve_sp(_scenix, _subix, mp.states)
+                    f = @spawnat _core solve_sp(_scenix, _subix, collect(values(mp.states)))
                 else
-                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix, mp.states)
+                    f = @spawnat _core solve_sp_with_startreservoirs(_scenix, _subix, collect(values(mp.states)))
                 end
                 push!(futures, f)
             end
@@ -250,9 +241,14 @@ function solve_benders(stepnr, subix)
 
         maintiming[4] += @elapsed begin
             ub = 0.0
-            cutix = TuLiPa.getcutix(mp.cuts) + 1
-            if cutix > TuLiPa.getmaxcuts(mp.cuts)
+            if TuLiPa.getcutix(mp.cuts) == TuLiPa.getmaxcuts(mp.cuts)
                 cutix = 1
+            elseif prev_lb == lb
+                TuLiPa.clearcuts!(mp.cuts) # no progress so clear cuts and start from the front
+                cutix = 1
+                cutreuse = false
+            else
+                cutix = TuLiPa.getcutix(mp.cuts) + 1
             end
             for future in futures
                 scenix, objectivevalue, scenslopes, scenconstant = fetch(future)
@@ -263,22 +259,38 @@ function solve_benders(stepnr, subix)
             end
         
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
+            if count == 25
+                error("25 benders iterations, but still not convergence")
+            end
+        end
+
+        maintiming[4] += @elapsed begin
+            if (count == 1) && cutreuse
+                TuLiPa.updatecuts!(mp.prob, mp.cuts)
+            elseif count != 0
+                TuLiPa.updatelastcut!(mp.prob, mp.cuts)
+            end
         end
     end
     maintiming[5] = count
     return
 end
 
-function solve_sp(scenix, subix, states)
+function solve_sp(scenix::ScenarioIx, subix::SubsystemIx, state_values::Vector{Float64})
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
     maintiming = sp.div[MainTiming]
 
-    maintiming[3] += @elapsed TuLiPa.setingoingstates!(sp.prob, states)
+    maintiming[3] += @elapsed begin
+        for (i, key) in enumerate(collect(keys(sp.states_mp)))
+            sp.states_mp[key] = state_values[i]
+        end
+        TuLiPa.setingoingstates!(sp.prob, sp.states_mp)
+    end
     maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
-        get_scencutparameters!(sp, states)
+        get_scencutparameters!(sp, sp.states_mp)
 
         objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
         scenslopes = sp.scenslopes
@@ -287,16 +299,21 @@ function solve_sp(scenix, subix, states)
     return (scenix, objectivevalue, scenslopes, scenconstant)
 end
 
-function solve_sp_with_startreservoirs(scenix, subix, states)
+function solve_sp_with_startreservoirs(scenix::ScenarioIx, subix::SubsystemIx, state_values::Vector{Float64})
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
     maintiming = sp.div[MainTiming]
 
-    maintiming[3] += @elapsed set_startstates!(sp.prob, TuLiPa.getstorages(TuLiPa.getobjects(sp.prob)), db.startstates)
+    maintiming[3] += @elapsed begin
+        for (i, key) in enumerate(collect(keys(sp.states_mp)))
+            sp.states_mp[key] = state_values[i]
+        end
+        set_startstates!(sp.prob, TuLiPa.getstorages(TuLiPa.getobjects(sp.prob)), db.startstates)
+    end
     maintiming[2] += @elapsed TuLiPa.solve!(sp.prob)
     maintiming[3] += @elapsed begin
-        get_scencutparameters!(sp, states) # TODO: Even better replacing states with db.startstates?
+        get_scencutparameters!(sp, sp.states_mp) # TODO: Even better replacing states with db.startstates?
 
         objectivevalue = TuLiPa.getobjectivevalue(sp.prob)
         scenslopes = sp.scenslopes
@@ -318,7 +335,7 @@ function get_scencutparameters!(sp::ScenarioProblem, states::Dict{TuLiPa.StateVa
     return
 end
 
-function update_sp(t, scenix, subix)
+function update_sp(t::TuLiPa.ProbTime, scenix::ScenarioIx, subix::SubsystemIx)
     db = get_local_db()
 
     sp = db.sp[(scenix, subix)]
@@ -327,45 +344,45 @@ function update_sp(t, scenix, subix)
     return
 end
 
-function update_statedependent_mp(stepnr, subsystem, prob, startstates, settings)
+function update_statedependent_mp(stepnr::Int, prob::TuLiPa.Prob, startstates::Dict{String, Float64}, settings::Dict)
     has_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=(stepnr==1))
     has_statedependentpump(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentpump!(prob, startstates)
     return
 end
 
-update_prices_mp(stepnr, subix, subsystem::ExogenSubsystem) = nothing
-function update_prices_mp(stepnr, subix, subsystem)
+update_prices_mp(::Int, ::SubsystemIx, ::ExogenSubsystem) = nothing
+function update_prices_mp(stepnr::Int, subix::SubsystemIx, subsystem)
     db = get_local_db()
     mp = db.mp[subix]
     scenix = 1 # Which price to use for master problem?
 
     term_ppp = get_horizonterm_stoch(subsystem)
     for obj in TuLiPa.getobjects(mp.prob)
-        update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
+        update_prices_obj(db.prices_ppp, db.dist_ppp, scenix, stepnr, obj, term_ppp)
     end
     return
 end
 
-update_prices_sp(stepnr, scenix, subix, subsystem::ExogenSubsystem) = nothing
-function update_prices_sp(stepnr, scenix, subix, subsystem)
+update_prices_sp(::Int, ::ScenarioIx, ::SubsystemIx, ::ExogenSubsystem) = nothing
+function update_prices_sp(stepnr::Int, scenix::ScenarioIx, subix::SubsystemIx, subsystem)
     db = get_local_db()
     sp = db.sp[(scenix, subix)]
               
     parentscenix = get_scenmod_stoch(db).scenarios[scenix].parentscenario
     term_ppp = get_horizonterm_stoch(subsystem)
     for obj in TuLiPa.getobjects(sp.prob)
-        update_prices_obj(db, parentscenix, subix, stepnr, obj, term_ppp)
+        update_prices_obj(db.prices_ppp, db.dist_ppp, parentscenix, stepnr, obj, term_ppp)
     end
     return
 end
 
-function update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
+function update_prices_obj(prices_ppp::Dict{Tuple{ScenarioIx, TermName, TuLiPa.Id}, Tuple{Int, Vector{Float64}}}, dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}, scenix::ScenarioIx, stepnr::Int, obj, term_ppp::TermName)
     if obj isa TuLiPa.ExogenBalance
         periods = TuLiPa.getperiods(TuLiPa.gethorizon(obj))
         bid = TuLiPa.getid(obj)
 
-        isupdated = isupdated_prices(db, scenix, term_ppp, bid, stepnr)
-        !isupdated && update_local_price(db, scenix, term_ppp, bid, stepnr)
+        isupdated = isupdated_prices(prices_ppp, scenix, term_ppp, bid, stepnr)
+        !isupdated && update_local_price(prices_ppp, dist_ppp, scenix, term_ppp, bid, stepnr)
 
         updated, allvalues = db.prices_ppp[(scenix, term_ppp, bid)]
         obj.price.values .= allvalues[periods]
@@ -373,30 +390,30 @@ function update_prices_obj(db, scenix, subix, stepnr, obj, term_ppp)
     return
 end
 
-function update_local_price(db, scenix, term_ppp, bid, stepnr)
-    core_ppp = get_core_ppp(db, scenix)
+function update_local_price(prices_ppp::Dict{Tuple{ScenarioIx, TermName, TuLiPa.Id}, Tuple{Int, Vector{Float64}}}, dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}, scenix::ScenarioIx, term_ppp::TermName, bid::TuLiPa.Id, stepnr::Int)
+    core_ppp = get_core_ppp(dist_ppp, scenix)
     future = @spawnat core_ppp get_prices_from_core(scenix, term_ppp, bid)
-    db.prices_ppp[(scenix, term_ppp, bid)] = (stepnr, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
+    prices_ppp[(scenix, term_ppp, bid)] = (stepnr, fetch(future)) # TODO: Should we collect all prices or just relevant periods?
     return
 end
 
-function get_core_ppp(db, scenix)
-    for (_scenix, _core) in db.dist_ppp
+function get_core_ppp(dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}, scenix::ScenarioIx)
+    for (_scenix, _core) in dist_ppp
         if _scenix == scenix
             return _core
         end
     end
 end
 
-function isupdated_prices(db, scenix, term_ppp, bid, stepnr)
-    if haskey(db.prices_ppp, (scenix, term_ppp, bid))
-        stored_stepnr, __ = db.prices_ppp[(scenix, term_ppp, bid)]
+function isupdated_prices(prices_ppp::Dict{Tuple{ScenarioIx, TermName, TuLiPa.Id}, Tuple{Int, Vector{Float64}}}, scenix::ScenarioIx, term_ppp::TermName, bid::TuLiPa.Id, stepnr::Int)
+    if haskey(prices_ppp, (scenix, term_ppp, bid))
+        stored_stepnr, __ = prices_ppp[(scenix, term_ppp, bid)]
         return stored_stepnr == stepnr
     end
     return false
 end
 
-function find_obj_by_id(objects::Any, bid::TuLiPa.Id)
+function find_obj_by_id(objects::Vector, bid::TuLiPa.Id)
     for obj in objects
         if TuLiPa.getid(obj) == bid
             return obj
@@ -405,7 +422,7 @@ function find_obj_by_id(objects::Any, bid::TuLiPa.Id)
     return nothing
 end
 
-function get_prices_from_core(scenix, term_ppp, bid)
+function get_prices_from_core(scenix::ScenarioIx, term_ppp::TermName, bid::TuLiPa.Id)
     db = get_local_db()
 
     ppp = get_ppp_term(db.ppp[scenix], term_ppp)
@@ -416,7 +433,7 @@ function get_prices_from_core(scenix, term_ppp, bid)
     return [-TuLiPa.getcondual(ppp, bid, t) for t in 1:TuLiPa.getnumperiods(horizon)]
 end
 
-function get_ppp_term(ppp, term::TermName)
+function get_ppp_term(ppp::PricePrognosisProblem, term::TermName)
     if term == LongTermName
         return ppp.longprob
     elseif term == MedTermName
@@ -426,7 +443,7 @@ function get_ppp_term(ppp, term::TermName)
     end
 end
 
-function perform_scenmod_sp(scenix, subix)
+function perform_scenmod_sp(scenix::ScenarioIx, subix::SubsystemIx)
     db = get_local_db()
     sp = db.sp[(scenix, subix)]
 
@@ -435,8 +452,8 @@ function perform_scenmod_sp(scenix, subix)
     return
 end
 
-update_horizons_sp(scenix, subix, subsystem::ExogenSubsystem) = nothing
-function update_horizons_sp(scenix, subix, subsystem)
+update_horizons_sp(::ScenarioIx, ::SubsystemIx, ::ExogenSubsystem) = nothing
+function update_horizons_sp(scenix::ScenarioIx, subix::SubsystemIx, subsystem)
     db = get_local_db()
     horizons = get_horizons(db)
 
@@ -459,7 +476,7 @@ function update_horizons_sp(scenix, subix, subsystem)
     return
 end
 
-function update_endconditions_sp(scenix, subix, t)
+function update_endconditions_sp(scenix::ScenarioIx, subix::SubsystemIx, t::TuLiPa.ProbTime)
     db = get_local_db()
 
     subsystem = db.subsystems[subix]
@@ -482,7 +499,7 @@ function update_endconditions_sp(scenix, subix, t)
     elseif endvaluemethod_sp == "startequalstop"
         set_endstates!(sp.prob, storages, db.startstates)
     elseif endvaluemethod_sp == "evp" # TODO: Store bid and period in sp (or subsystem?)
-        core_evp = get_core_evp(db, parentscenix, subix)
+        core_evp = get_core_evp(db.dist_evp, parentscenix, subix)
         for obj in storages
             commodityname = TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(TuLiPa.getbalance(obj))))
             horizon_sp = TuLiPa.gethorizon(TuLiPa.getbalance(obj))
@@ -524,23 +541,37 @@ function update_endconditions_sp(scenix, subix, t)
     return
 end
 
-function get_core_evp(db, scenix, subix)
-    for (_scenix, _subix, _core) in db.dist_evp
+function get_core_evp(dist_evp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}, scenix::ScenarioIx, subix::SubsystemIx)
+    for (_scenix, _subix, _core) in dist_evp
         if (_scenix == scenix) && (_subix == subix)
             return _core
         end
     end
 end
 
-function get_core_sp(db, scenix, subix)
-    for (_scenix, _subix, _core) in db.dist_sp
+function get_core_sp(dist_sp::Vector{Tuple{ScenarioIx, SubsystemIx, CoreId}}, scenix::ScenarioIx, subix::SubsystemIx)
+    for (_scenix, _subix, _core) in dist_sp
         if (_scenix == scenix) && (_subix == subix)
             return _core
         end
     end
 end
 
-function get_balancedual_evp(scenix, subix, bid, period)
+function get_core_mp(dist_mp::Vector{Tuple{SubsystemIx, CoreId}}, subix::SubsystemIx)
+    for (_subix, _core) in dist_mp
+        if _subix == subix
+            return _core
+        end
+    end
+end
+
+function get_states_mp(subix::SubsystemIx)
+    db = get_local_db()
+
+    return db.mp[subix].states
+end
+
+function get_balancedual_evp(scenix::ScenarioIx, subix::SubsystemIx, bid::TuLiPa.Id, period::Int)
     db = get_local_db()
 
     evp = db.evp[(scenix, subix)]
@@ -548,22 +579,21 @@ function get_balancedual_evp(scenix, subix, bid, period)
     return dual_evp
 end
 
-function update_probabilities(cuts, scenmod)
+function update_probabilities(cuts, scenmod::AbstractScenarioModellingMethod)
     cuts.probabilities = [get_probability(scenario) for scenario in scenmod.scenarios]
     return
 end
 
 # Util function under create_mp, create_sp -------------------------------------------------------------------------------------------------
-function make_modelobjects_stochastic(db, scenix, subix, master)
-    subsystem = get_subsystems(db)[subix]
-    settings = get_settings(db.input)
+function make_modelobjects_stochastic(input, horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, subsystem::AbstractSubsystem, scenix::ScenarioIx, master::Bool)
+    settings = get_settings(input)
 
-    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons_stochastic(db, scenix, subsystem, master)
+    subelements, numperiods_powerhorizon, probhorizons = get_elements_with_horizons_stochastic(input, horizons, scenix, subsystem, master)
 
-    if (get_numscen_sim(db.input) == get_numscen_stoch(db.input)) || master
+    if (get_numscen_sim(input) == get_numscen_stoch(input)) || master
         ifmscenix = scenix
     else
-        ifmscenix = get_numscen_sim(db.input) + scenix
+        ifmscenix = get_numscen_sim(input) + scenix
     end
     add_scenix_to_InflowParam(subelements, ifmscenix)
 
@@ -590,7 +620,7 @@ function make_modelobjects_stochastic(db, scenix, subix, master)
             end
         end
     end
-    return collect(values(modelobjects)), horizons
+    return collect(values(modelobjects)), probhorizons
 end
 
 # Aggregate modelobjects and remove modelobjects not relevant for subsystems
@@ -621,8 +651,8 @@ function change_elements!(elements::Vector{TuLiPa.DataElement}; aggzonecopl::Dic
     return elements
 end
 
-add_prices!(elements, subsystem::ExogenSubsystem, numperiods_powerhorizon, aggzonecopl) = nothing
-function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
+add_prices!(::Vector{TuLiPa.DataElement}, ::ExogenSubsystem, ::Int, ::Dict) = nothing
+function add_prices!(elements::Vector{TuLiPa.DataElement}, subsystem::AbstractSubsystem, numperiods_powerhorizon::Int, aggzonecopl::Dict)
     for pricearea in subsystem.priceareas
         if pricearea in keys(aggzonecopl)
             pricearea = aggzonecopl[element.value["Balance"]]
@@ -637,16 +667,15 @@ function add_prices!(elements, subsystem, numperiods_powerhorizon, aggzonecopl)
     return 
 end
 
-function get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term, stochastic, ismaster)
-    horizons = get_horizons(db)
-    subelements = get_subelements(db, subsystem, ismaster)
-    numscen_sim = get_numscen_sim(db.input)
-    numscen_stoch = get_numscen_stoch(db.input)
+function get_elements_with_horizons(input, allhorizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, scenix::ScenarioIx, subsystem::AbstractSubsystem, startduration::Millisecond, endduration::Millisecond, term::TermName, stochastic::Bool, ismaster::Bool)
+    subelements = get_subelements(input, subsystem, ismaster)
+    numscen_sim = get_numscen_sim(input)
+    numscen_stoch = get_numscen_stoch(input)
     local numperiods_powerhorizon::Int
 
     probhorizons = Dict{CommodityName, TuLiPa.Horizon}()
     for commodity in get_commodities(subsystem)
-        horizon = get_shortenedhorizon(horizons, scenix, term, commodity, startduration, endduration, stochastic, numscen_sim, numscen_stoch)
+        horizon = get_shortenedhorizon(allhorizons, scenix, term, commodity, startduration, endduration, stochastic, numscen_sim, numscen_stoch)
         probhorizons[commodity] = horizon
         set_horizon!(subelements, commodity, horizon)
         if commodity == "Power"
@@ -656,26 +685,26 @@ function get_elements_with_horizons(db, scenix, subsystem, startduration, enddur
     return subelements, numperiods_powerhorizon, probhorizons
 end
 
-function get_subelements(db, ::ExogenSubsystem, ismaster::Bool)
-    elements = get_elements(db.input)
+function get_subelements(input, ::ExogenSubsystem, ismaster::Bool)
+    elements = get_elements(input)
     ismaster && return copy(elements)
-    derivednames = keys(get_ifm_weights(db.input))
-    names = get_ifm_names(db.input)
-    iprogtype = get_iprogtype(db.input)
+    derivednames = keys(get_ifm_weights(input))
+    names = get_ifm_names(input)
+    iprogtype = get_iprogtype(input)
     return copy_elements_iprogtype(elements, iprogtype, names, derivednames)
 end
 
-function get_subelements(db, subsystem::Union{EVPSubsystem, StochSubsystem}, ismaster::Bool)
-    elements = get_elements(db.input)
+function get_subelements(input, subsystem::Union{EVPSubsystem, StochSubsystem}, ismaster::Bool)
+    elements = get_elements(input)
     ismaster && return copy(elements[subsystem.dataelements])
-    derivednames = keys(get_ifm_weights(db.input))
-    names = get_ifm_names(db.input)
-    iprogtype = get_iprogtype(db.input)
+    derivednames = keys(get_ifm_weights(input))
+    names = get_ifm_names(input)
+    iprogtype = get_iprogtype(input)
     return copy_elements_iprogtype(elements[subsystem.dataelements], iprogtype, names, derivednames)
 end
 
-function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{ExogenSubsystem}, master)
-    settings = get_settings(db.input)
+function get_elements_with_horizons_stochastic(input, horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, scenix::ScenarioIx, subsystem::Union{ExogenSubsystem}, master::Bool)
+    settings = get_settings(input)
 
     if master
         term = MasterTermName
@@ -686,13 +715,13 @@ function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{Exog
         startduration = parse_duration(settings["horizons"]["master"], "termduration")
         endduration = startduration + parse_duration(settings["horizons"]["sub"], "termduration")
     end
-    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term, true, master)
+    subelements, numperiods_powerhorizon, probhorizons = get_elements_with_horizons(input, horizons, scenix, subsystem, startduration, endduration, term, true, master)
 
-    return subelements, numperiods_powerhorizon, horizons
+    return subelements, numperiods_powerhorizon, probhorizons
 end
 
-function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{EVPSubsystem, StochSubsystem}, master)
-    settings = get_settings(db.input)
+function get_elements_with_horizons_stochastic(input, horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, scenix::ScenarioIx, subsystem::Union{EVPSubsystem, StochSubsystem}, master::Bool)
+    settings = get_settings(input)
 
     term_ppp = get_horizonterm_stoch(subsystem)
     if master
@@ -702,9 +731,9 @@ function get_elements_with_horizons_stochastic(db, scenix, subsystem::Union{EVPS
         startduration = parse_duration(settings["horizons"]["clearing"], "termduration")
         endduration = get_duration_stoch(subsystem)
     end
-    subelements, numperiods_powerhorizon, horizons = get_elements_with_horizons(db, scenix, subsystem, startduration, endduration, term_ppp, true, master)
+    subelements, numperiods_powerhorizon, probhorizons = get_elements_with_horizons(input, horizons, scenix, subsystem, startduration, endduration, term_ppp, true, master)
 
-    return subelements, numperiods_powerhorizon, horizons
+    return subelements, numperiods_powerhorizon, probhorizons
 end
 
 function get_shortenedhorizon(horizons::Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}, scenix::ScenarioIx, term::TermName, commodity::CommodityName, startduration::Millisecond, endduration::Millisecond, stochastic::Bool, numscen_sim::Int, numscen_stoch::Int)

@@ -706,25 +706,25 @@ function add_local_problems()
 
     for (scenix, core) in db.dist_ppp
         if core == db.core
-            create_ppp(db, scenix)
+            create_ppp(scenix)
         end
     end
 
     for (scenix, subix, core) in db.dist_evp
         if core == db.core
-            create_evp(db, scenix, subix)
+            create_evp(scenix, subix)
         end
     end
 
     for (subix, core) in db.dist_mp
         if core == db.core
-            create_mp(db, subix)
+            create_mp(subix)
         end
     end
 
     for (scenix, subix, core) in db.dist_sp
         if core == db.core
-            create_sp(db, scenix, subix)
+            create_sp(scenix, subix)
         end
     end
     return
@@ -736,13 +736,16 @@ function step_jules(t, steplength, stepnr, skipmed)
     cores = get_cores(db)
     firstcore = first(cores)
 
-    if mod(stepnr, 20) == 0
-        @sync for core in cores
-            @spawnat core GC.gc()
+    println(t)
+    println("Garbage collection")
+    @time begin
+        if mod(stepnr, 20) == 0
+            @sync for core in cores
+                @spawnat core GC.gc()
+            end
         end
     end
     
-    println(t)
     println("Startstates")
     @time begin
         @sync for core in cores
