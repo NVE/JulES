@@ -198,17 +198,9 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
     end
     ub = 0.0
     lb = mp.cuts.lower_bound
+    prev_lb = 0
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-
-    while !((abs((ub-lb)/ub) < reltol) || abs(ub-lb) < 1) && count < 15
-        maintiming[4] += @elapsed begin
-            if (count == 1 && cutreuse)
-                TuLiPa.updatecuts!(mp.prob, mp.cuts)
-            elseif count != 0
-                TuLiPa.updatelastcut!(mp.prob, mp.cuts)
-            end
-        end
-
+    while !(((abs((ub-lb)/ub)) < reltol) || abs(ub-lb) < 1)
         maintiming[2] += @elapsed begin
             if TuLiPa.getnumcuts(mp.cuts) != 0
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
@@ -229,6 +221,7 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
                     count += 1
                 end
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
+                prev_lb = lb
                 lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
                 TuLiPa.getoutgoingstates!(mp.prob, mp.states)
             end
@@ -248,9 +241,14 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
 
         maintiming[4] += @elapsed begin
             ub = 0.0
-            cutix = TuLiPa.getcutix(mp.cuts) + 1
-            if cutix > TuLiPa.getmaxcuts(mp.cuts)
+            if TuLiPa.getcutix(mp.cuts) == TuLiPa.getmaxcuts(mp.cuts)
                 cutix = 1
+            elseif prev_lb == lb
+                TuLiPa.clearcuts!(mp.cuts) # no progress so clear cuts and start from the front
+                cutix = 1
+                cutreuse = false
+            else
+                cutix = TuLiPa.getcutix(mp.cuts) + 1
             end
             for future in futures
                 scenix, objectivevalue, scenslopes, scenconstant = fetch(future)
@@ -261,6 +259,17 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
             end
         
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
+            if count == 25
+                error("25 benders iterations, but still not convergence")
+            end
+        end
+
+        maintiming[4] += @elapsed begin
+            if (count == 1) && cutreuse
+                TuLiPa.updatecuts!(mp.prob, mp.cuts)
+            elseif count != 0
+                TuLiPa.updatelastcut!(mp.prob, mp.cuts)
+            end
         end
     end
     maintiming[5] = count
