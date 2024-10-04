@@ -377,6 +377,8 @@ function update_prices_sp(stepnr::Int, scenix::ScenarioIx, subix::SubsystemIx, s
 end
 
 function update_prices_obj(prices_ppp::Dict{Tuple{ScenarioIx, TermName, TuLiPa.Id}, Tuple{Int, Vector{Float64}}}, dist_ppp::Vector{Tuple{ScenarioIx, CoreId}}, scenix::ScenarioIx, stepnr::Int, obj, term_ppp::TermName)
+    db = get_local_db()
+    
     if obj isa TuLiPa.ExogenBalance
         periods = TuLiPa.getperiods(TuLiPa.gethorizon(obj))
         bid = TuLiPa.getid(obj)

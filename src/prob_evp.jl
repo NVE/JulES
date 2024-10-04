@@ -35,7 +35,7 @@ function solve_evp(t::TuLiPa.ProbTime, stepnr::Int, skipmed::Millisecond)
                 maintiming[3] = @elapsed begin
                     # TODO: set nonstorage startstates
                     set_startstates!(evp.prob, TuLiPa.getstorages(TuLiPa.getobjects(evp.prob)), db.startstates)
-                    update_prices_evp(stepnr, db.prices_ppp, db.dit_ppp, scenix, subix, evp, subsystem) # TODO: Do not input db
+                    update_prices_evp(stepnr, db.prices_ppp, db.dist_ppp, scenix, subix, evp, subsystem) # TODO: Do not input db
                     update_endstates_evp(db.input, scenix, subix, evp, subsystem) # TODO: Do not input db
 
                     scentime = get_scentphasein(t, get_scenarios(db.scenmod_sim)[scenix], db.input)
