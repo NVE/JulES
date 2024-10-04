@@ -200,7 +200,7 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
     lb = mp.cuts.lower_bound
     prev_lb = 0
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-    while !(((abs((ub-lb)/ub)) < reltol) || abs(ub-lb) < 1)
+    while !(((abs((ub-lb)/ub)) < reltol) || abs(ub-lb) < 1) && (count < 15) # remove count, handle convergence issues
         maintiming[2] += @elapsed begin
             if TuLiPa.getnumcuts(mp.cuts) != 0
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
