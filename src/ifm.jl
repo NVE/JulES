@@ -765,7 +765,7 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
         confidence = TuLiPa.InfiniteTimeVector(ix, phaseinvalues)
     end
 
-    param = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile, confidence)
+    param = TuLiPa.DynamicPrognosisSeriesParam(level, hist_profile, prognosis_profile, confidence)
     param = TuLiPa.StatefulParam(param)
 
     lowlevel[TuLiPa.getobjkey(elkey)] = param
