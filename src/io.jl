@@ -970,7 +970,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 statevars = db.mp[subix].cuts.statevars
                 for scenix in 1:get_numscen_stoch(db.input)
                     for (j, statevar) in enumerate(statevars)
-                        core_stoch = get_core_sp(db, scenix, subix)
+                        core_stoch = get_core_sp(db.dist_sp, scenix, subix)
                         f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
                         db.output.storagevalues[subix][stepnr, dim+scenix, j] = fetch(f)
                     end
