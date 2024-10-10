@@ -750,9 +750,22 @@ function includeModeledInflowParam!(::Dict, lowlevel::Dict, elkey::TuLiPa.Elemen
         d[inflow_name][scenix] = (DateTime[], Float64[])
     end
     (ix, vals) = d[inflow_name][scenix]
-    prognosis_profile = TuLiPa.InfiniteTimeVector(ix, vals)    
+    prognosis_profile = TuLiPa.InfiniteTimeVector(ix, vals)   
+    
+    phaseindays = TuLiPa.getdictvalue(value, "phaseindays", Int, elkey)
+    preddays = TuLiPa.getdictvalue(value, "preddays", Int, elkey)
+    phaseinvalues = ones(preddays)
+    if phaseindays == 0
+        confidence = TuLiPa.ConstantTimeVector(1.0)
+    else
+        it = min(phaseindays, preddays)
+        for i in 1:it
+            phaseinvalues[i] = round((i-1)/phaseindays,digits=3)
+        end
+        confidence = TuLiPa.InfiniteTimeVector(ix, phaseinvalues)
+    end
 
-    param = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile)
+    param = TuLiPa.PrognosisSeriesParam(level, hist_profile, prognosis_profile, confidence)
     param = TuLiPa.StatefulParam(param)
 
     lowlevel[TuLiPa.getobjkey(elkey)] = param
@@ -792,7 +805,9 @@ function copy_elements_iprogtype(elements, iprogtype, ifm_names, ifm_derivedname
                         if (station_id in ifm_names) || (station_id in ifm_derivednames) 
                             maybe_new_element = TuLiPa.DataElement(e.conceptname, "ModeledInflowParam", e.instancename,
                                 Dict("Level" => e.value["Level"], "HistoricalProfile" => e.value["Profile"], 
-                                    IFM_STATION_ID_KEY => station_id))
+                                    IFM_STATION_ID_KEY => station_id,
+                                    "phaseindays" => e.value["phaseindays"],
+                                    "preddays" => e.value["preddays"]))
                         end
                     end
                 end

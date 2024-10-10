@@ -263,6 +263,8 @@ end
 function get_tnormal(type::String, datatime::DateTime, scenariotime::DateTime)
     if type == "PrognosisTime"
         return TuLiPa.PrognosisTime(datatime, datatime, scenariotime)
+    elseif type == "TwoTime"
+        return TuLiPa.TwoTime(datatime, scenariotime)
     elseif type == "FixedDataTwoTime"
         return TuLiPa.FixedDataTwoTime(datatime, scenariotime)
     else
@@ -280,8 +282,12 @@ function get_scentime(simtime::TuLiPa.ProbTime, scenario::AbstractScenario, inpu
 
     if timetype == "PrognosisTime"
         return TuLiPa.PrognosisTime(datasimtime, datasimtime, weatherscenariotime)
+    elseif timetype == "TwoTime"
+        return TuLiPa.TwoTime(datasimtime, weatherscenariotime)
     elseif timetype == "FixedDataTwoTime"
         return TuLiPa.FixedDataTwoTime(datasimtime, weatherscenariotime)
+    elseif timetype == "PhaseinTwoTime"
+        return TuLiPa.PhaseinTwoTime(datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif timetype == "PhaseinPrognosisTime"
         return TuLiPa.PhaseinPrognosisTime(datasimtime, datasimtime, weathersimtime, weatherscenariotime, phaseinoffset, phaseindelta, phaseinsteps)
     elseif timetype == "PhaseinFixedDataTwoTime"
