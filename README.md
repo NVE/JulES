@@ -124,7 +124,7 @@ jupyter notebook
 If jupyter is not installed then it can be installed using IJulia
 ```console
 Julia> using IJulia
-Julia> Julia.notebook()
+Julia> IJulia.notebook()
 ```
 
 ### Contact:
