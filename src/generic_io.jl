@@ -73,32 +73,37 @@ end
 get_core_main(input::AbstractJulESInput) = first(get_cores(input))
 
 """
-Will try to distribute small and large subsystems evenly on cores.
+Distributes master and scenarioproblems of subsystems on available cores
+given distribution algorithm from config.
 
-E.g. if cores = [1, 2, 3] and subsystems = [3, 6, 1, 4, 5, 2]
-where the list of subsystems is sorted from biggest subsystem to smallest
-where size is defined as number of objects in the subsystem. 
+Options master problems (mp): 
+- core_main (on main core)
+- random, randomeven (random, but the same amount of master problems on each core)
+- bysize, sizepairing, greedy* (methods that uses number of model objects in each subsystem in distribution)
+- greedystorage (method that uses number of storage objects in each subsystem in distribution)
+- advanced (reserve two cores for largest subsystem)
 
-Then, distribution on cores should be: 
-- Core 1: Index 1 and 6 (that is, subsystem 3 and 2) (i.e. biggest and smallest)
-- Core 2: Index 2 and 5 (that is, subsystem 6 and 5) (i.e. next biggest and next smallest)
-- Core 3: Index 3 and 4 (that is, subsystem 1 and 4) (i.e. next next biggest and next next smallest)
+Options scenario problems (sp):
+- withmp* (scenario problem on same core as master problem, no overhead cost of transferring data between cores)
+- even (same amount of scenario problems on each core)
+- greedy (same amount of scenario problem objects on each core)
 
-This way, a core that get a relatively big system in one pass, 
-will get a relatively small system in the next pass. 
-This should ensure to balance load better than e.g. distributing 
-subsystems on cores by random choice.
+TODO: 
+- make a combination of withmp and greedy
+- improve on greedy, analyse what model objects are most important for run time of stoch
+- bugfix advanced
 
-Scenario problems (sp) will be put on the same core as master problems (mp).
+
+* = default
+See JulES/src/generic_io for more details of each algorithm
 """
-
 function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
     cores = get_cores(input)
     #Distributing the master problems/subsystems
     
     distribution_method_mp = get_distribution_method_mp(input)
-    default = "bysize" 
-    valid_methods_mp = ["randdumb", "random", "bysize", "greedy", "storage", "sizepairing", "advanced", "core_main"]
+    default = "greedy" 
+    valid_methods_mp = ["random", "randomeven", "bysize", "greedy", "greedystorage", "sizepairing", "advanced", "core_main"]
     # Check if distribution_method is valid
     if !(distribution_method_mp in valid_methods_mp)
         error("distribution method $distribution_method_mp is not valid")
@@ -107,22 +112,21 @@ function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{Subs
     if distribution_method_mp == "core_main"
         dist_mp = Tuple{SubsystemIx, CoreId}[]
         push!(dist_mp, (subsystems[1][1], get_core_main(input)))
-    elseif distribution_method_mp == "randdumb"
-        dist_mp = _distribute_subsystems_randdumb!(subsystems, cores)
     elseif distribution_method_mp == "random"
-        dist_mp = _distribute_subsystems_random!(subsystems, cores) 
+        dist_mp = _distribute_subsystems_randdumb!(subsystems, cores)
+    elseif distribution_method_mp == "randomeven"
+        dist_mp = _distribute_subsystems_rand_even!(subsystems, cores) 
     elseif distribution_method_mp == "bysize"
         dist_mp = _distribute_subsystems_by_size!(subsystems, cores)
     elseif distribution_method_mp == "greedy"
         dist_mp = _distribute_subsystems_elements_greedy!(subsystems, cores)
-    elseif distribution_method_mp == "storage"
+    elseif distribution_method_mp == "greedystorage"
         dist_mp = _distribute_subsystems_storage_greedy!(input, subsystems, cores)
     elseif distribution_method_mp == "sizepairing"
         dist_mp = _distribute_subsystems_big_small!(subsystems, cores)
     elseif distribution_method_mp == "advanced"
         dist_mp = _distribute_subsystems_advanced!(subsystems, cores)
         dist_sp =  _distribute_subscenarios_advanced!(dist_mp, cores, input)
-        #Returning here to avoid the rest of the code, since dist_mp is already decided
         return (dist_mp, dist_sp)
     end
     
@@ -352,7 +356,7 @@ function _distribute_subsystems_big_small!(subsystems::Vector{Tuple{SubsystemIx,
 end
      
 """ Function to distribute the subsystems on completely random cores"""   
-function _distribute_subsystems_randdumb!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
+function _distribute_subsystems_random!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     dist = Tuple{SubsystemIx, CoreId}[]
     for (ix, s) in subsystems
         # Randomly select a core
@@ -365,7 +369,7 @@ function _distribute_subsystems_randdumb!(subsystems::Vector{Tuple{SubsystemIx, 
 end
 
 """Function to distribute the subsystems on random cores, but on different cores until all cores have subproblems assigned to them, then again until all cores have 2 subproblems assigned to them, and so on"""
-function _distribute_subsystems_random!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
+function _distribute_subsystems_rand_even!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     dist = Tuple{SubsystemIx, CoreId}[]
     corelist = copy(cores)
     for (ix, s) in subsystems
@@ -382,6 +386,20 @@ end
 
 """
 Function that distributes the subsystems by size. 
+
+E.g. if cores = [1, 2, 3] and subsystems = [3, 6, 1, 4, 5, 2]
+where the list of subsystems is sorted from biggest subsystem to smallest
+where size is defined as number of objects in the subsystem. 
+
+Then, distribution on cores should be: 
+- Core 1: Index 1 and 6 (that is, subsystem 3 and 2) (i.e. biggest and smallest)
+- Core 2: Index 2 and 5 (that is, subsystem 6 and 5) (i.e. next biggest and next smallest)
+- Core 3: Index 3 and 4 (that is, subsystem 1 and 4) (i.e. next next biggest and next next smallest)
+
+This way, a core that get a relatively big system in one pass, 
+will get a relatively small system in the next pass. 
+This should ensure to balance load better than e.g. distributing 
+subsystems on cores by random choice.
 """
 function _distribute_subsystems_by_size!(subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}, cores::Vector{CoreId})
     N = length(cores)
