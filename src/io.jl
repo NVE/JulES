@@ -953,14 +953,14 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                     end
                     if haskey(settings["problems"], "stochastic")
                         for scenix in 1:get_numscen_stoch(db.input)
-                            core_stoch = get_core_sp(db, scenix, subix)
+                            core_stoch = get_core_sp(db.dist_sp, scenix, subix)
                             f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
                             db.output.storagevalues[subix][stepnr, dim+1+scenix, j] = fetch(f)
                         end
                     end
                     if haskey(settings["problems"], "endvalue") && is_subsystem_evp(db.subsystems[subix])
                         for scenix in 1:get_numscen_stoch(db.input)
-                            core_evp = get_core_evp(db, scenix, subix)
+                            core_evp = get_core_evp(db.dist_evp, scenix, subix)
                             f = @spawnat core_evp get_enddual_evp(scenix, subix, first(TuLiPa.getvarout(statevar)))
                             db.output.storagevalues[subix][stepnr, dim+1+get_numscen_stoch(db.input)+scenix, j] = fetch(f)
                         end

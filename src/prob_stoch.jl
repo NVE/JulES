@@ -529,7 +529,7 @@ function update_endconditions_sp(scenix::ScenarioIx, subix::SubsystemIx, t::TuLi
             end
             endperiod = TuLiPa.getlastperiod(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
             term_ppp = get_horizonterm_stoch(subsystem)
-            core_ppp = get_core_ppp(db, parentscenix)
+            core_ppp = get_core_ppp(db.dist_ppp, parentscenix)
             future = @spawnat core_ppp get_balancedual_ppp(parentscenix, bid, endperiod, term_ppp)
             dual_ppp = fetch(future)
             if haskey(enekvglobaldict, instancename[2])

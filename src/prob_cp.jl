@@ -62,10 +62,10 @@ function solve_cp(t, stepnr, skipmed)
     if db.core_main == db.core
         timing = db.output.timing_cp
         timing[stepnr, 3] = @elapsed begin
-            update_startstates_cp(db, stepnr, t)
-            update_cuts(db, skipmed)
-            update_nonstoragestates_cp(db)
-            update_statedependent_cp(db, stepnr, t)
+            update_startstates_cp(db.cp.prob, db.startstates, stepnr, t)
+            update_cuts(db.dist_mp, db.cp.prob, skipmed)
+            update_nonstoragestates_cp(db.dist_ppp, db.cp.prob)
+            update_statedependent_cp(stepnr, t)
             timing[stepnr, 1] = @elapsed TuLiPa.update!(db.cp.prob, t)
             set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
             timing[stepnr, 2] = @elapsed TuLiPa.solve!(db.cp.prob)
@@ -102,7 +102,8 @@ function set_minstoragevalue!(problem::TuLiPa.Prob, costrule::Function)
     return
 end
 
-function update_statedependent_cp(db, stepnr, t)
+function update_statedependent_cp(stepnr, t)
+    db = get_local_db()
     settings = get_settings(db)
 
     # Statedependent prod and pumping
@@ -144,10 +145,10 @@ function get_headlosscost_data_from_mp(subix, t) # TODO: get method from config
     return TuLiPa.get_headlosscost_data(TuLiPa.ReservoirCurveSlopeMethod(), mp.prob, t)
 end
 
-function update_nonstoragestates_cp(db)
+function update_nonstoragestates_cp(dist_ppp, prob_cp)
     scenix = 1 # which scenario to use?
 
-    for (_scenix, _core) in db.dist_ppp
+    for (_scenix, _core) in dist_ppp
         if scenix == _scenix
             future = @spawnat _core get_nonstoragestates_short(scenix)
 
@@ -157,7 +158,7 @@ function update_nonstoragestates_cp(db)
             end
 
             nonstoragestates_short = ret
-            TuLiPa.setoutgoingstates!(db.cp.prob, nonstoragestates_short)
+            TuLiPa.setoutgoingstates!(prob_cp, nonstoragestates_short)
         end
     end
     return
@@ -169,8 +170,8 @@ function get_nonstoragestates_short(scenix)
     return db.ppp[scenix].nonstoragestates_short
 end
 
-function update_cuts(db, skipmed)
-    for (_subix, _core) in db.dist_mp
+function update_cuts(dist_mp, prob_cp, skipmed)
+    for (_subix, _core) in dist_mp
         if skipmed_check(_subix, skipmed)
             future = @spawnat _core get_cutsdata(_subix)
 
@@ -181,11 +182,11 @@ function update_cuts(db, skipmed)
 
             (cutid, constants, slopes) = ret
 
-            cuts_cp = find_obj_by_id(TuLiPa.getobjects(db.cp.prob), cutid)
+            cuts_cp = find_obj_by_id(TuLiPa.getobjects(prob_cp), cutid)
             cuts_cp.constants = constants
             cuts_cp.slopes = slopes
 
-            TuLiPa.updatecuts!(db.cp.prob, cuts_cp)
+            TuLiPa.updatecuts!(prob_cp, cuts_cp)
         end
     end
     return
@@ -211,11 +212,11 @@ function get_cutsid(subix)
     return cuts.id
 end
 
-function update_startstates_cp(db, stepnr, t)
+function update_startstates_cp(prob_cp, startstates, stepnr, t)
     if stepnr == 1 # Non storage startstates free in first step
-        set_startstates!(db.cp.prob, TuLiPa.getstorages(TuLiPa.getobjects(db.cp.prob)), db.startstates)
+        set_startstates!(prob_cp, TuLiPa.getstorages(TuLiPa.getobjects(prob_cp)), startstates)
     else
-        set_startstates!(db.cp.prob, TuLiPa.getobjects(db.cp.prob), db.startstates)
+        set_startstates!(prob_cp, TuLiPa.getobjects(prob_cp), db.startstates)
     end
     return
 end

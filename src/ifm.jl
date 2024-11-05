@@ -449,24 +449,24 @@ function create_ifm()
     end
 end
 
-function save_ifm_u0(db, inflow_name, stepnr, u0)
-    if !haskey(db.div[IFM_DB_STATE_KEY], inflow_name)
-        db.div[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
+function save_ifm_u0(div_db, inflow_name, stepnr, u0)
+    if !haskey(div_db[IFM_DB_STATE_KEY], inflow_name)
+        div_db[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
     else
-        (stored_stepnr, __) = db.div[IFM_DB_STATE_KEY][inflow_name]
+        (stored_stepnr, __) = div_db[IFM_DB_STATE_KEY][inflow_name]
         if stored_stepnr != stepnr
-            db.div[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
+            div_db[IFM_DB_STATE_KEY][inflow_name] = (stepnr, u0)
         end
     end
 end
 
-function save_ifm_Q(db, inflow_name, stepnr, Q)
-    if !haskey(db.div[IFM_DB_FLOW_KEY], inflow_name)
-        db.div[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
+function save_ifm_Q(div_db, inflow_name, stepnr, Q)
+    if !haskey(div_db[IFM_DB_FLOW_KEY], inflow_name)
+        div_db[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
     else
-        (stored_stepnr, __) = db.div[IFM_DB_FLOW_KEY][inflow_name]
+        (stored_stepnr, __) = div_db[IFM_DB_FLOW_KEY][inflow_name]
         if stored_stepnr != stepnr
-            db.div[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
+            div_db[IFM_DB_FLOW_KEY][inflow_name] = (stepnr, Q)
         end
     end
 end
@@ -534,7 +534,7 @@ function solve_ifm(t, stepnr)
 
             # save in familiar unit mm3 (u0 in mm converted to m in calculation)
             u0_mm3 = (u0 ./ 1000.0) .* get_basin_area_m2(inflow_model) ./ 1e6 
-            save_ifm_u0(db, inflow_name, stepnr, u0_mm3)
+            save_ifm_u0(db.div, inflow_name, stepnr, u0_mm3)
 
             # predict mean Q for clearing period and store result
             # can be used to measure goodness of ifm model
@@ -548,7 +548,7 @@ function solve_ifm(t, stepnr)
                 mean_Q += Q[nifmsteps] * remainder_f
             end
             mean_Q /= steplen_f
-            save_ifm_Q(db, inflow_name, stepnr, mean_Q)
+            save_ifm_Q(db.div, inflow_name, stepnr, mean_Q)
 
             for (scenix, scen) in enumerate(scenarios)
                 scentime = get_scentphasein(t, scen, db.input)

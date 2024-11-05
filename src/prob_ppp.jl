@@ -181,7 +181,7 @@ function solve_ppp(t, steplength, stepnr, skipmed)
                 maintiming[2, 3] = @elapsed TuLiPa.solve!(p.shortprob)
 
                 sph = horizons[(scenix, "short", "Power")]
-                update_nonstoragestates!(p, db, sph, stepnr, steplength)
+                update_nonstoragestates!(p, sph, stepnr, steplength)
             end
         end
     end
@@ -200,7 +200,7 @@ end
 
 # Market clearing problem uses end state values from short problem for non-storage state variables,
 # TODO: Only getoutgoingstates!, init should handle changeendtoinsidestates!
-function update_nonstoragestates!(ppp, db, sph, stepnr, steplength)
+function update_nonstoragestates!(ppp, sph, stepnr, steplength)
     if stepnr == 1
         clearingperiod = TuLiPa.getendperiodfromduration(sph, steplength) # which period in short problem correspond to end period in market clearing problem
         TuLiPa.changeendtoinsidestates!(ppp.shortprob, ppp.nonstoragestates_short, clearingperiod) # change outgoing state variable to outgoing state in market clearing problem, and collect value
