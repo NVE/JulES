@@ -259,9 +259,6 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
             end
         
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
-            if count == 25
-                error("25 benders iterations, but still not convergence")
-            end
         end
 
         maintiming[4] += @elapsed begin
