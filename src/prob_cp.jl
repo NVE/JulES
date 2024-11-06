@@ -216,7 +216,7 @@ function update_startstates_cp(prob_cp, startstates, stepnr, t)
     if stepnr == 1 # Non storage startstates free in first step
         set_startstates!(prob_cp, TuLiPa.getstorages(TuLiPa.getobjects(prob_cp)), startstates)
     else
-        set_startstates!(prob_cp, TuLiPa.getobjects(prob_cp), db.startstates)
+        set_startstates!(prob_cp, TuLiPa.getobjects(prob_cp), startstates)
     end
     return
 end
