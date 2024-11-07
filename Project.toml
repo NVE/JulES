@@ -1,7 +1,7 @@
 name = "JulES"
 uuid = "05c5cb9d-dcc3-436a-b9c7-df36424a75d6"
 repo = "https://github.com/NVE/JulES.jl.git"
-version = "0.1.0"
+version = "0.4.0"
 
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
