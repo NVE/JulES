@@ -820,11 +820,11 @@ version = "1.23.0"
 
 [[deps.JulES]]
 deps = ["CSV", "Clustering", "ComponentArrays", "DataFrames", "Dates", "Distributed", "Distributions", "Interpolations", "JLD2", "JSON", "Lux", "OrdinaryDiffEq", "Random", "Statistics", "Test", "TuLiPa", "YAML"]
-git-tree-sha1 = "778e47da84b06f300a94236a4e4f80918760371c"
-repo-rev = "redesign_distributed"
+git-tree-sha1 = "4af263802100968f7d0b5ee07a8587ad8157e3d0"
+repo-rev = "master"
 repo-url = "https://github.com/NVE/JulES.git"
 uuid = "05c5cb9d-dcc3-436a-b9c7-df36424a75d6"
-version = "0.1.0"
+version = "0.4.0"
 
 [[deps.JuliaInterpreter]]
 deps = ["CodeTracking", "InteractiveUtils", "Random", "UUIDs"]
