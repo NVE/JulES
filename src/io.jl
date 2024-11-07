@@ -1,5 +1,5 @@
 """
-Definition of default input and output types
+Definition of DefaultJulESInput and DefaultJulESOutput which handles input and outputs to/from JulES
 """
 
 struct DefaultJulESInput <: AbstractJulESInput
@@ -102,8 +102,8 @@ get_phaseindelta(input::DefaultJulESInput) = input.phaseindelta
 get_phaseinsteps(input::DefaultJulESInput) = input.phaseinsteps
 
 get_horizons(input::DefaultJulESInput) = input.horizons
-"""
 
+"""
 Returns the subsystem distribution method from the config file. If there is no distribution method, the default method "bysize" is returned. 
 "Bysize" is the orginal method where the subsystems are sorted from biggest to smallest, and then distributed forward and then backward until all subsystems are distributed. 
 """
@@ -122,7 +122,6 @@ function get_distribution_method_mp(input::DefaultJulESInput, default::String="b
         return default
     end
 end
-
 
 """
 Returns the scenario problem distribution method from the config file. If there is no distribution method, the default method "withmp" is returned. 

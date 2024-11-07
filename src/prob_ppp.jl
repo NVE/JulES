@@ -1,3 +1,7 @@
+"""
+Code for price prognosis problem (ppp)
+"""
+
 struct PricePrognosisProblem
     longprob::TuLiPa.Prob
     medprob::TuLiPa.Prob

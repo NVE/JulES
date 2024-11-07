@@ -1,11 +1,15 @@
-# Add element for scenariotimeperiod
+"""
+Util functions for cp, stoch, evp and ppp 
+"""
+
+"""Add element for scenariotimeperiod"""
 function add_scenariotimeperiod_vector!(elements::Vector{TuLiPa.DataElement}, start::Int, stop::Int)
     push!(elements, getelement(TIMEPERIOD_CONCEPT, "ScenarioTimePeriod", "ScenarioTimePeriod", 
             ("Start", getisoyearstart(start)), ("Stop", getisoyearstart(stop))))
     return
 end
 
-# Insert horizons into commodities. E.g. all batteries will have the power horizon, since they interact with the power market
+"""Insert horizons into commodities. E.g. all batteries will have the power horizon, since they interact with the power market"""
 function set_horizon!(elements::Vector{TuLiPa.DataElement}, commodity::String, horizon::TuLiPa.Horizon)
     # If element already exist, replace horizon with new
     for element in elements
@@ -23,7 +27,7 @@ function set_horizon!(elements::Vector{TuLiPa.DataElement}, commodity::String, h
     return
 end
 
-# The hydropower storages in the dataset needs boundary conditions for the state variables
+"""The hydropower storages in the dataset needs boundary conditions for the state variables"""
 function add_StartEqualStopAllStorages!(modelobjects::Dict)
     for obj in values(modelobjects)
         if obj isa TuLiPa.BaseStorage
@@ -34,7 +38,7 @@ function add_StartEqualStopAllStorages!(modelobjects::Dict)
     return
 end
 
-# Power balances needs slack variable for when the inelastic supply (wind, solar, RoR) is higher than the inelastic demand
+"""Power balances needs slack variable for when the inelastic supply (wind, solar, RoR) is higher than the inelastic demand"""
 function add_PowerUpperSlack!(modelobjects::Dict) # add after object manipulation
     for obj in values(modelobjects)
         if obj isa TuLiPa.BaseBalance
@@ -60,7 +64,7 @@ function add_PowerUpperSlack!(modelobjects::Dict) # add after object manipulatio
     return
 end
 
-# Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution
+"""Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution"""
 function remove_startupcosts!(modelobjects::Dict)
     for (id,obj) in modelobjects
         if obj isa TuLiPa.StartUpCost
@@ -70,7 +74,7 @@ function remove_startupcosts!(modelobjects::Dict)
     return
 end
 
-# Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution
+"""Remove start-up costs. Does not make sense to have them when the horizon does not have a fine time-resolution"""
 function remove_transmissionramping!(modelobjects::Dict)
     for (id,obj) in modelobjects
         if obj isa TuLiPa.TransmissionRamping
@@ -80,7 +84,7 @@ function remove_transmissionramping!(modelobjects::Dict)
     return
 end
 
-# Remove hydroramping. Does not make sense to have them when the horizon does not have a fine time-resolution
+"""Remove hydroramping. Does not make sense to have them when the horizon does not have a fine time-resolution"""
 function remove_hydrorampingwithout!(modelobjects::Dict)
     for (id,obj) in modelobjects
         if obj isa TuLiPa.HydroRampingWithout
@@ -98,7 +102,7 @@ function remove_hydroramping!(modelobjects::Dict)
     return
 end
 
-# Set start and end reservoir as a percentage of capacity
+"""Set start and end reservoir as a percentage of capacity"""
 function set_startstoragepercentage!(prob::TuLiPa.Prob, storages::Vector, start::TuLiPa.ProbTime, percentage::Float64)
     for obj in storages
 
@@ -131,7 +135,7 @@ function set_endstoragepercentage!(prob::TuLiPa.Prob, storages::Vector, endtime:
     return
 end
 
-# Initialize dict of statevariables from list of modelobjects
+"""Initialize dict of statevariables from list of modelobjects"""
 function get_states(modelobjects::Vector)
     states = Dict{TuLiPa.StateVariableInfo, Float64}()
     
@@ -239,7 +243,7 @@ function get_startstates!(startstates::Dict, problemconfig::Dict, dataset::Dict,
     return
 end
 
-# Initialize max startstates and cap at maximum
+"""Initialize max startstates and cap at maximum"""
 function startstates_max!(objects::Vector, t::TuLiPa.ProbTime, startstates::Dict)
     for obj in objects
         resname = TuLiPa.getinstancename(TuLiPa.getid(obj))
@@ -253,7 +257,7 @@ function startstates_max!(objects::Vector, t::TuLiPa.ProbTime, startstates::Dict
     return startstates
 end
 
-# Set start and end states for objects with statevariables
+"""Set start and end states for objects with statevariables"""
 function set_startstates!(prob::TuLiPa.Prob, objects::Vector, startstates::Dict)
     for obj in objects
         states = Dict{TuLiPa.StateVariableInfo, Float64}()
@@ -302,7 +306,7 @@ function get_nonstorageobjects(modelobjects::Vector)
     return nonstorageobjects
 end
 
-# Initialize dict of statevariables that are not storages from list of modelobjects
+"""Initialize dict of statevariables that are not storages from list of modelobjects"""
 function get_nonstoragestatevariables(modelobjects::Vector)
     states = Dict{TuLiPa.StateVariableInfo, Float64}()
     
@@ -320,7 +324,7 @@ function get_nonstoragestatevariables(modelobjects::Vector)
     return states
 end
 
-# Get dual value of a storage at a specific time period
+"""Get dual value of a storage at a specific time period"""
 function get_insideduals(p::TuLiPa.Prob, storages::Vector, t::Int)
     endvalues = zeros(Float64, length(storages))
     for (i, storage) in enumerate(storages)
@@ -330,7 +334,7 @@ function get_insideduals(p::TuLiPa.Prob, storages::Vector, t::Int)
     return endvalues
 end
 
-# Find first exogen price in a vector of model objects
+"""Find first exogen price in a vector of model objects"""
 function find_firstprice(objects)
     for obj in objects
         if obj isa TuLiPa.ExogenBalance

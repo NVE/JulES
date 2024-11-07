@@ -95,7 +95,6 @@ TODO:
 
 
 * = default
-See JulES/src/generic_io for more details of each algorithm
 """
 function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
     cores = get_cores(input)

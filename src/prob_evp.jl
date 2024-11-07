@@ -1,3 +1,7 @@
+"""
+Code for end value problem (evp) used in storage valuation (together with stoch)
+"""
+
 struct EndValueProblem
     prob::TuLiPa.Prob
     div::Dict

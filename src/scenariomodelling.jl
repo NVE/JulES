@@ -1,3 +1,9 @@
+"""
+Define the concrete scenario modelling methods
+
+See abstract_types.jl for more
+"""
+
 struct NothingScenarioModellingMethod <: AbstractScenarioModellingMethod end
 mutable struct NoScenarioModellingMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
@@ -63,6 +69,7 @@ end
 get_inflowfactors(scenmod::AbstractScenarioModellingMethod) = [1/length(scenmod.scenarios) for s in 1:length(scenmod.scenarios)]
 get_inflowfactors(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = scenmod.inflowfactors
 
+"""Choose scenarios from a larger set based on a method, and calculate weights and other parameters that result from the scenario modelling"""
 function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, scenmodmethodoptions::AbstractScenarioModellingMethod, simtime::TuLiPa.ProbTime, input::AbstractJulESInput)
     numscen = length(scenmod.scenarios)
     scenariooptions = get_scenarios(scenmodmethodoptions)
@@ -193,9 +200,12 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
     return
 end
 
-# Scale inflow of modelobjects given a scenario modelling method
-# Only implemented in subsystem models at the moment. If used in prognosis we loose correlation to rest of market
-# In practice this means Prognosis ignores part of scenario generation (SumInflow of cluster), especially if SumInflowQuantileMethod
+"""
+The scenario that has been chosen to represent other scenarios can be altered to better represent them.
+I.e. the totat inflow of modelobjects can be scaled given information in the scenario modelling struct.
+Only implemented in subsystem models at the moment. If used in prognosis we loose correlation to rest of market
+In practice this means Prognosis ignores part of scenario generation (SumInflow of cluster), especially if SumInflowQuantileMethod
+"""
 perform_scenmod!(scenmod::AbstractScenarioModellingMethod, scenix, objects) = nothing # generic fallback
 function perform_scenmod!(scenmod::Union{InflowClusteringMethod{WeatherScenario},SumInflowQuantileMethod{WeatherScenario}}, scenix, objects) # inflow methods has field factor
     inflowfactors = get_inflowfactors(scenmod)
@@ -216,7 +226,7 @@ function perform_scenmod!(scenmod::Union{InflowClusteringMethod{WeatherScenario}
     return
 end
 
-# Renumber scenarios
+"""Renumber scenarios"""
 function renumber_scenmodmethod!(scenmod::AbstractScenarioModellingMethod)
     for (i, scenario) in enumerate(get_scenarios(scenmod))
         scenario.parentscenario = i

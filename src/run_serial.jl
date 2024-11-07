@@ -1,20 +1,28 @@
 """
-Possible re-design of JulES
-
-Design goals
-- small and clear code
-- minimal communication
-    - each local db stores the location of all problems
-    - on-demand remote data collection with local cache
-- time "everything"
-- dynamic load balancer
-
+This code does the orchestration of all the main simulation components:
+- Initialization:
+    - Local databases are created on all available cores and populated with:
+        - User input, subsystems, scenarios, horizons and problem distribution
+    - Specific problems are built on their allocated cores
+    - One of the local databases initializes results. It will have the task of collecting results and timing from all 
+        problems on all cores. Timing can be used to do dynamic load balancing (not implemented). Results and main
+        problem (clearing or master problem) are on the same core to reduce data transfer overhead
+- Each simulation step consist of
+    - Scenario modelling
+    - Update and solve problems on their allocated cores
+    - Collect results and timing
+    - Possibly do load balancing
+- Minimal data transfer
+    - Some data synced and distributed to all cores (horizons, scenarios, problem distribution, simulation state)
+    - Most data is collected on demand and locally cached. This (fetch-needed-data-only + cache) minimizes 
+        communication between cores, which is important for performance.
 """
 # JulES API and reference implementation
-
 # TODO: setup docstrings for automatic documentation
 
-
+"""
+Initialise the problems, run through all the simulation steps, store results and cleanup the databases
+"""
 function run_serial(input::AbstractJulESInput)
     (t, steps, steplength, skipmed, skipmax) = init_jules(input)
     totaltime = @elapsed for stepnr in 1:steps
@@ -199,7 +207,6 @@ end
 Build dummyobjects on each core
 For use in scenario modelling, validate elements and collect storages
 """
-# TODO: Only validate once
 function add_local_dummyobjects()
     db = get_local_db()
 
@@ -240,12 +247,11 @@ function add_local_dummyobjects()
         db.dummyobjects_ppp = db.dummyobjects
     end
     return
-end
+end # TODO: Only validate once
 
 """
 Make vector of subsystems
 """
-
 function add_local_subsystems()
     db = get_local_db()
 
@@ -552,7 +558,6 @@ end
 
 """
 Initial scenario modelling for simulation, prognosis and stochastic
-
 """
 function add_local_scenariomodelling()
     db = get_local_db()
@@ -820,16 +825,6 @@ function step_jules(t, steplength, stepnr, skipmed)
     # do dynamic load balancing here
     return
 end
-
-# Principle for problem-solving: 
-#    1. Collect information from other problems. 
-#       If not cached locally, collect remote data and cache result locally. 
-#       This (fetch-needed-data-only + cache) minimizes communication between cores, 
-#       which is important for performance.
-#    2. Update and solve problems
-#    3. Possibly do syncronization
-#
-#    (each step should also store timing info for the load balancer and output-report)
 
 # TODO: input parameters ok?
 

@@ -1,3 +1,8 @@
+"""
+Code for stochastic two stage problem (mp and sp) for storage valuation. 
+Solved with Benders decomposition.
+"""
+
 mutable struct MasterProblem
     prob::TuLiPa.Prob
     cuts::TuLiPa.SimpleSingleCuts

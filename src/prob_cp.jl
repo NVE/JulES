@@ -1,3 +1,7 @@
+"""
+Code for market clearing problem (cp)
+"""
+
 struct ClearingProblem
     prob::TuLiPa.Prob
     endstates::Dict{String, Float64} # startstates in next iteration
