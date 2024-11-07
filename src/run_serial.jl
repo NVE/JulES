@@ -1,710 +1,881 @@
-function run_serial(config, datayear, scenarioyear, dataset)
-    # Collect main information
-    mainconfig = config["main"]
-    settings = config[mainconfig["settings"]]
-    numcores = mainconfig["numcores"]
+"""
+This code does the orchestration of all the main simulation components:
+- Initialization:
+    - Local databases are created on all available cores and populated with:
+        - User input, subsystems, scenarios, horizons and problem distribution
+    - Specific problems are built on their allocated cores
+    - One of the local databases initializes results. It will have the task of collecting results and timing from all 
+        problems on all cores. Timing can be used to do dynamic load balancing (not implemented). Results and main
+        problem (clearing or master problem) are on the same core to reduce data transfer overhead
+- Each simulation step consist of
+    - Scenario modelling
+    - Update and solve problems on their allocated cores
+    - Collect results and timing
+    - Possibly do load balancing
+- Minimal data transfer
+    - Some data synced and distributed to all cores (horizons, scenarios, problem distribution, simulation state)
+    - Most data is collected on demand and locally cached. This (fetch-needed-data-only + cache) minimizes 
+        communication between cores, which is important for performance.
+"""
+# JulES API and reference implementation
+# TODO: setup docstrings for automatic documentation
 
-    onlysubsystemmodel = false
-    if !haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "stochastic") && !haskey(settings["problems"], "clearing")
-        onlysubsystemmodel = true
-    end
-
-    println("Time parameters")
-    @time begin
-        weekstart = mainconfig["weekstart"]
-        
-        scenarioyearstart = settings["time"]["scenarioyearstart"]
-        scenarioyearstop = settings["time"]["scenarioyearstop"]
-        datanumscen = scenarioyearstop - scenarioyearstart # scenarios to consider uncertainty for
-        
-        simulationyears = mainconfig["simulationyears"]
-        extrasteps = mainconfig["extrasteps"]
-        steplength = Millisecond(Hour(settings["time"]["steplength_hours"]))
-        
-        # Phasein settings
-        phaseinoffset = steplength # phase in straight away from second stage scenarios
-        phaseindelta = Millisecond(Day(settings["time"]["probtime"]["phaseindelta_days"])) # Phase in the second stage scenario over 5 weeks
-        phaseinsteps = settings["time"]["probtime"]["phaseinsteps"] # Phase in second stage scenario in 5 steps
-
-        # Make standard time and scenario uncertainty times
-        tnormaltype = settings["time"]["probtime"]["normaltime"]
-        tphaseintype = settings["time"]["probtime"]["phaseintime"]
-        tnormal, datascenmodmethod = getprobtimes(datayear, weekstart, scenarioyear, datanumscen, tnormaltype, tphaseintype, phaseinoffset, phaseindelta, phaseinsteps)
-        
-        # How many time steps to run the simulation for
-        steps = Int(ceil((getisoyearstart(datayear + simulationyears) - getisoyearstart(datayear)).value/steplength.value) + extrasteps);
-    end
-
-    println("Get data")
-    @time begin
-        elements = dataset["elements"]
-        detailedrescopl = dataset["detailedrescopl"]
-        addscenariotimeperiod_vector!(elements, scenarioyearstart, scenarioyearstop)
-
-        if haskey(dataset, "progelements")
-            progelements = dataset["progelements"]
-            addscenariotimeperiod_vector!(progelements, scenarioyearstart, scenarioyearstop)
-        else
-            progelements = elements
-        end
-    end
-
-    println("Make dummy objects") # for use in scenario modelling, validate elements and collect storages
-    @time begin
-        # Horizons are needed to build modelobjects, but not used in scenario modelling
-        dummyperiods = 10
-        dummyperiodduration = Millisecond(Hour(24))
-        power_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-        hydro_horizon = SequentialHorizon(dummyperiods, dummyperiodduration)
-
-        # Make dummy elements
-        dummyobjects, dummydhh, dummydph = make_obj(elements, hydro_horizon, power_horizon, validate=true)
-
-        # Make dummy prog elements
-        if haskey(dataset, "progelements")
-            dummyprogobjects, dummyphh, dummypph = make_obj(progelements, hydro_horizon, power_horizon, validate=true)
-        else
-            dummyprogobjects = dummyobjects
-        end
-    end
-
-    println("Init scenario modelling for simulation, prognosis and stochastic") 
-    @time begin
-        # Simulation scenario modelling - choose scenarios for the whole simulation
-        simnumscen = settings["scenariogeneration"]["simulation"]["numscen"]; @assert simnumscen <= datanumscen
-        if simnumscen == datanumscen
-            simscenmodmethod = datascenmodmethod
-        else
-            global simscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["simulation"], simnumscen)
-            simscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["simulation"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
-            println("  Simulation scenario modelling")
-            @time scenariomodelling!(simscenmodmethod, values(dummyprogobjects), simnumscen, datascenmodmethod, simscendelta) # see JulES/scenariomodelling.jl
-            renumber_scenmodmethod!(simscenmodmethod)
-        end
-
-        # Prognosis scenario modelling - choose scenarios for the price prognosis models
-        prognumscen = settings["scenariogeneration"]["prognosis"]["numscen"]; @assert prognumscen <= simnumscen
-        if prognumscen == simnumscen
-            progscenmodmethod = simscenmodmethod
-        else
-            global progscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["prognosis"], prognumscen)
-            progscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["prognosis"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
-            println("  Prognosis scenario modelling")
-            @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta); # see JulES/scenariomodelling.jl
-            prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
-        end
-
-        # Stochastic scenario modelling - choose scenarios for the price stochastic models
-        stochnumscen = settings["scenariogeneration"]["stochastic"]["numscen"]; @assert stochnumscen <= prognumscen
-        if stochnumscen == prognumscen
-            stochscenmodmethod = progscenmodmethod
-        else
-            stochscendelta = MsTimeDelta(Day(settings["scenariogeneration"]["stochastic"]["scendelta_days"])) # scenario modelling based on the next 3 years, even though the scenario problems can be longer
-            global stochscenmodmethod = getscenmodmethod(settings["scenariogeneration"]["stochastic"], stochnumscen)
-            println("  Stochastic scenario modelling")
-            @time scenariomodelling!(stochscenmodmethod, values(dummyobjects), stochnumscen, progscenmodmethod, stochscendelta); # see JulES/scenariomodelling.jl
-        end
-        println("  Total scenario modelling")
-    end
-
-    medendvaluesdicts = Dict[]
-    startstates = Dict{String, Float64}()
-    enekvglobaldict = Dict()
-    medpriceslocal = nothing
-    shortpriceslocal = nothing
-    if haskey(settings["problems"], "prognosis")
-        println("Init prognosis")
-        @time begin
-            # Set horizons for price prognosis models
-            # All
-            shorthorizonduration = Millisecond(Hour(settings["horizons"]["short"]["horizonduration_hours"]))
-
-            # Long
-            longhorizonduration = Millisecond(Week(settings["horizons"]["long"]["horizonduration_weeks"]))
-            longhydroperiodduration = Millisecond(Day(settings["horizons"]["long"]["hydroperiodduration_days"]))
-            longrhsdata = getrhsdata(settings["horizons"]["long"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
-            longmethod = parse_methods(settings["horizons"]["long"]["rhsmethod"])
-            longclusters = settings["horizons"]["long"]["clusters"]
-            longunitduration = Millisecond(Hour(settings["horizons"]["long"]["unitduration_hours"]))
-
-            if settings["problems"]["prognosis"]["shrinkable"] == "both"
-                longfirstperiod = shorthorizonduration
-                longstartafter = longhydroperiodduration + shorthorizonduration
-                longshrinkatleast = longhydroperiodduration - steplength
-                longminperiod = steplength
-                global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
-            elseif settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein"
-                longfirstperiod = shorthorizonduration
-                longstartafter = shorthorizonduration
-                longshrinkatleast = longhydroperiodduration - steplength
-                longminperiod = steplength
-                global longhorizon = (longfirstperiod, longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration, longstartafter, longshrinkatleast, longminperiod) # shrinkable
-            elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
-                global longhorizon = (longhorizonduration, longhydroperiodduration, longrhsdata, longmethod, longclusters, longunitduration)
-            end
-            lhh, lph = make_horizons(longhorizon...)
-
-            # Simplify modelobjects
-            aggzone = getaggzone(settings)
-            aggsupplyn = settings["problems"]["prognosis"]["aggsupplyn"]
-            removestoragehours = settings["problems"]["shorttermstoragecutoff_hours"]
-            residualarealist = settings["problems"]["prognosis"]["residualarealist"]
-            simplifyinputs = (aggzone, aggsupplyn, removestoragehours, residualarealist)
-
-            # Medium
-            medhorizonduration = Millisecond(Day(settings["horizons"]["med"]["horizonduration_days"]))
-            medhydroperiodduration = Millisecond(Day(settings["horizons"]["med"]["hydroperiodduration_days"])); @assert medhorizonduration.value % longhydroperiodduration.value == 0
-            medrhsdata = getrhsdata(settings["horizons"]["med"]["rhsdata"], datayear, scenarioyearstart, scenarioyearstop)
-            medmethod = parse_methods(settings["horizons"]["med"]["rhsmethod"])
-            medclusters = settings["horizons"]["med"]["clusters"]
-            medunitduration = Millisecond(Hour(settings["horizons"]["med"]["unitduration_hours"]))
-
-            if (settings["problems"]["prognosis"]["shrinkable"] == "both") || (settings["problems"]["prognosis"]["shrinkable"] == "both_nophasein")
-                medfirstperiod = shorthorizonduration
-                medstartafter = longstartafter
-                medshrinkatleast = longhydroperiodduration - steplength
-                medminperiod = steplength
-                global medhorizon = (medfirstperiod, medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration, medstartafter, medshrinkatleast, medminperiod) # shrinkable
-            elseif settings["problems"]["prognosis"]["shrinkable"] == "no"
-                global medhorizon = (medhorizonduration, medhydroperiodduration, medrhsdata, medmethod, medclusters, medunitduration)
-            end
-            mhh, mph = make_horizons(medhorizon...)
-
-            # Short
-            shorthydroperiodduration = Millisecond(Hour(settings["horizons"]["short"]["hydroperiodduration_hours"])); @assert medhorizonduration.value % shorthorizonduration.value == 0
-            shortpowerparts = settings["horizons"]["short"]["powerparts"]
-            shorthorizon = (shorthorizonduration, shorthydroperiodduration, shortpowerparts)
-            shh, sph = make_horizons(shorthorizon...)
-
-            # Start storages
-            dummyprogstorages = getstorages(dummyprogobjects)
-            getstartstates!(startstates, settings["problems"], "prognosis", dataset, dummyprogobjects, dummyprogstorages, tnormal)
-            startstates_max!(dummyprogstorages, tnormal, startstates)
-
-            # Preallocate storage for problems and results on different cores. Use package DistributedArrays
-            # Distribute scenarios
-            progscentimes = distribute(progscenmodmethod.scentimes)
-
-            # Problems are built, updated, solved, and stored on a specific core. Moving a problem between cores is expensive, so we want it to only exist on one core. 
-            longprobs = distribute([parse_methods(settings["problems"]["prognosis"]["long"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
-            medprobs = distribute([parse_methods(settings["problems"]["prognosis"]["med"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
-            shortprobs = distribute([parse_methods(settings["problems"]["prognosis"]["short"]["prob"]) for i in 1:length(progscentimes)], progscentimes)
-
-            # Results are moved between cores. These are much smaller than longprobs/medprobs/shortprobs and are inexpensive to move between cores.
-            medprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
-            shortprices = distribute([Dict() for i in 1:length(progscentimes)], progscentimes)
-            medendvaluesobjs = distribute([EndValues() for i in 1:length(progscentimes)], progscentimes)
-            nonstoragestates = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(progscentimes)], progscentimes)
-
-            # Organise inputs and outputs
-            probs = (longprobs, medprobs, shortprobs)
-            horizons = (lhh, lph, mhh, mph, shh, sph)
-            proginput = (numcores, progscentimes, steplength, startstates, simplifyinputs)
-            progoutput = (medprices, shortprices, medendvaluesobjs, nonstoragestates)
-            
-            # Which solver and settings should we use for each problem? Warmstart for long/med and presolve for short
-            probmethodsprognosis = [parse_methods(settings["problems"]["prognosis"]["long"]["solver"]), parse_methods(settings["problems"]["prognosis"]["med"]["solver"]), parse_methods(settings["problems"]["prognosis"]["short"]["solver"])]
-            # probmethodsprognosis = [CPLEXSimplexMethod(), CPLEXSimplexMethod(), CPLEXSimplexMethod(warmstart=false)]
-
-            # Initialize price prognosis models and run for first time step. Run scenarios in parallell
-            println("  Calling pl_prognosis_init!")
-            @time pl_prognosis_init!(probmethodsprognosis, probs, progelements, horizons, proginput, progoutput)
-
-            # Convert DistributedArray of prices to local process
-            medpriceslocal = convert(Vector{Dict}, medprices)
-            shortpriceslocal = convert(Vector{Dict}, shortprices)
-            println("  Total init prognosis")
-        end
-
-        println("Mapping between aggregated and detailed storages")
-        @time begin
-            # Global energy equivalent detailed reservoirs
-            for element in elements
-                if element.typename == GLOBALENEQKEY
-                    enekvglobaldict[split(element.instancename,"GlobalEneq_")[2]] = element.value["Value"]
-                end
-            end
-
-            medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict);
-        end
-    end
-
-    if haskey(settings["problems"], "stochastic")
-        println("Init stochastic")
-        @time begin
-            # Cut parameters
-            maxcuts = settings["problems"]["stochastic"]["maxcuts"] # preallocate fixed number of cuts, no cut selection
-            lb = settings["problems"]["stochastic"]["lb"] # lower bound of the future value in the first iteration
-            reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-
-            # Inputs
-            stochasticelements = removeelements!(copy(elements), aggzone=getaggzone(settings), rm_basebalances=!onlysubsystemmodel)
-            storageinfo = (startstates, medendvaluesdicts)
-            
-            ustoragesystemobjects = Tuple{Vector, Vector{Vector}}[]
-            ushorts = Bool[]
-
-            # Make modelobjects for short-term subsystemmodels
-            if haskey(settings["horizons"]["stochastic"], "short")
-                # Parameters for stochastic subsystemmodel problems (could also split totalduration into master- and subduration)
-                smpdp = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["master"]["power"]["periodduration_hours"])) # short/med - master/sub - period duration - power/hydro (commodity)
-                smpdh = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["master"]["hydro"]["periodduration_hours"]))
-                sspdp = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["subs"]["power"]["periodduration_hours"]))
-                sspdh = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["subs"]["hydro"]["periodduration_hours"])) # both master and subproblems for PHS and batteries has 2 hour resolution
-                shorttotalduration = Millisecond(Hour(settings["horizons"]["stochastic"]["short"]["horizonduration_hours"])) # total duration of master and subproblem
-                shortterminputs = (stochasticelements, shorttotalduration, smpdp, smpdh, sspdp, sspdh, stochscenmodmethod.scentimes, phaseinoffset, shortpriceslocal, true)
-                
-                # Make sure time resolution of hydro and power are compatible (TODO: Could add function that makes them compatible)
-                @assert ceil(Int64, steplength/smpdp) == ceil(Int64, steplength/smpdh)
-                @assert ceil(Int64, (shorttotalduration-steplength)/sspdp) == ceil(Int64, (shorttotalduration-steplength)/sspdh)
-
-                println("  Make modelobjects for short-term subsystemmodels")
-                @time stochasticmodelobjects = makemastersubobjects!(shortterminputs, ustoragesystemobjects, ushorts, settings)
-            end
-            
-            if haskey(settings["horizons"]["stochastic"], "med") # Make modelobjects for medium-term subsystemmodels
-                mmpdp = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["master"]["power"]["periodduration_hours"]))
-                mmpdh = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["master"]["hydro"]["periodduration_hours"])) # daily resolution in hydro master problems
-                mspdp = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["subs"]["power"]["periodduration_hours"]))
-                mspdh = Millisecond(Hour(settings["horizons"]["stochastic"]["med"]["subs"]["hydro"]["periodduration_hours"])) # 7-day resolution in hydro subproblems
-                medtotalduration = Millisecond(Day(settings["horizons"]["stochastic"]["med"]["horizonduration_days"])) # we reuse prices for two weeks, so have to be two weeks shorter than price prognosis problem
-                medterminputs = (stochasticelements, medtotalduration, mmpdp, mmpdh, mspdp, mspdh, stochscenmodmethod.scentimes, phaseinoffset, medpriceslocal, false)
-
-                @assert ceil(Int64, steplength/mmpdp) == ceil(Int64, steplength/mmpdh)
-                @assert ceil(Int64, (medtotalduration-steplength)/mspdp) == ceil(Int64, (medtotalduration-phaseinoffset)/mspdh)
-
-                println("  Make modelobjects for medium-term subsystemmodels")
-                @time stochasticmodelobjects = makemastersubobjects!(medterminputs, ustoragesystemobjects, ushorts, settings)
-            end
-            # TODO: Print info about number of short and med term systems
-
-            # Preallocate storagevalues
-            if getheadlosscost(settings["problems"]["stochastic"]["master"])
-                wwnumscen = stochnumscen*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
-            else
-                wwnumscen = stochnumscen*2 + 1 # scenarios + master operative 
-            end
-            if settings["results"]["storagevalues"]
-                ustoragevalues = [zeros(Float64, steps, Int(wwnumscen), length(getcutobjects(msso))) for (i,(msso,ssso)) in enumerate(ustoragesystemobjects)]
-            else
-                ustoragevalues = [[0] for (i,sso) in enumerate(ustoragesystemobjects)]
-            end
-
-            # Add detailed startstates
-            stochasticstorages = getstorages(stochasticmodelobjects)
-            getstartstates!(startstates, settings["problems"], "stochastic", dataset, stochasticmodelobjects, stochasticstorages, tnormal)
-            startstates_max!(stochasticstorages, tnormal, startstates)
-
-            # Distribute subsystemmodels with inputs and outputs on different cores
-            if !haskey(dataset, "progelements")
-                storagesystemobjects, shorts, storagevalues = distribute_subsystems_flat(ustoragesystemobjects, ushorts, ustoragevalues)
-            else
-                storagesystemobjects, shorts, storagevalues = distribute_subsystems(ustoragesystemobjects, ushorts, ustoragevalues) # somewhat smart distribution of subsystemmodels to cores based on how many modelobjects in eac subsystemmodel
-            end
-            masters = distribute([parse_methods(settings["problems"]["stochastic"]["master"]["prob"]) for i in 1:length(storagesystemobjects)], storagesystemobjects)
-            subs = distribute([[] for i in 1:length(storagesystemobjects)], storagesystemobjects)
-            states = distribute([Dict{StateVariableInfo, Float64}() for i in 1:length(storagesystemobjects)], storagesystemobjects)
-            cuts = distribute([SimpleSingleCuts() for i in 1:length(storagesystemobjects)], storagesystemobjects)
-            storagesystems = distribute([Dict() for i in 1:length(storagesystemobjects)], storagesystemobjects)
-
-            # Which solver and settings should we use for each problem?
-            # probmethodsstochastic = [CPLEXSimplexMethod(), CPLEXSimplexMethod()]
-            probmethodsstochastic = [parse_methods(settings["problems"]["stochastic"]["master"]["solver"]), parse_methods(settings["problems"]["stochastic"]["subs"]["solver"])]
-
-            # Initialize subsystemmodel problems and run for first time step. Run subsystemmodels in parallell
-            println("  Calling pl_stochastic_init!")
-            @time pl_stochastic_init!(probmethodsstochastic, numcores, storagesystemobjects, shorts, masters, subs, states, cuts, storagevalues, storageinfo, lb, maxcuts, reltol, tnormal, stochscenmodmethod, settings)
-
-            # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
-            println("  Update start states for next time step")
-            @time masterslocal = convert(Vector{Prob}, masters)
-            if !haskey(settings["problems"], "clearing")
-                @assert length(masterslocal) == 1
-                getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
-            end
-            println("  Total init stochastic")
-        end
-    end
-
-    if haskey(settings["problems"], "clearing")
-        println("Init clearing")
-        @time begin
-            # Bring data to local core
-            println("  Bring cuts to local core")
-            @time cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
-            println("  Bring nonstoragestates to local core")
-            @time nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
-            if settings["results"]["storagevalues"]
-                clearingstoragevalues = zeros(Float64, steps, 1, sum([length(cuts.objects) for cuts in cutslocal]))
-            end
-
-            # Initialize market clearing problem and run for first time step
-            cpdp = Millisecond(Hour(settings["horizons"]["clearing"]["power"]["periodduration_hours"])) # clearing period duration power/battery
-            cnpp = ceil(Int64, steplength/cpdp) # clearing numperiods power/battery
-            cpdh = Millisecond(Hour(settings["horizons"]["clearing"]["hydro"]["periodduration_hours"])) # clearing period duration hydro
-            # cpdh = Millisecond(Hour(2)) # clearing period duration hydro
-            cnph = ceil(Int64, steplength/cpdh) # clearing numperiods hydro
-            probmethodclearing = parse_methods(settings["problems"]["clearing"]["solver"])
-            # probmethodclearing = HighsSimplexSIPMethod(warmstart=false, concurrency=min(8, numcores)) # Which solver and settings should we use for each problem?
-            # probmethodclearing = CPLEXIPMMethod(warmstart=false, concurrency=min(8, numcores))
-            println("  Calling clearing_init")
-            @time clearing, nonstoragestatesmean, varendperiod = clearing_init(probmethodclearing, elements, tnormal, steplength, cpdp, cpdh, startstates, masterslocal, cutslocal, nonstoragestateslocal, settings)
-
-            # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
-            getstartstates!(clearing, detailedrescopl, enekvglobaldict, startstates)
-
-            # Update clearing storage values
-            if settings["results"]["storagevalues"]
-                j = 0
-                for cuts in cutslocal
-                    for obj in cuts.objects
-                        j += 1
-                        balance = getbalance(obj)
-                        clearingstoragevalues[1, 1, j] = getcondual(clearing, getid(balance), varendperiod[getid(obj)])
-                        if haskey(balance.metadata, GLOBALENEQKEY)
-                            clearingstoragevalues[1, 1, j] = clearingstoragevalues[1, 1, j] / balance.metadata[GLOBALENEQKEY]
-                        end
-                    end
-                end
-            end
-            println("  Total init clearing")
-        end
-    end
-
-    println("Init results")
-    @time begin
-        if haskey(settings["results"], "mainresults")
-            # Initialize and collect start states
-            statenames = collect(keys(startstates))
-            statematrix = zeros(length(values(startstates)), Int(steps))
-            statematrix[:,1] .= collect(values(startstates))
-
-            if haskey(settings["problems"], "clearing")
-                clearingobjects = Dict(zip([getid(obj) for obj in getobjects(clearing)],getobjects(clearing))) # collect results from all areas
-                if settings["results"]["mainresults"] == "all"
-                    resultobjects = getobjects(clearing) # collect results for all areas
-                else
-                    resultobjects = getpowerobjects(clearingobjects, settings["results"]["mainresults"]); # only collect results for one area
-                end
-                prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, clearing, clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
-            else
-                clearingobjects = Dict(zip([getid(obj) for obj in getobjects(masterslocal[1])],getobjects(masterslocal[1]))) # collect results from all areas
-                if settings["results"]["mainresults"] == "all"
-                    resultobjects = getobjects(masterslocal[1]) # collect results for all areas
-                else
-                    resultobjects = getpowerobjects(clearingobjects, settings["results"]["mainresults"]); # only collect results for one area
-                end
-                
-                if haskey(settings["horizons"]["stochastic"], "short")
-                    cpdp = smpdp
-                    cnpp = ceil(Int64, steplength/cpdp)
-                    cpdh = smpdh
-                    cnph = ceil(Int64, steplength/cpdh)
-                else
-                    @assert haskey(settings["horizons"]["stochastic"], "med")
-                    cpdp = mmpdp
-                    cnpp = ceil(Int64, steplength/cpdp)
-                    cpdh = mmpdh
-                    cnph = ceil(Int64, steplength/cpdh)
-                end
-                prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = init_results(steps, masterslocal[1], clearingobjects, resultobjects, cnpp, cnph, cpdp, tnormal, true);
-            end
-        end
-
-        # Time problems
-        if haskey(settings["problems"], "prognosis")
-            prognosistimes = distribute([zeros(steps-1, 3, 3) for i in 1:length(progscentimes)], progscentimes) # update, solve, total per step for long, med, short
-        end
-        if haskey(settings["problems"], "stochastic")
-            stochastictimes = distribute([zeros(steps-1, 9) for i in 1:length(storagesystemobjects)], storagesystemobjects) # update master, update sub, iterate total, solve master, solve sub, iterations, total per system
-        end
-        if haskey(settings["problems"], "clearing")
-            clearingtimes = zeros(steps-1, 3); # update, solve, total
-        end
-    end
-
-    # Only do scenario modelling and calculate new cuts every 8 days (other reuse scenarios and cuts)
-    skipmed = Millisecond(Hour(0))
-    skipmax = Millisecond(Hour(steplength*(settings["time"]["skipmax"]-1)))
-
-    stepnr = 2; # already ran first step in initialization
-
-    println("Simulate forward")
-    totaltime = @elapsed while stepnr <= steps # while step <= steps and count elapsed time
-
-        # Increment simulation/main scenario and uncertainty scenarios
-        tnormal += steplength
-        println(string("Step: ", stepnr, " tnormal: ", tnormal))
-    
-        increment_scenmodmethod!(simscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
-
-        if (prognumscen < simnumscen) && (skipmed.value == 0)
-            println("  Choose new price prognosis scenarios")
-            @time scenariomodelling!(progscenmodmethod, values(dummyprogobjects), prognumscen, simscenmodmethod, progscendelta)
-        elseif prognumscen < simnumscen
-            increment_scenmodmethod!(progscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
-        end
-        prognumscen != simnumscen && renumber_scenmodmethod!(progscenmodmethod)
-
-        if (stochnumscen < prognumscen) && (skipmed.value == 0)
-            # Choose new scenarios
-            println("  Choose new stochastic scenarios")
-            @time scenariomodelling!(stochscenmodmethod, values(dummyobjects), stochnumscen, progscenmodmethod, stochscendelta)
-        elseif stochnumscen < prognumscen
-            increment_scenmodmethod!(stochscenmodmethod, phaseinoffset, phaseindelta, phaseinsteps)
-        end
-    
-        # Increment skipmed - should we reuse storagevalues this time step?
+"""
+Initialise the problems, run through all the simulation steps, store results and cleanup the databases
+"""
+function run_serial(input::AbstractJulESInput)
+    (t, steps, steplength, skipmed, skipmax) = init_jules(input)
+    totaltime = @elapsed for stepnr in 1:steps
+        step_jules(t, steplength, stepnr, skipmed)
+        t += steplength
         skipmed += Millisecond(steplength)
         if skipmed > skipmax
             skipmed = Millisecond(0)
         end
+    end
+    println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
+    println(string("Time usage per simulation step: ", round(totaltime/steps; digits=2), " seconds\n"))
+
+    output = get_output_final(steplength, skipmax)
+    cleanup_jules(input)
+    return output
+end
+
+function init_jules(input::AbstractJulESInput)
+    (t, steps, steplength, skipmed, skipmax) = get_simperiod(input)
+
+    init_extensions(input)
+
+    init_databases(input)
     
-        # Deterministic long/mid/short - calculate scenarioprices for all 30 
-        if haskey(settings["problems"], "prognosis")
-            progscentimes = distribute(progscenmodmethod.scentimes, progscentimes) # TODO: Find better solution
-            println("  Call pl_prognosis!")
-            @time pl_prognosis!(numcores, longprobs, medprobs, shortprobs, medprices, shortprices, nonstoragestates, startstates, progscentimes, skipmed, prognosistimes, stepnr)
-            shortpriceslocal = convert(Vector{Dict}, shortprices)
-            if (stochnumscen < prognumscen) && (skipmed.value == 0)
-                medpriceslocal = convert(Vector{Dict}, medprices)
-                medendvaluesdicts = getendvaluesdicts(medendvaluesobjs, detailedrescopl, enekvglobaldict)
+    return (t, steps, steplength, skipmed, skipmax)
+end
+
+function init_extensions(input::AbstractJulESInput)
+    cores = get_cores(input)
+    @sync for core in cores
+        @spawnat core add_local_extensions()
+    end
+    return
+end
+
+function add_local_extensions()
+    TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateBucketIfm")] = includeTwoStateBucketIfm!
+    TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(ABSTRACT_INFLOW_MODEL, "TwoStateNeuralODEIfm")] = includeTwoStateNeuralODEIfm!
+    TuLiPa.INCLUDEELEMENT[TuLiPa.TypeKey(TuLiPa.PARAM_CONCEPT, "ModeledInflowParam")] = includeModeledInflowParam!
+    return
+end
+
+"""
+Free local databases and clean-up temporary stuff.
+Call gc on each core before returning.
+"""
+function cleanup_jules(input::AbstractJulESInput)
+    cores = get_cores(input)
+    @sync for core in cores
+        @spawnat core free_local_db()
+    end
+    @sync for core in cores
+        @spawnat core GC.gc()
+    end
+    return
+end
+
+"""
+Create local db object on each core. Fill the db
+with common information wich will be kept in sync.
+The common inforation is 
+- the user input
+- the distribution of problems on cores
+- horizons for each scenario, commodity and term (i.e. the time resolution)
+In addition, problems are created on cores in accordance 
+with the initial distribution. Which problems residing on which cores, may 
+be changed at run time by dynamic load balancer. The precence of common (synced)
+information on each core, will make it easier for the dynamic load balancer,
+as this makes it easy to kill a problem on one core, and re-build it on another core.
+"""
+function init_databases(input::AbstractJulESInput)
+    cores = get_cores(input)
+    firstcore = first(cores)
+
+    println("Add local dbs")
+    @time begin
+        @sync for core in cores
+            @spawnat core create_local_db()
+        end
+    end
+
+    println("Add local cores")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_core(core)
+        end
+    end
+
+    println("Add local input")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_input(input)
+        end
+    end
+
+    println("Add local dummyobjects")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_dummyobjects()
+        end
+    end
+
+    println("Add local subsystems")
+    @time begin
+        wait(@spawnat firstcore add_local_subsystems())
+    end
+
+    println("Add local scenmod")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_scenariomodelling()
+        end
+    end
+    
+    # will calculate distribution on core c and then 
+    # transfer this data to all other cores
+    println("Add local problem distribution")
+    @time begin
+        wait(@spawnat firstcore add_local_problem_distribution())
+    end
+
+    println("Add local horizons")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_horizons()
+        end
+    end
+
+    println("Add local problems")
+    @time begin
+        @sync for core in cores
+            @spawnat core add_local_problems()
+        end
+        if !get_onlysubsystemmodel(input)
+            @sync for core in cores
+                @spawnat core add_local_cp()
             end
         end
+    end
 
-        # Stochastic sub systems - calculate storage value
-        if haskey(settings["problems"], "stochastic")
-            println("  Call pl_stochastic!")
-            @time pl_stochastic!(numcores, masters, subs, states, cuts, storagevalues, startstates, medpriceslocal, shortpriceslocal, medendvaluesdicts, shorts, reltol, tnormal, stochscenmodmethod, skipmed, stochastictimes, stepnr, settings)
-            masterslocal = convert(Vector{Prob}, masters)
+    println("Add local output")
+    @time begin
+        add_local_output()
+    end
+    return
+end
+
+"""
+Store input in local db.
+Input is treated read-only.
+Input is serialized and copied to cores,
+except the core that owns the input-object.
+"""
+function add_local_input(input::AbstractJulESInput)
+    db = get_local_db()
+    db.input = input
+    return
+end
+
+"""
+Store output on same core as cp
+Needs to have all info and kept updated for load balancing
+Updated after each simulation step
+"""
+function add_local_output()
+    db = get_local_db()
+    wait(@spawnat db.core_main init_local_output())
+    return
+end
+
+"""
+Add local core
+"""
+function add_local_core(core::CoreId)
+    db = get_local_db()
+    db.core = core
+    return
+end
+
+"""
+Build dummyobjects on each core
+For use in scenario modelling, validate elements and collect storages
+"""
+function add_local_dummyobjects()
+    db = get_local_db()
+
+    # Horizons are needed to build modelobjects, but not used in scenario modelling
+    dummyperiods = 10
+    dummyperiodduration = Millisecond(Hour(24))
+    dummyhorizon = TuLiPa.SequentialHorizon(dummyperiods, dummyperiodduration)
+
+    # Make dummy elements
+    elements = copy(get_elements(db.input))
+    commodities = get_settings(db)["horizons"]["commodities"]
+    for commodity in commodities
+        set_horizon!(elements, commodity, dummyhorizon)
+        if commodity == "Power"
+            set_horizon!(elements, "Battery", dummyhorizon)
         end
-    
-        # Update start states for next time step, also mapping to aggregated storages and max capacity in aggregated
-        if haskey(settings["problems"], "clearing")
-            # Market clearing
-            cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
-            nonstoragestateslocal = convert(Vector{Dict}, nonstoragestates)
-        
-            println("  Call clearing!")
-            @time clearing!(clearing, tnormal, startstates, masterslocal, cutslocal, nonstoragestateslocal, nonstoragestatesmean, detailedrescopl, enekvglobaldict, varendperiod, clearingtimes, stepnr, settings)
+    end
+    (dummyobjects, dummydeps) = TuLiPa.getmodelobjects(elements, validate=true, deps=true)
+    aggzonedict = Dict()
+    for (k,v) in get_aggzone(get_settings(db))
+        aggzonedict[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * k)] = [dummyobjects[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+    end
+    TuLiPa.aggzone!(dummyobjects, aggzonedict)
+    db.dummyobjects = (dummyobjects, dummydeps)
 
-            if haskey(settings["results"], "mainresults")
-                update_results!(stepnr, clearing, prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
-                statematrix[:,Int(stepnr)] .= collect(values(startstates))
+    # Make dummy prog elements
+    if haskey(db.input.dataset, "elements_ppp")
+        elements_ppp = copy(get_elements_ppp(db.input))
+        for commodity in commodities
+            set_horizon!(elements_ppp, commodity, dummyhorizon)
+            if commodity == "Power"
+                set_horizon!(elements_ppp, "Battery", dummyhorizon)
             end
+        end
+        (dummyobjects_ppp, dummydeps_ppp) = TuLiPa.getmodelobjects(elements_ppp, validate=true, deps=true)
+        db.dummyobjects_ppp = (dummyobjects_ppp, dummydeps_ppp)
+    else
+        db.dummyobjects_ppp = db.dummyobjects
+    end
+    return
+end # TODO: Only validate once
 
-            if settings["results"]["storagevalues"]
-                j = 0
-                for cuts in cutslocal
-                    for obj in cuts.objects
-                        j += 1
-                        balance = getbalance(obj)
-                        clearingstoragevalues[stepnr, 1, j] = getcondual(clearing, getid(balance), varendperiod[getid(obj)])
-                        if haskey(balance.metadata, GLOBALENEQKEY)
-                            clearingstoragevalues[stepnr, 1, j] = clearingstoragevalues[stepnr, 1, j] / balance.metadata[GLOBALENEQKEY]
+"""
+Make vector of subsystems
+"""
+function add_local_subsystems()
+    db = get_local_db()
+
+    subsystems = create_subsystems(db)
+    subsystems_evp = get_subsystems_evp(subsystems)
+    subsystems_stoch = get_subsystems_stoch(subsystems)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        @spawnat core set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
+    end
+
+    return
+end
+
+# TODO: Implement this function for different methods
+function create_subsystems(db)
+    elements = get_elements(db.input)
+    subsystems = AbstractSubsystem[]
+    modelobjects, dependencies = db.dummyobjects
+    deep_dependencies = TuLiPa.get_deep_dependencies(elements, dependencies)
+    # filtered_dependencies = get_filtered_dependencies(elements, dependencies)
+    # deep_dependencies = get_deep_dependencies(elements, filtered_dependencies; concepts=[PARAM_CONCEPT, METADATA_CONCEPT])
+    if get_onlysubsystemmodel(db.input)
+        commodities = get_commodities_from_dataelements(get_elements(db.input))
+        endvaluemethod_sp = get_settings(db.input)["problems"]["stochastic"]["endcondition"] # TODO: Parse to struct
+        return push!(subsystems, ExogenSubsystem(commodities, endvaluemethod_sp))
+    else
+        settings = get_settings(db.input)
+        method = settings["subsystems"]["function"]
+        if method == "twostorageduration"
+            storagesystems = TuLiPa.getstoragesystems(modelobjects)
+            shorttermstoragesystems = TuLiPa.getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            for storagesystem in shorttermstoragesystems
+                commodities = get_commodities_from_storagesystem(storagesystem)
+                main = Set()
+                all = Set()
+                for obj in storagesystem
+                    i, element = get_element_from_obj(elements, obj)
+                    # println(getelkey(elements[i]))
+                    push!(main, i)
+                    push!(all, i)
+                end
+
+                for (_i, _element) in enumerate(elements)
+                    _deps = deep_dependencies[_element]
+                    _add = false
+                    for _dep in _deps
+                        if _dep in main
+                            _add = true
+                        end
+                    end
+                    if _add
+                        for _dep in _deps
+                            if !(_dep in all)
+                                elkey = TuLiPa.getelkey(elements[_dep])
+                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                    # println(elkey)
+                                    push!(all, _dep)
+                                end
+                            end
                         end
                     end
                 end
-            end
-        else
-            getstartstates!(masterslocal[1], detailedrescopl, enekvglobaldict, startstates)
+                # println(length(all))
 
-            if haskey(settings["results"], "mainresults")
-                update_results!(stepnr, masterslocal[1], prices, rhstermvalues, production, consumption, hydrolevels, batterylevels, powerbalances, rhsterms, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages, clearingobjects, cnpp, cnph, cpdp, tnormal)   
-                statematrix[:,Int(stepnr)] .= collect(values(startstates))
+                shortstochduration = parse_duration(settings["subsystems"], "shortstochduration")
+                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, shortstochduration)
+
+                priceareas = get_priceareas(storagesystem)
+                skipmed_impact = false
+                subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "startequalstop", skipmed_impact)
+                push!(subsystems, subsystem)
             end
-        end
-        
-        # Increment step
-        stepnr += 1
-    end
-    
-    # Total time use and per step
-    println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
-    println(string("Time usage per timestep: ", round(totaltime/steps; digits=2), " seconds\n"))
-    
-    println("Handle output")
-    @time begin
-        skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
-        if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing") # TODO: Split up
-            # Prognosis and clearing times
-            clearingtimes1 = mean(clearingtimes, dims=1)
-            
-            factors = [skipfactor,skipfactor,1]
-            dims = size(prognosistimes[1])
-            dims = (dims..., length(prognosistimes))
-            prognosistimes1 = reshape(cat(prognosistimes..., dims=4), dims)
-            prognosistimes2 = transpose(dropdims(mean(prognosistimes1,dims=(1,4)),dims=(1,4))).*factors
-            progclear = vcat(prognosistimes2, mean(clearingtimes, dims=1))
-            df = DataFrame(model=["long","med","short","clearing"], update=progclear[:,1], solve=progclear[:,2], total=progclear[:,3])
-            df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
-            display(df[!, [1, 2, 3, 5, 4]])
-        end
-        
-        if haskey(settings["problems"], "stochastic")
-            # Stochastic times
-            core_dists = distribute([0 for i in 1:length(storagesystemobjects)], storagesystemobjects)
-            @sync @distributed for core in 1:max(numcores-1,1)
-                core_dist = localpart(core_dists)
-            
-                localix = 0
-                for range in localindices(core_dists)
-                    for ix in range
-                        localix += 1
-                        core_dist[localix] = myid()
+            num_shortterm = length(subsystems)
+            println("Number of shortterm storagesystems $num_shortterm")
+
+            longtermstoragesystems = TuLiPa.getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
+            for storagesystem in longtermstoragesystems
+                commodities = get_commodities_from_storagesystem(storagesystem)
+                if length(commodities) == 1
+                    continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
+                end  
+
+                # all = Set()
+                # for obj in storagesystem
+                #     i, element = get_element_from_obj(elements, obj)
+                #     for dep in deep_dependencies[element]
+                #         if !(dep in all)
+                #             println(getelkey(elements[dep]))
+                #             push!(all, dep)
+                #         end
+                #     end
+                # end 
+
+                main = Set()
+                all = Set()
+                for obj in storagesystem
+                    i, element = get_element_from_obj(elements, obj)
+                    # println(getelkey(elements[i]))
+                    push!(main, i)
+                    push!(all, i)
+                end
+
+                for (_i, _element) in enumerate(elements)
+                    _deps = deep_dependencies[_element]
+                    _add = false
+                    for _dep in _deps
+                        if _dep in main
+                            _add = true
+                        end
+                    end
+                    if _add
+                        for _dep in _deps
+                            if !(_dep in all)
+                                elkey = TuLiPa.getelkey(elements[_dep])
+                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                    # println(elkey)
+                                    push!(all, _dep)
+                                end
+                            end
+                        end
                     end
                 end
+                # println(length(all))
+
+                # completed = Set()
+                # remaining = Set()
+                # for obj in storagesystem
+                #     i, element = get_element_from_obj(elements, obj)
+                #     push!(remaining, i)
+                # end
+                # while length(remaining) > 0
+                #     i = pop!(remaining)
+                #     push!(completed, i)
+                #     # # Deps over
+                #     elkey = getelkey(elements[i])
+                #     println(elkey)
+                #     for dep in dependencies[elkey]
+                #         if !(dep in completed) && (dep <= length(elements))
+                #             if !(elkey.conceptname in ["Commodity", "Arrow"])
+                #                 push!(remaining, dep)
+                #             end
+                #         end
+                #     end
+                #     # Deps under
+                #     for (_i, _element) in enumerate(elements)
+                #         _elkey = getelkey(_element)
+                #         if (_elkey != elkey)
+                #             _deps = dependencies[_elkey]
+                #             for _dep in _deps
+                #                 if _dep == i
+                #                     if (_dep in completed) && !(_elkey.conceptname in ["TimeVector", "TimeValues"])
+                #                         push!(remaining, _i)
+                #                     end
+                #                 end
+                #             end
+                #         end
+                #     end
+                # end
+                # println(length(completed))
+
+                longstochduration = parse_duration(settings["subsystems"], "longstochduration")
+                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
+
+                priceareas = get_priceareas(storagesystem)
+                skipmed_impact = true  
+                if has_longevduration(settings)
+                    longevduration = parse_duration(settings["subsystems"], "longevduration")
+                    horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
+
+                    subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                else
+                    subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                end
+                push!(subsystems, subsystem)
             end
-            
-            dims = size(stochastictimes[1])
-            dims = (dims..., length(stochastictimes))
-            st1 = reshape(cat(stochastictimes..., dims=4), dims)
-            st2 = transpose(dropdims(mean(st1, dims=1), dims=1))
-            df = DataFrame(umaster=st2[:,1], usub=st2[:,2], conv=st2[:,3], count=st2[:,4], smaster=st2[:,5], ssub=st2[:,6], hlmaster=st2[:,7], wwres=st2[:,8], total=st2[:,9], short=ushorts, core=core_dists)
-            df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :wwres, :total]] .= df[df.short .== false, [:umaster, :usub, :conv, :count, :smaster, :ssub, :hlmaster, :wwres, :total]] .* skipfactor
-            dfsort = sort(df, :total, rev=true)
-            display(dfsort)
-            # display(plot(dfsort[!, :total]))
-            
-            df1 = combine(groupby(df, :core), 
-                        :umaster => sum, 
-                        :usub => sum, 
-                        :conv => sum, 
-                        :count => sum, 
-                        :smaster => sum, 
-                        :ssub => sum,
-                        :hlmaster => sum,
-                        :wwres => sum,
-                        :total => sum)
-            dfsort = sort(df1, :total_sum, rev=true)
-            display(dfsort)
-            # display(plot(dfsort[!, :total_sum]))
-            display(mean.(eachcol(select(df1, Not(:core)))))
+            println("Number of longterm storagesystems $(length(subsystems)-num_shortterm)")
+            num_ignored = length(shorttermstoragesystems) + length(longtermstoragesystems) - length(subsystems)
+            println("Number of ignored storagesystems not connected to power $num_ignored")
+        else
+            error("getsubsystem() not implemented for $(method)")
         end
+    end
+    return subsystems
+end
 
-        # Store results
-        data = Dict()
+function has_longevduration(settings)
+    for key in keys(settings["subsystems"])
+        if startswith(key, "longevduration")
+            return true
+        end
+    end
+    return false  
+end
 
-        if haskey(settings["results"], "mainresults")
-            # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)
-            rhstermtotals = dropdims(sum(rhstermvalues,dims=1),dims=1)
-            rhstermsupplyidx = []
-            rhstermdemandidx = []
+# Which time resolution (short, med, long) should we use horizons and prices from
+# TODO: Should we use different terms for master and subproblems?
+function get_term_ppp(horizons, commodities, duration)
+    dummycommodity = commodities[1]
+    horizon_short = horizons[(ShortTermName, dummycommodity)]
+    if duration <= TuLiPa.getduration(horizon_short) # TODO: also account for slack in case of reuse of watervalues
+        return ShortTermName
+    end
+    horizon_med = horizons[(MedTermName, dummycommodity)]
+    if duration <= TuLiPa.getduration(horizon_med) # TODO: also account for slack in case of reuse of watervalues
+        return MedTermName
+    end
+    horizon_long = horizons[(LongTermName, dummycommodity)]
+    @assert duration <= TuLiPa.getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
+    return LongTermName   
+end
 
-            for k in 1:length(rhsterms)
-                if rhstermtotals[k] > 0
-                    push!(rhstermsupplyidx, k)
-                elseif rhstermtotals[k] < 0
-                    push!(rhstermdemandidx, k)
+function get_filtered_dependencies(elements, dependencies)
+    filtered_dependencies = Dict{TuLiPa.ElementKey,Vector{Int}}()
+    for element in elements # remove dependencies of elemements not in elements list
+        filtered = [x for x in dependencies[TuLiPa.getelkey(element)] if x < length(elements)]
+        filtered_dependencies[TuLiPa.getelkey(element)] = filtered
+    end
+    return filtered_dependencies
+end
+
+function get_elkey_from_element(dataelements::Vector{TuLiPa.DataElement}, element::TuLiPa.DataElement)
+    for _element in dataelements
+        if _element == element
+            return TuLiPa.getelkey(element)
+        end
+    end
+    error("element not in dataelements")
+end
+
+function get_element_from_obj(dataelements::Vector{TuLiPa.DataElement}, obj::Any)
+    objid = TuLiPa.getid(obj)
+    conceptname = objid.conceptname
+    instancename = objid.instancename
+    for (i, dataelement) in enumerate(dataelements)
+        if (dataelement.conceptname == conceptname) && (dataelement.instancename == instancename)
+            return (i, dataelement)
+        end
+    end
+end
+    
+function get_commodities_from_dataelements(elements::Vector{TuLiPa.DataElement})
+    commodities = CommodityName[]
+    for element in elements
+        if element.conceptname == TuLiPa.BALANCE_CONCEPT
+            commodity = element.value[TuLiPa.COMMODITY_CONCEPT]
+            if !(commodity in commodities)
+                push!(commodities, commodity)
+            end
+        end
+    end
+    return commodities
+end
+
+function get_obj_from_id(objects::Vector, id::TuLiPa.Id)
+    for obj in objects
+        if TuLiPa.getid(obj) == id
+            return obj
+        end
+    end
+end
+
+function get_commodities_from_storagesystem(storagesystem::Vector)
+    commodities = Set{CommodityName}()
+    for obj in storagesystem
+        if obj isa TuLiPa.Flow
+            for arrow in TuLiPa.getarrows(obj)
+                commodity = TuLiPa.getcommodity(TuLiPa.getbalance(arrow))
+                if !(commodity in commodities)
+                    push!(commodities, TuLiPa.getinstancename(TuLiPa.getid(commodity)))
                 end
             end
+        end
+    end
+    return collect(commodities)
+end
 
-            # Put rhsterms together with supplies and demands
-            rhstermsupplyvalues = rhstermvalues[:,rhstermsupplyidx]
-            rhstermdemandvalues = rhstermvalues[:,rhstermdemandidx]*-1
+function set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
+    db = get_local_db()
+    
+    db.subsystems = subsystems
+    db.subsystems_evp = subsystems_evp
+    db.subsystems_stoch = subsystems_stoch
+    return
+end
 
-            rhstermsupplynames = [getinstancename(rhsterm) for rhsterm in rhsterms[rhstermsupplyidx]]
-            rhstermsupplybalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in rhstermbalances[rhstermsupplyidx]]
-            rhstermdemandnames = [getinstancename(rhsterm) for rhsterm in rhsterms[rhstermdemandidx]]
-            rhstermdemandbalancenames = [split(getinstancename(r), "PowerBalance_")[2] for r in rhstermbalances[rhstermdemandidx]]
-
-            supplynames = [[getinstancename(plant) for plant in plants];rhstermsupplynames]
-            supplybalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in plantbalances];rhstermsupplybalancenames]
-            supplyvalues = hcat(production,rhstermsupplyvalues)
-
-            demandnames = [[getinstancename(demand) for demand in demands];rhstermdemandnames]
-            demandbalancenames = [[split(getinstancename(p), "PowerBalance_")[2] for p in demandbalances];rhstermdemandbalancenames]
-            demandvalues = hcat(consumption, rhstermdemandvalues)
-
-            # Prepare for plotting results
-            hydronames = [getinstancename(hydro) for hydro in hydrostorages]
-            batterynames = [getinstancename(battery) for battery in batterystorages]
-            powerbalancenames = [split(getinstancename(getid(powerbalance)), "PowerBalance_")[2] for powerbalance in powerbalances]
-
-            # Convert reservoir filling to TWh
-            hydrolevels1 = copy(hydrolevels)
-            for (i,hydroname) in enumerate(hydronames)
-                if haskey(getbalance(clearingobjects[hydrostorages[i]]).metadata, GLOBALENEQKEY)
-                    hydrolevels1[:,i] .= hydrolevels1[:,i]*getbalance(clearingobjects[hydrostorages[i]]).metadata[GLOBALENEQKEY]
+function get_priceareas(objects)
+    priceareas = []
+    for obj in objects
+        if obj isa TuLiPa.Flow
+            for arrow in TuLiPa.getarrows(obj)
+                balance = TuLiPa.getbalance(arrow)
+                if (TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(balance))) == "Power") && !TuLiPa.isexogen(balance)
+                    pricearea = TuLiPa.getinstancename(TuLiPa.getid(balance))
+                    push!(priceareas, pricearea)
                 end
             end
+        end
+    end
+    return unique(priceareas)
+end
 
-            # Indexes
-            dim = getoutputindex(config["main"], datayear, scenarioyear)
-            x1 = [getisoyearstart(dim) + Week(weekstart-1) + cpdp*(t-1) for t in 1:first(size(supplyvalues))] # power/load resolution
-            x2 = [getisoyearstart(dim) + Week(weekstart-1) + cpdh*(t-1) for t in 1:first(size(hydrolevels))]; # reservoir resolution
-            x3 = [getisoyearstart(dim) + Week(weekstart-1) + steplength*(t-1) for t in 1:steps]; # state resolution
 
-            outputformat = config["main"]["outputformat"]
-            if outputformat != "juliadict"
-                datetimeformat = config["main"]["datetimeformat"]
-                x1 = Dates.format.(x1, datetimeformat)
-                x2 = Dates.format.(x2, datetimeformat)
-                x3 = Dates.format.(x3, datetimeformat)
+"""
+Initial scenario modelling for simulation, prognosis and stochastic
+"""
+function add_local_scenariomodelling()
+    db = get_local_db()
+    scenmod_data = get_scenmod_data(db)
+    numscen_data = get_numscen_data(db)
+    scenarios_data = get_scenarios(scenmod_data)
+    settings = get_settings(db)
+
+    # Simulation scenario modelling - choose scenarios for price prognosis and endvalue problems for the whole simulation
+    # TODO: Add possibility to update simulation scenarios (for long simulations)
+    numscen_sim = get_numscen_sim(db.input)
+    @assert numscen_sim <= numscen_data
+    if numscen_sim == numscen_data
+        db.scenmod_sim = scenmod_data
+    else
+        db.scenmod_sim = get_scenmod(scenarios_data, settings["scenariogeneration"]["simulation"], numscen_sim, collect(values(first(get_dummyobjects_ppp(db)))))
+    end
+
+    # Stochastic scenario modelling - choose scenarios for the price stochastic models
+    numscen_stoch = get_numscen_stoch(db.input)
+    @assert numscen_stoch <= numscen_sim
+    if numscen_stoch == numscen_sim
+        db.scenmod_stoch = db.scenmod_sim
+    else
+        db.scenmod_stoch = get_scenmod(scenarios_data, settings["scenariogeneration"]["stochastic"], numscen_stoch, collect(values(first(get_dummyobjects(db)))))
+    end
+
+    return
+end
+
+"""
+Initial allocation of problems to cores.
+Done in order to minimize difference in expected work 
+by different cores, based on static information (i.e. differences in problem size).
+As static information will leave some room for improvement, the initial allocation 
+may be improved by dynamic load balancer during simulation, in order to optimize 
+further (i.e. move problem-core-location) based on collected timing data.
+The initial distribution on cores is calculated on one core, and then transfered
+to all other cores. 
+"""
+function add_local_problem_distribution()
+    db = get_local_db()
+
+    if !get_onlysubsystemmodel(db.input)
+        db.dist_ppp = get_dist_ppp(db.input)
+        println(db.dist_ppp)
+        db.dist_evp = get_dist_evp(db.input, db.subsystems_evp)
+        println(db.dist_evp)
+    end
+    db.dist_ifm = get_dist_ifm(db.input)
+    println(db.dist_ifm)
+    (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
+    println(dist_mp)
+    println(dist_sp)
+    db.dist_sp = dist_sp
+    db.dist_mp = dist_mp
+
+    db.core_main = get_core_main(db.input)
+    println(db.core_main)
+
+    dists = (db.dist_ifm, db.dist_ppp, db.dist_evp, db.dist_sp, db.dist_mp, db.core_main)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != db.core
+            @spawnat core set_local_dists(dists)
+        end
+    end
+
+    return
+end
+
+function set_local_dists(dists)
+    db = get_local_db()
+
+    (dist_ifm, dist_ppp, dist_evp, dist_sp, dist_mp, core_main) = dists
+    db.dist_ifm = dist_ifm
+    db.dist_ppp = dist_ppp
+    db.dist_evp = dist_evp
+    db.dist_sp = dist_sp
+    db.dist_mp = dist_mp
+    db.core_main = core_main
+    
+    return
+end
+
+"""
+Add set of horizons (for all scenarios, terms and commodities) on each core, with a promise to keep them in sync.
+The "master" horizons come from the db.ppp (price prognosis problems). When we update and solve a ppp,
+the horizons in this problem may (depending on type) be updated (e.g. we may change durations for some periods, 
+or change which hours are mapped to load blocks). We want to store a synced set of all horizons on all cores 
+(to enable dynamic load balancing), so if a master horizon changes, we need to transfer this information to all 
+non-master copies of this horizon residing on other cores than the core holding the master. Since we for 
+non-master horizons do update-by-transfer, we want to turn off update-by-solve behaviour for these horizons. 
+Hence, we wrap them in ExternalHorizon, which specializes the update! method to do nothing. 
+Which cores own which scenarios are defined in db.dist_ppp at any given time. 
+"""
+function add_local_horizons()
+    db = get_local_db()
+    horizons = get_horizons(db.input)
+
+    d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}()
+
+    if !get_onlysubsystemmodel(db.input)
+        for (scenarioix, ownercore) in db.dist_ppp
+            for ((term, commodity), horizon) in horizons
+                if (ownercore != db.core) && !get_onlysubsystemmodel(db.input)
+                    horizon = TuLiPa.getlightweightself(horizon)
+                    horizon = deepcopy(horizon)
+                    externalhorizon = TuLiPa.ExternalHorizon(horizon)
+                    d[(scenarioix, term, commodity)] = externalhorizon
+                elseif ownercore == db.core
+                    horizon = deepcopy(horizon) # TODO: Only deepcopy parts of horizon
+                    d[(scenarioix, term, commodity)] = horizon
+                end
             end
+        end
+    else
+        commoditites = get_settings(db.input)["horizons"]["commodities"]
+        for commodity in commoditites
+            term = MasterTermName
+            for (subix, ownercore) in db.dist_mp
+                if ownercore == db.core
+                    d[(1, term, commodity)] = horizons[term, commodity]
+                end
+            end
+            term = SubTermName
+            for (scenarioix, subix, ownercore) in db.dist_sp
+                if ownercore == db.core
+                    d[(scenarioix, term, commodity)] = deepcopy(horizons[term, commodity])
+                end
+            end
+        end
+    end
+    db.horizons = d
+    return
+end
 
-            data["areanames"] = powerbalancenames |> Vector{String}
-            data["pricematrix"] = prices
-            data["priceindex"] = x1
+function add_local_cp()
+    db = get_local_db()
+    if db.core == db.core_main
+        create_cp()
+    end
+    return
+end
 
-            data["resnames"] = hydronames
-            data["resmatrix"] = hydrolevels1
-            data["resindex"] =  x2
+function add_local_problems()
+    db = get_local_db()
 
-            data["batnames"] = batterynames
-            data["batmatrix"] = batterylevels
-            data["batindex"] =  x2
+    create_ifm()
 
-            data["statenames"] = statenames
-            data["statematrix"] = permutedims(statematrix)
-            data["stateindex"] =  x3
+    for (scenix, core) in db.dist_ppp
+        if core == db.core
+            create_ppp(scenix)
+        end
+    end
 
-            data["supplyvalues"] = supplyvalues
-            data["supplynames"] = supplynames
-            data["supplybalancenames"] = supplybalancenames
+    for (scenix, subix, core) in db.dist_evp
+        if core == db.core
+            create_evp(scenix, subix)
+        end
+    end
 
-            data["demandvalues"] = demandvalues
-            data["demandnames"] = demandnames
-            data["demandbalancenames"] = demandbalancenames
+    for (subix, core) in db.dist_mp
+        if core == db.core
+            create_mp(subix)
+        end
+    end
+
+    for (scenix, subix, core) in db.dist_sp
+        if core == db.core
+            create_sp(scenix, subix)
+        end
+    end
+    return
+end
+
+# TODO: Use or remove delta
+function step_jules(t, steplength, stepnr, skipmed)
+    db = get_local_db()
+    cores = get_cores(db)
+    firstcore = first(cores)
+
+    println(t)
+    println("Garbage collection")
+    @time begin
+        if mod(stepnr, 20) == 0
+            @sync for core in cores
+                @spawnat core GC.gc()
+            end
+        end
+    end
+    
+    println("Startstates")
+    @time begin
+        @sync for core in cores
+            @spawnat core update_startstates(stepnr, t)
+        end
+    end
+    
+    println("Scenario modelling")
+    @time begin
+        if stepnr == 1 
+            wait(@spawnat firstcore update_scenmod_sim())
+        end
+        # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
+        # TODO: Do scenario modelling based on ifm
+        wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
+    end
+
+    println("Solve inflow models")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_ifm(t, stepnr)
         end
 
-        if settings["results"]["times"]
-            if haskey(settings["problems"], "prognosis") 
-                data["prognosistimes"] = prognosistimes1
-            end
-            if haskey(settings["problems"], "stochastic") 
-                data["stochastictimes"] = st1
-            end
-            if haskey(settings["problems"], "clearing")
-                data["clearingtimes"] = clearingtimes
-            end
+        @sync for core in cores
+            @spawnat core synchronize_ifm_output()
         end
 
-        if settings["results"]["storagevalues"]
-            cutslocal = convert(Vector{SimpleSingleCuts}, cuts)
-            if haskey(settings["problems"], "clearing")
-                data["storagevalues"] = cat(cat(convert(Vector{Array{Float64, 3}}, storagevalues)..., dims=3), clearingstoragevalues, dims=2)
-            else
-                data["storagevalues"] = cat(convert(Vector{Array{Float64, 3}}, storagevalues)..., dims=3)
-            end
-            
-            data["svindex"] = x3
-            data["storagenames"] = [getinstancename(getid(obj)) for cut in cutslocal for obj in cut.objects]
-            data["shorts"] = [shorts[i] for (i, cut) in enumerate(cutslocal) for obj in cut.objects]
-            data["skipfactor"] = skipfactor
-            data["scenarionames"] = String[]
-            for i in 1:stochnumscen
-                data["scenarionames"] = vcat(data["scenarionames"], [string(i) * " min", string(i) * " max"])
-            end
-            push!(data["scenarionames"], "Operative master")
-            if getheadlosscost(settings["problems"]["stochastic"]["master"])
-                push!(data["scenarionames"], "Operative master after")
-            end
-            if haskey(settings["problems"], "clearing")
-                push!(data["scenarionames"], "Operative clearing")
+        @sync for core in cores
+            @spawnat core update_ifm_derived()
+        end
+    end
+
+    println("Solve price prognosis problems")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_ppp(t, steplength, stepnr, skipmed)
+        end
+
+        @sync for core in cores
+            @spawnat core synchronize_horizons(skipmed)
+        end
+    end
+	
+    println("End value problems")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_evp(t, stepnr, skipmed)
+        end
+    end
+
+    println("Subsystem problems")
+    @time begin
+        @sync for core in cores
+            @spawnat core solve_stoch(t, stepnr, skipmed)
+        end
+    end
+
+    println("Clearing problem")
+    @time begin
+        if !get_onlysubsystemmodel(db.input)
+            @sync for core in cores
+                @spawnat core solve_cp(t, stepnr, skipmed)
             end
         end
     end
 
-    return data
+    println("Update output")
+    @time begin
+        wait(@spawnat db.core_main update_output(t, stepnr))
+    end
+	
+    # do dynamic load balancing here
+    return
+end
+
+# TODO: input parameters ok?
+
+# TODO: consistent use of states and duals
+
+function set_scenmodchanges_sim(changes)
+    db = get_local_db()
+    set_changes(db.scenmod_sim, changes)
+    return
+end
+function set_scenmodchanges_stoch(changes)
+    db = get_local_db()
+    set_changes(db.scenmod_stoch, changes)
+    return
+end
+
+function update_scenmod(scenmodmethod, scenmodmethodoptions, renumber, simtime, skipmed)
+    db = get_local_db()
+
+    if (length(get_scenarios(scenmodmethod)) != length(get_scenarios(scenmodmethodoptions))) && (skipmed.value == 0)
+        choose_scenarios!(scenmodmethod, scenmodmethodoptions, simtime, db.input) # see JulES/scenariomodelling.jl
+        renumber && renumber_scenmodmethod!(scenmodmethod)
+    end
+    return
+end
+
+function update_scenmod_sim()
+    db = get_local_db()
+
+    update_scenmod(db.scenmod_sim, get_scenmod_data(db), true, get_simstarttime(db.input), Millisecond(0))
+    changes = get_changes(db.scenmod_sim)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != db.core
+            @spawnat core set_scenmodchanges_sim(changes)
+        end
+    end
+    return
+end
+function update_scenmod_stoch(simtime, skipmed)
+    db = get_local_db()
+
+    update_scenmod(db.scenmod_stoch, db.scenmod_sim, false, simtime, skipmed)
+    changes = get_changes(db.scenmod_stoch)
+
+    cores = get_cores(db.input)
+    @sync for core in cores
+        if core != db.core
+            @spawnat core set_scenmodchanges_stoch(changes)
+        end
+    end
+    return
 end

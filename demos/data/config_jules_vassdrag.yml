@@ -1,17 +1,18 @@
 main:
     inputpath: "data"
-    numcores: 1
+    function: nve_vassdrag
+    numcores: 7
     
     datayears: [2021]
     weatheryears: [1981]
     weekstart: 1
     simulationyears: 1
-    extrasteps: 0 # see steplength_hours
+    extrasteps: 0 # see horizons: master: termduration_hours
     
-    settings: weeklydaily
+    settings: weeklydaily # weeklydaily, sixhourly
 
     outputformat: "juliadict" # hdf5 hvis du kjører gjennom JulESIO
-    outputindex: scenarioyear # standard for series simulation
+    outputindex: weatheryear # standard for series simulation
 
 data:
     price: "Prices_HydroCen_LowEmission_2030_1958-2015.csv"
@@ -22,33 +23,21 @@ data:
 #############################################################
 weeklydaily:
     time:
-        scenarioyearstart: 1981 # diff from prognose
-        scenarioyearstop: 2010 # diff from prognose
+        weatheryearstart: 1981 # diff from prognose
+        weatheryearstop: 2011 # diff from prognose
         probtime:
             normaltime: FixedDataTwoTime # diff from prognose
             phaseintime: PhaseinFixedDataTwoTime # diff from prognose
             phaseindelta_days: 35
             phaseinsteps: 7
-        
-        steplength_hours: 48
+
         skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
-    scenariogeneration:
-        simulation:
-            function: InflowClusteringMethod
-            numscen: 7
-            scendelta_days: 365
-            parts: 4
-        prognosis:
-            numscen: 7
-        stochastic:
-            numscen: 7
     problems:
         stochastic:
             maxcuts: 13
             lb: -10000000000.0
             reltol: 0.0001
             master:
-                prob: HiGHS_Prob()
                 solver: HighsSimplexMethod()
                 statedependentprod: true
                 statedependentpump: true
@@ -58,21 +47,101 @@ weeklydaily:
             startstorages:
                 function: percentage
                 percentage: 65.0
+            endcondition: monthly_price
+    scenariogeneration:
+        simulation:
+            function: InflowClusteringMethod
+            numscen: 7
+            scendelta_days: 365
+            parts: 4
     horizons:
-        stochastic:
-            med:
-                horizonduration_days: 420
-                master:
-                    power:
-                        periodduration_hours: 24
-                    hydro:
-                        periodduration_hours: 24
-                subs:
-                    power:
-                        periodduration_hours: 168
-                    hydro:
-                        periodduration_hours: 168
+        commodities: ["Hydro", "Power"]
+        sub:
+            termduration_days: 420
+            Power:
+                function: SequentialHorizon
+                periodduration_hours: 168
+            Hydro:
+                function: SequentialHorizon
+                periodduration_hours: 168
+        master: 
+            termduration_hours: 48
+            Power:
+                function: SequentialHorizon
+                periodduration_hours: 24
+            Hydro:
+                function: SequentialHorizon
+                periodduration_hours: 24
     results:
         mainresults: "all"
+        scenarios: true
+        times: true
+        storagevalues: true
+
+
+
+fourhourly:
+    time:
+        weatheryearstart: 1981 # diff from prognose
+        weatheryearstop: 2011 # diff from prognose
+        probtime:
+            normaltime: FixedDataTwoTime # diff from prognose
+            phaseintime: PhaseinFixedDataTwoTime # diff from prognose
+            phaseindelta_days: 7
+            phaseinsteps: 7
+
+        skipmax: 1 # how many steps should the watervalues be reused / at what interval should new watervalues be calculated
+    problems:
+        stochastic:
+            maxcuts: 13
+            lb: -10000000000.0
+            reltol: 0.0001
+            master:
+                solver: HighsSimplexMethod()
+                statedependentprod: true
+                statedependentpump: true
+                headlosscost: true
+            subs:
+                solver: HighsSimplexMethod()
+            startstorages:
+                function: percentage
+                percentage: 65.0
+            endcondition: monthly_price
+    scenariogeneration:
+        simulation:
+            function: InflowClusteringMethod
+            numscen: 30
+            scendelta_days: 365
+            parts: 4
+    horizons:
+        commodities: ["Hydro", "Power"]
+        # shrinkable:
+        #     startafter_days: 9 # clear + first period
+        #     shrinkatleast_days: 100 # 14 periods
+        sub:
+            termduration_days: 420
+            # shrinkable: true
+            Hydro:
+                function: SequentialHorizon
+                periodduration_hours: 168
+            Power:
+                function: AdaptiveHorizon
+                macro: Hydro
+                rhsdata:
+                    function: FindFirstDynamicExogenPriceAHData
+                rhsmethod: KMeansAHMethod()
+                clusters: 4
+                unitduration_hours: 4
+        master: 
+            termduration_hours: 48
+            Hydro:
+                function: SequentialHorizon
+                periodduration_hours: 4
+            Power:
+                function: SequentialHorizon
+                periodduration_hours: 4
+    results:
+        mainresults: "all"
+        scenarios: true
         times: true
         storagevalues: true
