@@ -624,6 +624,9 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     ifm_allQ::Array{Float64}
     actualQ::Matrix{Float64}
 
+    flowbased::Vector
+    flowbasedvalues::Matrix{Float64}
+
     function DefaultJulESOutput(input)
         return new(Dict(),Dict(),Dict(),Dict(),[],
         Dict(),
@@ -632,7 +635,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
         [],[],[],[],[],[],Dict(),
         Dict(),[],[],[],[],[],Dict(),[],[],Dict(),[],[],Dict(),Dict(),
         [],[],
-        [],[],[],Matrix{Float64}(undef, (0,0)),[],Matrix{Float64}(undef, (0,0)))
+        [],[],[],Matrix{Float64}(undef, (0,0)),[],Matrix{Float64}(undef, (0,0)), [], Matrix{Float64}(undef, (0,0)))
     end
 end
 
@@ -1004,7 +1007,8 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 resultobjects = TuLiPa.getpowerobjects(db.output.modelobjects, settings["results"]["mainresults"]); # only collect results for one area
             end
 
-            powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = TuLiPa.order_result_objects(resultobjects, true)
+            flowbased, powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = TuLiPa.order_result_objects(resultobjects, true)
+            db.output.flowbased = flowbased
             db.output.powerbalances = powerbalances
             db.output.rhsterms = rhsterms
             db.output.rhstermbalances = rhstermbalances
@@ -1017,6 +1021,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.hydrostorages = hydrostorages
             db.output.batterystorages = batterystorages
 
+            db.output.flowbasedvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.flowbased))
             db.output.prices = zeros(Int(numperiods_powerhorizon*steps), length(db.output.powerbalances))
             db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon*steps), length(db.output.rhsterms))
             db.output.production = zeros(Int(numperiods_powerhorizon*steps), length(db.output.plants))
@@ -1076,7 +1081,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
         powerrange = Int(numperiods_powerhorizon*(stepnr-1)+1):Int(numperiods_powerhorizon*(stepnr))
         hydrorange = Int(numperiods_hydrohorizon*(stepnr-1)+1):Int(numperiods_hydrohorizon*(stepnr))
-        TuLiPa.get_results!(prob_results, db.output.prices, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
+        TuLiPa.get_results!(prob_results, db.output.prices, db.output.flowbasedvalues, db.output.rhstermvalues, db.output.production, db.output.consumption, db.output.hydrolevels, db.output.batterylevels, db.output.flowbased, db.output.powerbalances, db.output.rhsterms, db.output.plants, db.output.plantbalances, db.output.plantarrows, db.output.demands, db.output.demandbalances, db.output.demandarrows, db.output.hydrostorages, db.output.batterystorages, db.output.modelobjects, powerrange, hydrorange, periodduration_power, t)
 
         if haskey(settings["results"], "otherterms")
             TuLiPa.get_results!(stepnr, prob_results, db.output.otherobjects, db.output.otherbalances, db.output.othervalues, db.output.modelobjects, t)
@@ -1662,6 +1667,9 @@ function get_output_main_local()
             x2 = Dates.format.(x2, datetimeformat)
             x3 = Dates.format.(x3, datetimeformat)
         end
+
+        data["flowbasednames"] = [f.instancename for f in db.output.flowbased]
+        data["flowbasedvalues"] = db.output.flowbasedvalues
 
         data["areanames"] = powerbalancenames |> Vector{String}
         data["pricematrix"] = db.output.prices
