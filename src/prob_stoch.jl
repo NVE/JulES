@@ -490,15 +490,22 @@ function update_endconditions_sp(scenix::ScenarioIx, subix::SubsystemIx, t::TuLi
     parentscenix = get_scenmod_stoch(db).scenarios[scenix].parentscenario
 
     storages = TuLiPa.getstorages(TuLiPa.getobjects(sp.prob))
-    if endvaluemethod_sp == "monthly_price"
+    if endvaluemethod_sp == "monthly_price" # hydro with energy equivalent
         exogenprice = find_firstprice(TuLiPa.getobjects(sp.prob))
         scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
         scenprice = TuLiPa.getparamvalue(exogenprice, scentime + TuLiPa.getduration(TuLiPa.gethorizon(storages[1])), TuLiPa.MsTimeDelta(Week(4))) 
-
         for obj in storages
             enddual = scenprice * TuLiPa.getbalance(obj).metadata[TuLiPa.GLOBALENEQKEY]
             T = TuLiPa.getnumperiods(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
             TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), T, -enddual)
+        end
+    elseif endvaluemethod_sp == "daily_price_battery"
+        exogenprice = find_firstprice(TuLiPa.getobjects(sp.prob))
+        scentime = get_scentphasein(t, get_scenarios(db.scenmod_stoch)[scenix], db.input)
+        scenprice = TuLiPa.getparamvalue(exogenprice, scentime + TuLiPa.getduration(TuLiPa.gethorizon(storages[1])), TuLiPa.MsTimeDelta(Day(1))) 
+        for obj in storages
+            T = TuLiPa.getnumperiods(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
+            TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), T, -scenprice)
         end
     elseif endvaluemethod_sp == "startequalstop"
         set_endstates!(sp.prob, storages, db.startstates)
