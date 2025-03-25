@@ -281,159 +281,161 @@ function create_subsystems(db)
         return push!(subsystems, ExogenSubsystem(commodities, endvaluemethod_sp))
     else
         settings = get_settings(db.input)
-        method = settings["subsystems"]["function"]
-        if method == "twostorageduration"
-            storagesystems = TuLiPa.getstoragesystems(modelobjects)
-            shorttermstoragesystems = TuLiPa.getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            for storagesystem in shorttermstoragesystems
-                commodities = get_commodities_from_storagesystem(storagesystem)
-                main = Set()
-                all = Set()
-                for obj in storagesystem
-                    i, element = get_element_from_obj(elements, obj)
-                    # println(getelkey(elements[i]))
-                    push!(main, i)
-                    push!(all, i)
-                end
-
-                for (_i, _element) in enumerate(elements)
-                    _deps = deep_dependencies[_element]
-                    _add = false
-                    for _dep in _deps
-                        if _dep in main
-                            _add = true
-                        end
+        if haskey(settings, "subsystems")
+            method = settings["subsystems"]["function"]
+            if method == "twostorageduration"
+                storagesystems = TuLiPa.getstoragesystems(modelobjects)
+                shorttermstoragesystems = TuLiPa.getshorttermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
+                for storagesystem in shorttermstoragesystems
+                    commodities = get_commodities_from_storagesystem(storagesystem)
+                    main = Set()
+                    all = Set()
+                    for obj in storagesystem
+                        i, element = get_element_from_obj(elements, obj)
+                        # println(getelkey(elements[i]))
+                        push!(main, i)
+                        push!(all, i)
                     end
-                    if _add
+
+                    for (_i, _element) in enumerate(elements)
+                        _deps = deep_dependencies[_element]
+                        _add = false
                         for _dep in _deps
-                            if !(_dep in all)
-                                elkey = TuLiPa.getelkey(elements[_dep])
-                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
-                                    # println(elkey)
-                                    push!(all, _dep)
+                            if _dep in main
+                                _add = true
+                            end
+                        end
+                        if _add
+                            for _dep in _deps
+                                if !(_dep in all)
+                                    elkey = TuLiPa.getelkey(elements[_dep])
+                                    if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                        # println(elkey)
+                                        push!(all, _dep)
+                                    end
                                 end
                             end
                         end
                     end
+                    # println(length(all))
+
+                    shortstochduration = parse_duration(settings["subsystems"], "shortstochduration")
+                    horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, shortstochduration)
+
+                    priceareas = get_priceareas(storagesystem)
+                    skipmed_impact = false
+                    subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "startequalstop", skipmed_impact)
+                    push!(subsystems, subsystem)
                 end
-                # println(length(all))
+                num_shortterm = length(subsystems)
+                println("Number of shortterm storagesystems $num_shortterm")
 
-                shortstochduration = parse_duration(settings["subsystems"], "shortstochduration")
-                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, shortstochduration)
+                longtermstoragesystems = TuLiPa.getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
+                for storagesystem in longtermstoragesystems
+                    commodities = get_commodities_from_storagesystem(storagesystem)
+                    if length(commodities) == 1
+                        continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
+                    end  
 
-                priceareas = get_priceareas(storagesystem)
-                skipmed_impact = false
-                subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, shortstochduration, "startequalstop", skipmed_impact)
-                push!(subsystems, subsystem)
-            end
-            num_shortterm = length(subsystems)
-            println("Number of shortterm storagesystems $num_shortterm")
+                    # all = Set()
+                    # for obj in storagesystem
+                    #     i, element = get_element_from_obj(elements, obj)
+                    #     for dep in deep_dependencies[element]
+                    #         if !(dep in all)
+                    #             println(getelkey(elements[dep]))
+                    #             push!(all, dep)
+                    #         end
+                    #     end
+                    # end 
 
-            longtermstoragesystems = TuLiPa.getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
-            for storagesystem in longtermstoragesystems
-                commodities = get_commodities_from_storagesystem(storagesystem)
-                if length(commodities) == 1
-                    continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
-                end  
-
-                # all = Set()
-                # for obj in storagesystem
-                #     i, element = get_element_from_obj(elements, obj)
-                #     for dep in deep_dependencies[element]
-                #         if !(dep in all)
-                #             println(getelkey(elements[dep]))
-                #             push!(all, dep)
-                #         end
-                #     end
-                # end 
-
-                main = Set()
-                all = Set()
-                for obj in storagesystem
-                    i, element = get_element_from_obj(elements, obj)
-                    # println(getelkey(elements[i]))
-                    push!(main, i)
-                    push!(all, i)
-                end
-
-                for (_i, _element) in enumerate(elements)
-                    _deps = deep_dependencies[_element]
-                    _add = false
-                    for _dep in _deps
-                        if _dep in main
-                            _add = true
-                        end
+                    main = Set()
+                    all = Set()
+                    for obj in storagesystem
+                        i, element = get_element_from_obj(elements, obj)
+                        # println(getelkey(elements[i]))
+                        push!(main, i)
+                        push!(all, i)
                     end
-                    if _add
+
+                    for (_i, _element) in enumerate(elements)
+                        _deps = deep_dependencies[_element]
+                        _add = false
                         for _dep in _deps
-                            if !(_dep in all)
-                                elkey = TuLiPa.getelkey(elements[_dep])
-                                if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
-                                    # println(elkey)
-                                    push!(all, _dep)
+                            if _dep in main
+                                _add = true
+                            end
+                        end
+                        if _add
+                            for _dep in _deps
+                                if !(_dep in all)
+                                    elkey = TuLiPa.getelkey(elements[_dep])
+                                    if elkey.conceptname != TuLiPa.BALANCE_CONCEPT # getstoragesystems have already picked the balances we want to include, ignores power balances
+                                        # println(elkey)
+                                        push!(all, _dep)
+                                    end
                                 end
                             end
                         end
                     end
+                    # println(length(all))
+
+                    # completed = Set()
+                    # remaining = Set()
+                    # for obj in storagesystem
+                    #     i, element = get_element_from_obj(elements, obj)
+                    #     push!(remaining, i)
+                    # end
+                    # while length(remaining) > 0
+                    #     i = pop!(remaining)
+                    #     push!(completed, i)
+                    #     # # Deps over
+                    #     elkey = getelkey(elements[i])
+                    #     println(elkey)
+                    #     for dep in dependencies[elkey]
+                    #         if !(dep in completed) && (dep <= length(elements))
+                    #             if !(elkey.conceptname in ["Commodity", "Arrow"])
+                    #                 push!(remaining, dep)
+                    #             end
+                    #         end
+                    #     end
+                    #     # Deps under
+                    #     for (_i, _element) in enumerate(elements)
+                    #         _elkey = getelkey(_element)
+                    #         if (_elkey != elkey)
+                    #             _deps = dependencies[_elkey]
+                    #             for _dep in _deps
+                    #                 if _dep == i
+                    #                     if (_dep in completed) && !(_elkey.conceptname in ["TimeVector", "TimeValues"])
+                    #                         push!(remaining, _i)
+                    #                     end
+                    #                 end
+                    #             end
+                    #         end
+                    #     end
+                    # end
+                    # println(length(completed))
+
+                    longstochduration = parse_duration(settings["subsystems"], "longstochduration")
+                    horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
+
+                    priceareas = get_priceareas(storagesystem)
+                    skipmed_impact = true  
+                    if has_longevduration(settings)
+                        longevduration = parse_duration(settings["subsystems"], "longevduration")
+                        horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
+
+                        subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                    else
+                        subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
+                    end
+                    push!(subsystems, subsystem)
                 end
-                # println(length(all))
-
-                # completed = Set()
-                # remaining = Set()
-                # for obj in storagesystem
-                #     i, element = get_element_from_obj(elements, obj)
-                #     push!(remaining, i)
-                # end
-                # while length(remaining) > 0
-                #     i = pop!(remaining)
-                #     push!(completed, i)
-                #     # # Deps over
-                #     elkey = getelkey(elements[i])
-                #     println(elkey)
-                #     for dep in dependencies[elkey]
-                #         if !(dep in completed) && (dep <= length(elements))
-                #             if !(elkey.conceptname in ["Commodity", "Arrow"])
-                #                 push!(remaining, dep)
-                #             end
-                #         end
-                #     end
-                #     # Deps under
-                #     for (_i, _element) in enumerate(elements)
-                #         _elkey = getelkey(_element)
-                #         if (_elkey != elkey)
-                #             _deps = dependencies[_elkey]
-                #             for _dep in _deps
-                #                 if _dep == i
-                #                     if (_dep in completed) && !(_elkey.conceptname in ["TimeVector", "TimeValues"])
-                #                         push!(remaining, _i)
-                #                     end
-                #                 end
-                #             end
-                #         end
-                #     end
-                # end
-                # println(length(completed))
-
-                longstochduration = parse_duration(settings["subsystems"], "longstochduration")
-                horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
-
-                priceareas = get_priceareas(storagesystem)
-                skipmed_impact = true  
-                if has_longevduration(settings)
-                    longevduration = parse_duration(settings["subsystems"], "longevduration")
-                    horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
-
-                    subsystem = EVPSubsystem(commodities, priceareas, collect(all), horizonterm_evp, longevduration, horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
-                else
-                    subsystem = StochSubsystem(commodities, priceareas, collect(all), horizonterm_stoch, longstochduration, "ppp", skipmed_impact)
-                end
-                push!(subsystems, subsystem)
+                println("Number of longterm storagesystems $(length(subsystems)-num_shortterm)")
+                num_ignored = length(shorttermstoragesystems) + length(longtermstoragesystems) - length(subsystems)
+                println("Number of ignored storagesystems not connected to power $num_ignored")
+            else
+                error("getsubsystem() not implemented for $(method)")
             end
-            println("Number of longterm storagesystems $(length(subsystems)-num_shortterm)")
-            num_ignored = length(shorttermstoragesystems) + length(longtermstoragesystems) - length(subsystems)
-            println("Number of ignored storagesystems not connected to power $num_ignored")
-        else
-            error("getsubsystem() not implemented for $(method)")
         end
     end
     return subsystems
