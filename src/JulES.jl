@@ -2,7 +2,15 @@ module JulES
 
 import TuLiPa
 
-using Distributed, Dates, Statistics, Clustering, Distributions, DataFrames, JSON
+using Distributed
+using Dates
+using Statistics
+using Clustering
+using Distributions
+using DataFrames 
+using JSON
+using YAML
+using HDF5
 
 # Used by ifm
 using CSV
@@ -12,7 +20,7 @@ using Lux
 using ComponentArrays
 using Interpolations
 using JLD2
-# TODO: Can remove the ones below because only used for training?
+# Used by Nerual inflow model but not HBV
 # using DiffEqFlux
 # using SciMLSensitivity
 # using Optimization
@@ -34,5 +42,6 @@ include("prob_util.jl")
 include("local_db.jl")
 include("run_serial.jl")
 include("scenariomodelling.jl")
+include("run_jules_wrapper.jl")
 
 end
