@@ -84,6 +84,11 @@ function update_endstates_evp(input, scenix::ScenarioIx, subix::SubsystemIx, evp
             balance = TuLiPa.getbalance(obj)
             bid = TuLiPa.getid(balance)
             instancename = split(TuLiPa.getinstancename(bid), "Balance_")
+            if haskey(enekvglobaldict, instancename[2])
+                if enekvglobaldict[instancename[2]] == 0.0
+                    continue
+                end
+            end
             if haskey(detailedrescopl, instancename[2])
                 balancename = detailedrescopl[instancename[2]]
                 bid = TuLiPa.Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
