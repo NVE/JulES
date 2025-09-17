@@ -39,6 +39,16 @@ function getdataset(config, names, filename_clearing, filename_aggregated)
 	)
 end
 
+function load_ifm_dep()
+	 @eval using CSV
+	 @eval using Random
+	 @eval using OrdinaryDiffEq
+	 @eval using Lux
+	 @eval using ComponentArrays
+	 @eval using Interpolations
+	 @eval using JLD2
+end
+
 function run_jules(
 			config_path,
 			datayear,
@@ -59,8 +69,10 @@ function run_jules(
 		)
 		
         input = JulES.DefaultJulESInput(config, dataset, datayear, weatheryear)
-        
-        @time data = JulES.run_serial(input)
+
+		has_ifm_results(input) && load_ifm_dep() 
+		
+		@time data = JulES.run_serial(input)
         println("Total serial time above")
 
         println("Save output")
