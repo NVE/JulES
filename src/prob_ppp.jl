@@ -151,7 +151,7 @@ function solve_ppp(t, steplength, stepnr, skipmed)
             if skipmed.value == 0
                 maintiming[3, 1] = @elapsed begin
                     set_startstates!(p.longprob, TuLiPa.getstorages(TuLiPa.getobjects(p.longprob)), startstates)
-                    setstartstates!(p.longprob, startstates)
+                    set_endstates!(p.longprob, TuLiPa.getstorages(TuLiPa.getobjects(p.longprob)), startstates)
 
                     maintiming[1, 1] = @elapsed TuLiPa.update!(p.longprob, scentime)
                     maintiming[2, 1] = @elapsed TuLiPa.solve!(p.longprob)
