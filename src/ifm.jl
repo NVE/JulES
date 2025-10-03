@@ -821,3 +821,16 @@ function copy_elements_iprogtype(elements, iprogtype, ifm_names, ifm_derivedname
     @assert length(elements) == length(elements1)
     return elements1
 end
+
+function initialize_NN_model()
+    error("Extension not loaded")
+end
+
+function basic_bucket_incl_states(p_, itp_Lday, itp_P, itp_T, t_out)
+    error("Extension not loaded")
+end
+
+function NeuralODE_M100(p, norm_S0, norm_S1, norm_P, norm_T, 
+        itp_Lday, itp_P, itp_T, t_out, ann; S_init = [0.0, 0.0])
+    error("Extension not loaded")
+end

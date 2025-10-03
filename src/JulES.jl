@@ -13,13 +13,9 @@ using YAML
 using HDF5
 
 # Used by ifm
-#using CSV
-#using Random
-#using OrdinaryDiffEq
-#using Lux
-#using ComponentArrays
-#using Interpolations
-#using JLD2
+using ComponentArrays
+using Interpolations
+using JLD2
 
 # Used by Nerual inflow model but not HBV
 # using DiffEqFlux
@@ -31,7 +27,6 @@ using HDF5
 
 include("abstract_types.jl") 
 include("dimension_types.jl")
-include("ifm_bsd.jl")
 include("ifm.jl")
 include("generic_io.jl")
 include("io.jl")

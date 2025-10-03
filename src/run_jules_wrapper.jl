@@ -40,15 +40,22 @@ function getdataset(config, names, filename_clearing, filename_aggregated)
 end
 
 function load_ifm_dep()
-	mod = @__MODULE__
+	if myid() == 1
+		function ensure_packages(pkgs::Vector{String})
+			deps = values(Pkg.dependencies())
+			not_installed = filter(pkg -> !any(d -> d.name == pkg, deps), pkgs)
+			if !isempty(not_installed)
+				println("Installing missing packages: ", join(not_installed, ", "))
+				Pkg.add(not_installed)
+			else
+				println("All packages already installed.")
+			end
+		end
+		ensure_packages(["OrdinaryDiffEq"])
+	end
+
 	@everywhere begin
-		@eval $mod using CSV
-		@eval $mod using Random
-		@eval $mod using OrdinaryDiffEq
-		@eval $mod using Lux
-		@eval $mod using ComponentArrays
-		@eval $mod using Interpolations
-		@eval $mod using JLD2
+		Base.eval(Main, :(using OrdinaryDiffEq))
 	end
 end
 
