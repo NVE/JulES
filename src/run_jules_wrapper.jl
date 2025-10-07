@@ -51,11 +51,15 @@ function load_ifm_dep()
 				println("All packages already installed.")
 			end
 		end
-		ensure_packages(["OrdinaryDiffEq"])
+		ensure_packages(["OrdinaryDiffEq", "ComponentArrays", "Interpolations", "JLD2"])
 	end
 
 	@everywhere begin
+		Pkg.instantiate()
 		Base.eval(Main, :(using OrdinaryDiffEq))
+		Base.eval(Main, :(using ComponentArrays))
+		Base.eval(Main, :(using Interpolations))
+		Base.eval(Main, :(using JLD2))
 	end
 end
 

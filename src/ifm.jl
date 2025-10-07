@@ -11,6 +11,7 @@ and integration with JulES
 # TODO: Replace all calls to Day(n) with Millisecond(86400000*n) for better performance 
 
 const ONEDAY_MS_TIMEDELTA = TuLiPa.MsTimeDelta(Day(1))
+const extension_error_msg = "Missing optional dependency, cannot load extension."
 
 struct TwoStateIfmData
     P::Vector{Float32}   
@@ -176,48 +177,11 @@ function _data_obs_update(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
 end
 
 function estimate_u0(m::TwoStateIfmHandler, t::TuLiPa.ProbTime)
-    if isnothing(m.prev_t)
-        _initial_data_obs_update(m, t)
-    else
-        _data_obs_update(m, t)
-    end
-    m.prev_t = t
-
-    # do prediction from start of obs up until today
-    (S0, G0) = (Float32(0), Float32(0))
-
-    # create interpolation input functions
-    itp_method = SteffenMonotonicInterpolation()
-    itp_P = interpolate(m.data_obs.timepoints, m.data_obs.P, itp_method)
-    itp_T = interpolate(m.data_obs.timepoints, m.data_obs.T, itp_method)
-    itp_Lday = interpolate(m.data_obs.timepoints, m.data_obs.Lday, itp_method)
-
-    (__, OED_sol) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_obs.timepoints)
-
-    # extract states
-    est_S0 = Float64(last(OED_sol[1, :]))
-    est_G0 = Float64(last(OED_sol[2, :]))
-
-    return [est_S0, est_G0]
+    error(extension_error_msg)
 end
 
 function predict(m::TwoStateIfmHandler, u0::Vector{Float64}, t::TuLiPa.ProbTime)
-    update_prediction_data(m, m.updater, t)
-
-    # create interpolation input functions
-    itp_method = SteffenMonotonicInterpolation()
-    itp_P = interpolate(m.data_pred.timepoints, m.data_pred.P, itp_method)
-    itp_T = interpolate(m.data_pred.timepoints, m.data_pred.T, itp_method)
-    itp_Lday = interpolate(m.data_pred.timepoints, m.data_pred.Lday, itp_method)
-
-    (S0, G0) = u0
-    (Q, __) = predict(m.predictor, S0, G0, itp_Lday, itp_P, itp_T, m.data_pred.timepoints)
-
-    Q = Float64.(Q)
-
-    Q .= Q .* m.m3s_per_mm
-
-    return Q
+    error(extension_error_msg)
 end
 
 # TODO: Add AutoCorrIfmDataUpdater that use value w(t)*x(t0) + (1-w(t-t0))*x(t), where w(0) = 1 and w -> 0 for larger inputs
@@ -337,86 +301,7 @@ function includeTwoStateNeuralODEIfm!(toplevel::Dict, lowlevel::Dict, elkey::TuL
 end
 
 function common_includeTwoStateIfm!(Constructor, toplevel::Dict, lowlevel::Dict, elkey::TuLiPa.ElementKey, value::Dict)
-    TuLiPa.checkkey(toplevel, elkey)
-
-    model_params = TuLiPa.getdictvalue(value, "ModelParams", String, elkey)
-
-    moments = nothing
-    if haskey(value, "Moments")
-        moments = TuLiPa.getdictvalue(value, "Moments", String, elkey)
-    end
-
-    hist_P = TuLiPa.getdictvalue(value, "HistoricalPercipitation", TuLiPa.TIMEVECTORPARSETYPES, elkey)
-    hist_T = TuLiPa.getdictvalue(value, "HistoricalTemperature", TuLiPa.TIMEVECTORPARSETYPES, elkey)
-    hist_Lday = TuLiPa.getdictvalue(value, "HistoricalDaylight", TuLiPa.TIMEVECTORPARSETYPES, elkey)
-
-    ndays_pred = TuLiPa.getdictvalue(value, "NDaysPred", Real, elkey)
-    try 
-        ndays_pred = Int(ndays_pred)
-        @assert ndays_pred >= 0
-    catch e
-        error("Value for key NDaysPred must be positive integer for $elkey")
-    end
-
-    basin_area = TuLiPa.getdictvalue(value, "BasinArea", Float64, elkey)
-
-    deps = TuLiPa.Id[]
-
-    all_ok = true
-
-    (id, hist_P, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_P)    
-    all_ok = all_ok && ok
-    TuLiPa._update_deps(deps, id, ok)
-    
-    (id, hist_T, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_T)  
-    all_ok = all_ok && ok
-    TuLiPa._update_deps(deps, id, ok)
-
-    (id, hist_Lday, ok) = TuLiPa.getdicttimevectorvalue(lowlevel, hist_Lday)  
-    all_ok = all_ok && ok
-    TuLiPa._update_deps(deps, id, ok)
-
-    if all_ok == false
-        return (false, deps)
-    end
-
-    # TODO: Maybe make this user input in future?
-    updater = SimpleIfmDataUpdater()
-
-    model_params = JLD2.load_object(model_params)
-
-    is_nn = !isnothing(moments)
-    if is_nn
-        # convert model_params, stored with simpler data structure for stability between versions,
-        # into ComponentArray, which the NN-model needs
-        # (the simpler data structure is Vector{Tuple{Vector{Float32}, Vector{Float32}}})
-        _subarray(i) = ComponentArray(weight = model_params[i][1], bias = model_params[i][2])
-        _tuple(i) = (Symbol("layer_", i), _subarray(i))
-        model_params = ComponentArray(NamedTuple(_tuple(i) for i in eachindex(model_params)))
-        # add moments, which is needed to normalize state inputs to the NN-model
-        moments = JLD2.load_object(moments)
-        model_params = (model_params, moments)
-    end
-
-    data_forecast = nothing
-    data_obs = nothing
-    ndays_obs = 365
-    data_forecast = nothing
-    ndays_forecast = 0
-
-
-    
-    periodkey = TuLiPa.Id(TuLiPa.TIMEPERIOD_CONCEPT, "ScenarioTimePeriod")
-    period = lowlevel[periodkey]
-    scen_start = period["Start"]
-    scen_stop  = period["Stop"]
-
-
-    id = TuLiPa.getobjkey(elkey)
-    toplevel[id] = Constructor(id, model_params, updater, basin_area, hist_P, hist_T, hist_Lday, 
-        ndays_pred, ndays_obs, ndays_forecast, data_obs, data_forecast, scen_start, scen_stop)
-
-    return (true, deps)
+    error(extension_error_msg)
 end
 
 # --- Functions used in run_serial in connection with inflow models ---
@@ -472,30 +357,7 @@ function save_ifm_Q(div_db, inflow_name, stepnr, Q)
 end
 
 function calculate_normalize_factor(ifm_model)
-    start_with_buffer = ifm_model.handler.scen_start - Day(ifm_model.handler.ndays_obs) # Add ndays_obs days buffer
-    days_with_buffer = Day(ifm_model.handler.scen_stop - start_with_buffer) |> Dates.value
-    timepoints_with_buffer = (1:days_with_buffer)
-    days = Dates.value(Day(ifm_model.handler.scen_stop - ifm_model.handler.scen_start))    
-    timepoints_start = days_with_buffer - days 
-
-    P = zeros(length(timepoints_with_buffer))
-    T = zeros(length(timepoints_with_buffer))
-    Lday = zeros(length(timepoints_with_buffer))
-    for i in timepoints_with_buffer
-        start = ifm_model.handler.scen_start + Day(i - 1)
-        P[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_P, start, JulES.ONEDAY_MS_TIMEDELTA)
-        T[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_T, start, JulES.ONEDAY_MS_TIMEDELTA)
-        Lday[i] = TuLiPa.getweightedaverage(ifm_model.handler.hist_Lday, start, JulES.ONEDAY_MS_TIMEDELTA)
-    end
-
-    itp_method = JulES.SteffenMonotonicInterpolation()
-    itp_P = JulES.interpolate(timepoints_with_buffer, P, itp_method)
-    itp_T = JulES.interpolate(timepoints_with_buffer, T, itp_method)
-    itp_Lday = JulES.interpolate(timepoints_with_buffer, Lday, itp_method)
-    Q, _ = JulES.predict(ifm_model.handler.predictor, 0, 0, itp_Lday, itp_P, itp_T, timepoints_with_buffer)
-    Q = Float64.(Q)[timepoints_start:end]
-    Q .= Q .* ifm_model.handler.m3s_per_mm
-    return 1 / mean(Q)
+    error(extension_error_msg)
 end
 
 """
@@ -823,14 +685,14 @@ function copy_elements_iprogtype(elements, iprogtype, ifm_names, ifm_derivedname
 end
 
 function initialize_NN_model()
-    error("Extension not loaded")
+    error(extension_error_msg)
 end
 
 function basic_bucket_incl_states(p_, itp_Lday, itp_P, itp_T, t_out)
-    error("Extension not loaded")
+    error(extension_error_msg)
 end
 
 function NeuralODE_M100(p, norm_S0, norm_S1, norm_P, norm_T, 
         itp_Lday, itp_P, itp_T, t_out, ann; S_init = [0.0, 0.0])
-    error("Extension not loaded")
+    error(extension_error_msg)
 end
