@@ -415,6 +415,7 @@ has_result_times(settings::Dict)::Bool = get(settings["results"], "times", false
 has_result_scenarios(settings::Dict)::Bool = get(settings["results"], "scenarios", false)
 has_result_memory(settings::Dict)::Bool = get(settings["results"], "memory", false)
 has_result_storagevalues(settings::Dict)::Bool = get(settings["results"], "storagevalues", false)
+has_result_storagevalues_all_problems(settings::Dict)::Bool = get(settings["results"], "storagevalues_all_problems", false)
 has_result_hydrolevels_water(settings::Dict)::Bool = get(settings["results"], "hydrolevels_water", false)
 
 function get_outputindex(mainconfig::Dict, datayear::Int64, weatheryear::Int64)
@@ -679,7 +680,7 @@ function init_local_output()
                     num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
                 end
                 if haskey(settings["problems"], "clearing")
-                    num_storagevalues += 1
+                    num_storagevalues += 2
                 end
                 if haskey(settings["problems"], "stochastic")
                     num_storagevalues += get_numscen_stoch(db.input)
@@ -934,10 +935,17 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
     if has_result_storagevalues(settings)
         for (subix, core) in db.dist_mp
-            f = @spawnat core get_storagevalues_stoch(subix)
-            storagevalues_stoch = fetch(f)
-            dim = (size(storagevalues_stoch, 1))
-            db.output.storagevalues[subix][stepnr, 1:dim, :] .= storagevalues_stoch
+            if has_headlosscost(settings["problems"]["stochastic"]["master"])
+                dim = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+            else
+                dim = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+            end
+            if has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")
+                f = @spawnat core get_storagevalues_stoch(subix)
+                storagevalues_stoch = fetch(f)
+                dim = (size(storagevalues_stoch, 1))
+                db.output.storagevalues[subix][stepnr, 1:dim, :] .= storagevalues_stoch
+            end
 
             if haskey(settings["problems"], "clearing")
                 cutid = fetch(@spawnat core get_cutsid(subix))
@@ -948,20 +956,23 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
                     db.output.storagevalues[subix][stepnr, dim+1, j] = TuLiPa.getcondual(db.cp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
                     if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-                        db.output.storagevalues[subix][stepnr, dim+1, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
+                        db.output.storagevalues[subix][stepnr, dim+2, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
                     end
-                    if haskey(settings["problems"], "stochastic")
-                        for scenix in 1:get_numscen_stoch(db.input)
-                            core_stoch = get_core_sp(db.dist_sp, scenix, subix)
-                            f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                            db.output.storagevalues[subix][stepnr, dim+1+scenix, j] = fetch(f)
+
+                    if has_result_storagevalues_all_problems(settings)
+                        if haskey(settings["problems"], "stochastic")
+                            for scenix in 1:get_numscen_stoch(db.input)
+                                core_stoch = get_core_sp(db.dist_sp, scenix, subix)
+                                f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
+                                db.output.storagevalues[subix][stepnr, dim+3+scenix, j] = fetch(f)
+                            end
                         end
-                    end
-                    if haskey(settings["problems"], "endvalue") && is_subsystem_evp(db.subsystems[subix])
-                        for scenix in 1:get_numscen_stoch(db.input)
-                            core_evp = get_core_evp(db.dist_evp, scenix, subix)
-                            f = @spawnat core_evp get_enddual_evp(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                            db.output.storagevalues[subix][stepnr, dim+1+get_numscen_stoch(db.input)+scenix, j] = fetch(f)
+                        if haskey(settings["problems"], "endvalue") && is_subsystem_evp(db.subsystems[subix])
+                            for scenix in 1:get_numscen_stoch(db.input)
+                                core_evp = get_core_evp(db.dist_evp, scenix, subix)
+                                f = @spawnat core_evp get_enddual_evp(scenix, subix, first(TuLiPa.getvarout(statevar)))
+                                db.output.storagevalues[subix][stepnr, dim+3+get_numscen_stoch(db.input)+scenix, j] = fetch(f)
+                            end
                         end
                     end
                 end
@@ -1247,11 +1258,20 @@ function get_output_storagevalues(output, steplength, skipmax)
         f = @spawnat db.core_main get_output_storagevalues_local(steplength, skipmax)
         storagenames, storagevalues, shorts, scenarionames, skipfactor = fetch(f)
         
-        output[StorageValues] = cat(storagevalues..., dims=3)
-        output["storagenames"] = storagenames
-        output["shorts"] = shorts
-        output["scenarionames"] = scenarionames
-        output["skipfactor"] = skipfactor
+        if has_headlosscost(settings["problems"]["stochastic"]["master"])
+            dim = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+        else
+            dim = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+        end
+        output["storagenames"] = [sn * "_sv" for sn in storagenames]
+        output["storagevalues_main"] = -cat(storagevalues..., dims=3)[:, dim+1, :]
+
+        if has_result_storagevalues_all_problems(settings)
+            output[StorageValues] = cat(storagevalues..., dims=3)
+            output["shorts"] = shorts
+            output["scenarionames"] = scenarionames
+            output["skipfactor"] = skipfactor
+        end
     end
     return
 end

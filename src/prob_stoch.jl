@@ -42,12 +42,16 @@ function create_mp(subix::SubsystemIx)
     div = Dict()
     div[MainTiming] = zeros(5)
     if has_result_storagevalues(settings)
-        if has_headlosscost(settings["problems"]["stochastic"]["master"])
-            num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+        if has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")
+            if has_headlosscost(settings["problems"]["stochastic"]["master"])
+                num_storagevalues = get_numscen_stoch(db.input)*2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
+            else
+                num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+            end
+            div[StorageValues] = zeros(num_storagevalues, length(states))
         else
-            num_storagevalues = get_numscen_stoch(db.input)*2 + 1 # scenarios + master operative 
+            div[StorageValues] = nothing
         end
-        div[StorageValues] = zeros(num_storagevalues, length(states))
     else
         div[StorageValues] = nothing
     end
