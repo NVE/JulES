@@ -354,7 +354,7 @@ end
 
 function get_numscen_sim(input::AbstractJulESInput)
     settings = get_settings(input)
-    if !isnothing(settings["scenariogeneration"])
+    if haskey(settings, "scenariogeneration")
         if haskey(settings["scenariogeneration"], "simulation")
             return settings["scenariogeneration"]["simulation"]["numscen"]
         end
@@ -363,7 +363,7 @@ function get_numscen_sim(input::AbstractJulESInput)
 end
 function get_numscen_stoch(input::AbstractJulESInput)
     settings = get_settings(input)
-    if !isnothing(settings["scenariogeneration"])
+    if haskey(settings, "scenariogeneration")
         if haskey(settings["scenariogeneration"], "stochastic")
             return settings["scenariogeneration"]["stochastic"]["numscen"]
         end
@@ -990,7 +990,11 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             prob_results = db.mp[first(db.dist_mp[1])].prob
         else
             periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
-            periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+            if haskey(settings["horizons"]["clearing"], "Hydro")
+                periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+            else
+                periodduration_hydro = periodduration_power
+            end
             prob_results = db.cp.prob
         end
         numperiods_powerhorizon = Int(termduration.value / periodduration_power.value)
@@ -1419,12 +1423,20 @@ function get_output_timing_local(data, steplength, skipmax)
 
     if has_result_times(settings)
         skipfactor = (skipmax+Millisecond(steplength))/Millisecond(steplength)
+        factors = [skipfactor,skipfactor,1]
         
         timing_cp = get_timing_cp_local()
 
         timings_ppp = []
         for (scenix, values) in db.output.timing_ppp
             push!(timings_ppp, values)
+        end
+        if haskey(settings["problems"], "prognosis")
+            dims = (get_steps(db), 3, 3, length(timings_ppp))
+            timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
+            timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
+        else
+            timings_ppp2 = zeros(3, 3)
         end
 
         # TODO: Add subix name
@@ -1463,13 +1475,18 @@ function get_output_timing_local(data, steplength, skipmax)
         end
         df_mp[!, :mp_tot] = df_mp[!, :mp_s] + df_mp[!, :mp_u] + df_mp[!, :mp_fin] + df_mp[!, :mp_o]
         df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .= df_mp[df_mp.skipmed .== true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .* skipfactor
-        timings_mp = mean.(eachcol(select(df_mp, Not([:subix, :core, :skipmed, :mp_fin, :mp_o, :bend_it]))))
-        df_mp_core = combine(groupby(df_mp, [:core]), 
-        :mp_u => sum => :mp_u, 
-        :mp_s => sum => :mp_s, 
-        :mp_fin => sum => :mp_fin,
-        :mp_o => sum => :mp_o,
-        :mp_tot => sum => :mp_tot)
+        if nrow(df_mp) != 0
+            timings_mp = mean.(eachcol(select(df_mp, Not([:subix, :core, :skipmed, :mp_fin, :mp_o, :bend_it]))))
+            df_mp_core = combine(groupby(df_mp, [:core]), 
+            :mp_u => sum => :mp_u, 
+            :mp_s => sum => :mp_s, 
+            :mp_fin => sum => :mp_fin,
+            :mp_o => sum => :mp_o,
+            :mp_tot => sum => :mp_tot)
+        else
+            timings_mp = [0.0, 0.0, 0.0]
+            df_mp_core = DataFrame([name => [] for name in ["core", "mp_u", "mp_s", "mp_fin", "mp_o", "mp_tot"]])
+        end
 
         df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
         for (scenix, subix, core) in db.dist_sp
@@ -1479,17 +1496,23 @@ function get_output_timing_local(data, steplength, skipmax)
         end
         df_sp[!, :total] = df_sp[!, :solve] + df_sp[!, :update] + df_sp[!, :other]
         df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .= df_sp[df_sp.skipmed .== true, [:update, :solve, :other, :total]] .* skipfactor
-        df_sp_subix = combine(groupby(df_sp, [:subix]), 
-        :update => sum => :sp_u, 
-        :solve => sum => :sp_s, 
-        :other => sum => :sp_o,
-        :total => sum => :sp_tot)
-        timings_sp = mean.(eachcol(select(df_sp_subix, Not([:subix, :sp_o]))))
-        df_sp_core = combine(groupby(df_sp, [:core]), 
-        :update => sum => :sp_u, 
-        :solve => sum => :sp_s, 
-        :other => sum => :sp_o,
-        :total => sum => :sp_tot)
+        if nrow(df_sp) != 0
+            df_sp_subix = combine(groupby(df_sp, [:subix]), 
+            :update => sum => :sp_u, 
+            :solve => sum => :sp_s, 
+            :other => sum => :sp_o,
+            :total => sum => :sp_tot)
+            timings_sp = mean.(eachcol(select(df_sp_subix, Not([:subix, :sp_o]))))
+            df_sp_core = combine(groupby(df_sp, [:core]), 
+            :update => sum => :sp_u, 
+            :solve => sum => :sp_s, 
+            :other => sum => :sp_o,
+            :total => sum => :sp_tot)
+        else
+            df_sp_subix = DataFrame([name => [] for name in ["subix", "sp_u", "sp_s", "sp_o", "sp_tot"]])
+            timings_sp = [0.0, 0.0, 0.0]
+            df_sp_core = DataFrame([name => [] for name in ["core", "sp_u", "sp_s", "sp_o", "sp_tot"]])
+        end
         # TODO: df_sp_scen
 
         df_subix = outerjoin(df_evp_subix, df_mp, df_sp_subix, on = :subix)
@@ -1504,12 +1527,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_core = sort(df_core, :tot, rev=true)
         df_core = df_core[!, [:core, :tot, :evp_tot, :mp_tot, :sp_tot, :evp_u, :evp_s, :evp_o, :mp_u, :mp_s, :mp_fin, :mp_o, :sp_u, :sp_s, :sp_o]]
 
-        if haskey(settings["problems"], "prognosis") && haskey(settings["problems"], "clearing")
-            factors = [skipfactor,skipfactor,1]
-            dims = size(timings_ppp[1])
-            dims = (dims..., length(timings_ppp))
-            timings_ppp1 = reshape(cat(timings_ppp..., dims=4), dims)
-            timings_ppp2 = transpose(dropdims(mean(timings_ppp1,dims=(1,4)),dims=(1,4))).*factors
+        if haskey(settings["problems"], "clearing")
             all = vcat(timings_ppp2, reshape(timings_evp,1,3), reshape(timings_mp,1,3), reshape(timings_sp,1,3), mean(timing_cp, dims=1))
             df = DataFrame(model=["long","med","short","evp","mp","sp","clearing"], update=all[:,1], solve=all[:,2], total=all[:,3])
             df[!, :other] = df[!, :total] - df[!, :solve] - df[!, :update]
@@ -1603,7 +1621,11 @@ function get_output_main_local()
             end
         else
             periodduration_power = parse_duration(settings["horizons"]["clearing"]["Power"], "periodduration")
-            periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+            if haskey(settings["horizons"]["clearing"], "Hydro")
+                periodduration_hydro = parse_duration(settings["horizons"]["clearing"]["Hydro"], "periodduration")
+            else
+                periodduration_hydro = periodduration_power
+            end
         end
 
         # Only keep rhsterms that have at least one value (TODO: Do the same for sypply and demands)

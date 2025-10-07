@@ -262,6 +262,9 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
                 mp.cuts.scenslopes[scenix, cutix, :] .= scenslopes
                 mp.cuts.scenconstants[scenix, cutix] = scenconstant
             end
+            if ub < mp.cuts.lower_bound # TODO customize the lb to each subsystem
+                error("Upper bound $ub is lower than lower bound $(mp.cuts.lower_bound). Decrease initial lower bound in settings.")
+            end
         
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
         end
@@ -274,6 +277,10 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
             end
         end
     end
+    if count == 15
+        println("Warning: Benders did not converge within 15 iterations, reltol=$(reltol), ub=$(ub), lb=$(lb), step=$(stepnr), subix=$(subix)")
+    end
+
     maintiming[5] = count
     return
 end
@@ -532,6 +539,11 @@ function update_endconditions_sp(scenix::ScenarioIx, subix::SubsystemIx, t::TuLi
             balance = TuLiPa.getbalance(obj)
             bid = TuLiPa.getid(balance)
             instancename = split(TuLiPa.getinstancename(bid), "Balance_")
+            if haskey(enekvglobaldict, instancename[2])
+                if enekvglobaldict[instancename[2]] == 0.0
+                    continue
+                end
+            end
             if haskey(detailedrescopl, instancename[2])
                 balancename = detailedrescopl[instancename[2]]
                 bid = TuLiPa.Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset

@@ -21,6 +21,10 @@ end
 How price prognosis problems (ppp) are distributed on cores initially
 """
 function get_dist_ppp(input::AbstractJulESInput)
+    if !haskey(input.settings["problems"], "prognosis")
+        return Tuple{ScenarioIx, CoreId}[]
+    end
+
     cores = get_cores(input)
     N = length(cores)
     S = get_numscen_sim(input)
@@ -38,6 +42,10 @@ end
 How end value problems (evp) are distributed on cores initially
 """
 function get_dist_evp(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}}) 
+    if !haskey(input.settings["problems"], "endvalue")
+        return Tuple{ScenarioIx, SubsystemIx, CoreId}[]
+    end
+    
     cores = get_cores(input)
     N = length(cores) #number of cores
     S = get_numscen_sim(input) #number of scenarios
@@ -97,6 +105,10 @@ TODO:
 * = default
 """
 function get_dist_stoch(input::AbstractJulESInput, subsystems::Vector{Tuple{SubsystemIx, AbstractSubsystem}})
+    if !haskey(input.settings["problems"], "stochastic")
+        return (Tuple{SubsystemIx, CoreId}[], Tuple{ScenarioIx, SubsystemIx, CoreId}[])
+    end
+    
     cores = get_cores(input)
     #Distributing the master problems/subsystems
     
