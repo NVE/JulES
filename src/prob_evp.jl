@@ -98,6 +98,9 @@ function update_endstates_evp(input, scenix::ScenarioIx, subix::SubsystemIx, evp
             core_ppp = get_core_ppp(get_local_db().dist_ppp, scenix)
             future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, endperiod, term_ppp)
             dual_ppp = fetch(future)
+            if dual_ppp isa RemoteException
+                throw(dual_ppp)
+            end
             if haskey(enekvglobaldict, instancename[2])
                 dual_ppp *= enekvglobaldict[instancename[2]]
             end
