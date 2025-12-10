@@ -955,9 +955,6 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                     balance = TuLiPa.getbalance(obj)
 
                     db.output.storagevalues[subix][stepnr, dim+1, j] = TuLiPa.getcondual(db.cp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-                    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-                        db.output.storagevalues[subix][stepnr, dim+2, j] = db.output.storagevalues[subix][stepnr, dim+1, j] / balance.metadata[TuLiPa.GLOBALENEQKEY]
-                    end
 
                     if has_result_storagevalues_all_problems(settings)
                         if haskey(settings["problems"], "stochastic")
@@ -1140,12 +1137,7 @@ function get_enddual_stoch(scenix, subix, objid)
 
     obj = get_obj_from_id(TuLiPa.getobjects(sp.prob), objid) # TODO: OK to assume objid = varoutid?
     balance = TuLiPa.getbalance(obj)
-    dual = TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-        dual /= balance.metadata[TuLiPa.GLOBALENEQKEY]
-    end
-
-    return dual
+    return TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
 end
 
 function get_enddual_evp(scenix, subix, objid)
@@ -1154,12 +1146,7 @@ function get_enddual_evp(scenix, subix, objid)
 
     obj = get_obj_from_id(TuLiPa.getobjects(evp.prob), objid) # TODO: OK to assume objid = varoutid?
     balance = TuLiPa.getbalance(obj)
-    dual = TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-    if haskey(balance.metadata, TuLiPa.GLOBALENEQKEY)
-        dual /= balance.metadata[TuLiPa.GLOBALENEQKEY]
-    end
-
-    return dual
+    return TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
 end
 
 function reset_ppp_prices(scenix)
