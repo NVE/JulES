@@ -31,3 +31,6 @@ JLD2 = "0.5.15"
 
 [extensions]
 IfmExt = ["ComponentArrays", "Interpolations", "JLD2", "OrdinaryDiffEq"]
+
+[extras]
+TuLiPa = {url = "https://github.com/NVE/TuLiPa.git"}
