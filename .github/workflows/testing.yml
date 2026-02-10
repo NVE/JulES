@@ -34,7 +34,9 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
       - uses: julia-actions/cache@v1
-      - name: Install TuLiPa Package
-        run: julia -e 'using Pkg; Pkg.add(url = "https://github.com/NVE/TuLiPa.git")'
+      - name: Instantiate Environment
+        run: julia --project=@. -e 'using Pkg; Pkg.instantiate()'
+      - name: Add TuLiPa from GitHub URL
+        run: julia --project=@. -e 'using Pkg; Pkg.develop(PackageSpec(url = "https://github.com/NVE/TuLiPa.git"))'
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
