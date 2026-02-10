@@ -1705,7 +1705,7 @@ function get_output_main_local()
 
         data["batnames"] = batterynames
         data["batmatrix"] = db.output.batterylevels
-        data["batindex"] =  x2
+        data["batindex"] =  x1
 
         data["statenames"] = db.output.statenames
         data["statematrix"] = permutedims(db.output.statematrix)
