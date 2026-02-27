@@ -208,7 +208,8 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
                         TuLiPa.solve!(mp.prob)
                         count == 0 && TuLiPa.clearcuts!(mp.cuts)
                         count += 1
-                    catch
+                    catch e
+                        showerror(stdout, e, catch_backtrace())
                         count == 0 && println("Retrying first iteration without cuts from last time step")
                         count > 0 && println("Restarting iterations without cuts from last time step")
                         TuLiPa.clearcuts!(mp.prob, mp.cuts)
