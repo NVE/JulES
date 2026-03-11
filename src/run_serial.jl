@@ -33,8 +33,8 @@ function run_serial(input::AbstractJulESInput)
             skipmed = Millisecond(0)
         end
     end
-    println(string("\nThe simulation took: ", round(totaltime/60; digits=2), " minutes"))
-    println(string("Time usage per simulation step: ", round(totaltime/steps; digits=2), " seconds\n"))
+    @info string("The simulation took: ", round(totaltime / 60; digits=2), " minutes")
+    @info string("Time usage per simulation step: ", round(totaltime / steps; digits=2), " seconds\n")
 
     output = get_output_final(steplength, skipmax)
     cleanup_jules(input)
@@ -44,10 +44,12 @@ end
 function init_jules(input::AbstractJulESInput)
     (t, steps, steplength, skipmed, skipmax) = get_simperiod(input)
 
+    @info "Initialized JulES simulation" start_time = t steps = steps steplength_ms = steplength skipmax_ms = skipmax.value workers = nworkers()
+
     init_extensions(input)
 
     init_databases(input)
-    
+
     return (t, steps, steplength, skipmed, skipmax)
 end
 
@@ -98,62 +100,53 @@ function init_databases(input::AbstractJulESInput)
     cores = get_cores(input)
     firstcore = first(cores)
 
-    println("Add local dbs")
-    @time begin
+    @debugtime "Add local dbs" begin
         @sync for core in cores
             @spawnat core create_local_db()
         end
     end
 
-    println("Add local cores")
-    @time begin
+    @debugtime "Add local cores" begin
         @sync for core in cores
             @spawnat core add_local_core(core)
         end
     end
 
-    println("Add local input")
-    @time begin
+    @debugtime "Add local input" begin
         @sync for core in cores
             @spawnat core add_local_input(input)
         end
     end
 
-    println("Add local dummyobjects")
-    @time begin
+    @debugtime "Add local dummyobjects" begin
         @sync for core in cores
             @spawnat core add_local_dummyobjects()
         end
     end
 
-    println("Add local subsystems")
-    @time begin
+    @debugtime "Add local subsystems" begin
         wait(@spawnat firstcore add_local_subsystems())
     end
 
-    println("Add local scenmod")
-    @time begin
+    @debugtime "Add local scenmod" begin
         @sync for core in cores
             @spawnat core add_local_scenariomodelling()
         end
     end
-    
+
     # will calculate distribution on core c and then 
     # transfer this data to all other cores
-    println("Add local problem distribution")
-    @time begin
+    @debugtime "Add local problem distribution" begin
         wait(@spawnat firstcore add_local_problem_distribution())
     end
 
-    println("Add local horizons")
-    @time begin
+    @debugtime "Add local horizons" begin
         @sync for core in cores
             @spawnat core add_local_horizons()
         end
     end
 
-    println("Add local problems")
-    @time begin
+    @debugtime "Add local problems" begin
         @sync for core in cores
             @spawnat core add_local_problems()
         end
@@ -164,8 +157,7 @@ function init_databases(input::AbstractJulESInput)
         end
     end
 
-    println("Add local output")
-    @time begin
+    @debugtime "Add local output" begin
         add_local_output()
     end
     return
@@ -226,8 +218,8 @@ function add_local_dummyobjects()
     end
     (dummyobjects, dummydeps) = TuLiPa.getmodelobjects(elements, validate=true, deps=true)
     aggzonedict = Dict()
-    for (k,v) in get_aggzone(get_settings(db))
-        aggzonedict[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * k)] = [dummyobjects[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT,"PowerBalance_" * vv)] for vv in v]
+    for (k, v) in get_aggzone(get_settings(db))
+        aggzonedict[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT, "PowerBalance_" * k)] = [dummyobjects[TuLiPa.Id(TuLiPa.BALANCE_CONCEPT, "PowerBalance_" * vv)] for vv in v]
     end
     TuLiPa.aggzone!(dummyobjects, aggzonedict)
     db.dummyobjects = (dummyobjects, dummydeps)
@@ -328,14 +320,14 @@ function create_subsystems(db)
                     push!(subsystems, subsystem)
                 end
                 num_shortterm = length(subsystems)
-                println("Number of shortterm storagesystems $num_shortterm")
+                @info "Number of shortterm storagesystems $num_shortterm"
 
                 longtermstoragesystems = TuLiPa.getlongtermstoragesystems(storagesystems, Hour(settings["subsystems"]["shorttermstoragecutoff_hours"]))
                 for storagesystem in longtermstoragesystems
                     commodities = get_commodities_from_storagesystem(storagesystem)
                     if length(commodities) == 1
                         continue # TODO: error and fix dataset linvasselv and vakkerjordvatn have two subsystems, one not connected to power market, send liste til Carl 
-                    end  
+                    end
 
                     # all = Set()
                     # for obj in storagesystem
@@ -419,7 +411,7 @@ function create_subsystems(db)
                     horizonterm_stoch = get_term_ppp(get_horizons(db.input), commodities, longstochduration)
 
                     priceareas = get_priceareas(storagesystem)
-                    skipmed_impact = true  
+                    skipmed_impact = true
                     if has_longevduration(settings)
                         longevduration = parse_duration(settings["subsystems"], "longevduration")
                         horizonterm_evp = get_term_ppp(get_horizons(db.input), commodities, longevduration)
@@ -430,9 +422,9 @@ function create_subsystems(db)
                     end
                     push!(subsystems, subsystem)
                 end
-                println("Number of longterm storagesystems $(length(subsystems)-num_shortterm)")
+                @info "Number of longterm storagesystems $(length(subsystems)-num_shortterm)"
                 num_ignored = length(shorttermstoragesystems) + length(longtermstoragesystems) - length(subsystems)
-                println("Number of ignored storagesystems not connected to power $num_ignored")
+                @info "Number of ignored storagesystems not connected to power $num_ignored"
             else
                 error("getsubsystem() not implemented for $(method)")
             end
@@ -447,7 +439,7 @@ function has_longevduration(settings)
             return true
         end
     end
-    return false  
+    return false
 end
 
 # Which time resolution (short, med, long) should we use horizons and prices from
@@ -464,7 +456,7 @@ function get_term_ppp(horizons, commodities, duration)
     end
     horizon_long = horizons[(LongTermName, dummycommodity)]
     @assert duration <= TuLiPa.getduration(horizon_long) # TODO: also account for slack in case of reuse of watervalues
-    return LongTermName   
+    return LongTermName
 end
 
 function get_filtered_dependencies(elements, dependencies)
@@ -495,7 +487,7 @@ function get_element_from_obj(dataelements::Vector{TuLiPa.DataElement}, obj::Any
         end
     end
 end
-    
+
 function get_commodities_from_dataelements(elements::Vector{TuLiPa.DataElement})
     commodities = CommodityName[]
     for element in elements
@@ -534,7 +526,7 @@ end
 
 function set_local_subsystems(subsystems, subsystems_evp, subsystems_stoch)
     db = get_local_db()
-    
+
     db.subsystems = subsystems
     db.subsystems_evp = subsystems_evp
     db.subsystems_stoch = subsystems_stoch
@@ -605,20 +597,20 @@ function add_local_problem_distribution()
 
     if !get_onlysubsystemmodel(db.input)
         db.dist_ppp = get_dist_ppp(db.input)
-        println(db.dist_ppp)
+        @debug db.dist_ppp
         db.dist_evp = get_dist_evp(db.input, db.subsystems_evp)
-        println(db.dist_evp)
+        @debug db.dist_evp
     end
     db.dist_ifm = get_dist_ifm(db.input)
-    println(db.dist_ifm)
+    @debug db.dist_ifm
     (dist_mp, dist_sp) = get_dist_stoch(db.input, db.subsystems_stoch)
-    println(dist_mp)
-    println(dist_sp)
+    @debug dist_mp
+    @debug dist_sp
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
 
     db.core_main = get_core_main(db.input)
-    println(db.core_main)
+    @debug db.core_main
 
     dists = (db.dist_ifm, db.dist_ppp, db.dist_evp, db.dist_sp, db.dist_mp, db.core_main)
 
@@ -642,7 +634,7 @@ function set_local_dists(dists)
     db.dist_sp = dist_sp
     db.dist_mp = dist_mp
     db.core_main = core_main
-    
+
     return
 end
 
@@ -661,7 +653,7 @@ function add_local_horizons()
     db = get_local_db()
     horizons = get_horizons(db.input)
 
-    d = Dict{Tuple{ScenarioIx, TermName, CommodityName}, TuLiPa.Horizon}()
+    d = Dict{Tuple{ScenarioIx,TermName,CommodityName},TuLiPa.Horizon}()
 
     if !get_onlysubsystemmodel(db.input)
         for (scenarioix, ownercore) in db.dist_ppp
@@ -743,26 +735,23 @@ function step_jules(t, steplength, stepnr, skipmed)
     cores = get_cores(db)
     firstcore = first(cores)
 
-    println(t)
-    println("Garbage collection")
-    @time begin
+    @debug t stepnr = stepnr
+    @debugtime "Garbage collection" begin
         if mod(stepnr, 20) == 0
             @sync for core in cores
                 @spawnat core GC.gc()
             end
         end
     end
-    
-    println("Startstates")
-    @time begin
+
+    @debugtime "Startstates" begin
         @sync for core in cores
             @spawnat core update_startstates(stepnr, t)
         end
     end
-    
-    println("Scenario modelling")
-    @time begin
-        if stepnr == 1 
+
+    @debugtime "Scenario modelling" begin
+        if stepnr == 1
             wait(@spawnat firstcore update_scenmod_sim())
         end
         # TODO: Add option to do scenariomodelling per individual or group of subsystem (e.g per area, commodity ...)
@@ -770,8 +759,7 @@ function step_jules(t, steplength, stepnr, skipmed)
         wait(@spawnat firstcore update_scenmod_stoch(t, skipmed))
     end
 
-    println("Solve inflow models")
-    @time begin
+    @debugtime "Solve inflow models" begin
         @sync for core in cores
             @spawnat core solve_ifm(t, stepnr)
         end
@@ -785,8 +773,7 @@ function step_jules(t, steplength, stepnr, skipmed)
         end
     end
 
-    println("Solve price prognosis problems")
-    @time begin
+    @debugtime "Solve price prognosis problems" begin
         @sync for core in cores
             @spawnat core solve_ppp(t, steplength, stepnr, skipmed)
         end
@@ -795,23 +782,20 @@ function step_jules(t, steplength, stepnr, skipmed)
             @spawnat core synchronize_horizons(skipmed)
         end
     end
-	
-    println("End value problems")
-    @time begin
+
+    @debugtime "End value problems" begin
         @sync for core in cores
             @spawnat core solve_evp(t, stepnr, skipmed)
         end
     end
 
-    println("Subsystem problems")
-    @time begin
+    @debugtime "Subsystem problems" begin
         @sync for core in cores
             @spawnat core solve_stoch(t, stepnr, skipmed)
         end
     end
 
-    println("Clearing problem")
-    @time begin
+    @debugtime "Clearing problem" begin
         if !get_onlysubsystemmodel(db.input)
             @sync for core in cores
                 @spawnat core solve_cp(t, stepnr, skipmed)
@@ -819,11 +803,10 @@ function step_jules(t, steplength, stepnr, skipmed)
         end
     end
 
-    println("Update output")
-    @time begin
+    @debugtime "Update output" begin
         wait(@spawnat db.core_main update_output(t, stepnr))
     end
-	
+
     # do dynamic load balancing here
     return
 end
