@@ -1,5 +1,13 @@
 module JulES
 
+macro debugtime(msg, expr)
+    quote
+        local stats = Base.@timed $(esc(expr))
+        @debug $msg elapsed_s = round(stats.time, digits=3) bytes = stats.bytes gctime_s = round(stats.gctime, digits=3)
+        stats.value
+    end
+end
+
 import TuLiPa
 
 using Distributed
@@ -7,11 +15,11 @@ using Dates
 using Statistics
 using Clustering
 using Distributions
-using DataFrames 
+using DataFrames
 using JSON
 using YAML
 using HDF5
-
+using Logging
 # Used by ifm
 #using ComponentArrays
 #using Interpolations
@@ -25,7 +33,8 @@ using HDF5
 # using OptimizationBBO
 # using Zygote
 
-include("abstract_types.jl") 
+include("python_logger.jl")
+include("abstract_types.jl")
 include("dimension_types.jl")
 include("ifm.jl")
 include("generic_io.jl")
