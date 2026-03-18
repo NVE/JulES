@@ -170,24 +170,23 @@ get_phaseinoffset(db::LocalDB) = get_phaseinoffset(get_input(db))
 get_phaseindelta(db::LocalDB) = get_phaseindelta(get_input(db))
 get_phaseinsteps(db::LocalDB) = get_phaseinsteps(get_input(db))
 
-const _LOCAL_DB_NAME = :_local_db
+const _LOCAL_DB_NAME = Ref{Union{LocalDB, Nothing}}(nothing)
 function create_local_db()
-    if (_LOCAL_DB_NAME in names(Main)) 
-        db = getfield(Main, _LOCAL_DB_NAME)
-        isnothing(db) || error("$_LOCAL_DB_NAME already exists")
+    if _LOCAL_DB_NAME[] === nothing
+        _LOCAL_DB_NAME[] = LocalDB()
+    else
+        error("$_LOCAL_DB_NAME already exists")
     end
-    Core.eval(Main, Expr(:(=), _LOCAL_DB_NAME, LocalDB()))
     return
 end
 
 function get_local_db()
-    (_LOCAL_DB_NAME in names(Main)) || error("$_LOCAL_DB_NAME has not been created")
-    db = getfield(Main, _LOCAL_DB_NAME)
+    db = _LOCAL_DB_NAME[]
     isnothing(db) && error("$_LOCAL_DB_NAME has been freed")
     return db::LocalDB
 end
 
 function free_local_db()
-    Core.eval(Main, Expr(:(=), _LOCAL_DB_NAME, nothing))
+    _LOCAL_DB_NAME[] = nothing
     return
 end
