@@ -4,6 +4,10 @@ Define the concrete scenario modelling methods
 See abstract_types.jl for more
 """
 
+using Random
+
+const INFLOW_CLUSTERING_SEED = 42
+
 struct NothingScenarioModellingMethod <: AbstractScenarioModellingMethod end
 mutable struct NoScenarioModellingMethod{T<:AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
@@ -164,7 +168,7 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
     end
 
     # Cluster inflow scenarios together
-    r = kmeans(partsumenergyinflow, numscen)
+    r = kmeans(partsumenergyinflow, numscen; rng=MersenneTwister(INFLOW_CLUSTERING_SEED))
     assignments = r.assignments
 
     # # Take a look at the clustering
