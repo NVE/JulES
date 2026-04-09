@@ -403,7 +403,7 @@ get_result_prices_ppp(settings::Dict)::Int = get(settings["results"], "prices_pp
 
 has_statedependentprod(settings::Dict)::Bool = get(settings, "statedependentprod", false)
 has_statedependentpump(settings::Dict)::Bool = get(settings, "statedependentpump", false)
-has_headlosscost(settings::Dict)::Bool = get(settings, "statedependentpump", false)
+has_headlosscost(settings::Dict)::Bool = get(settings, "headlosscost", false)
 has_onlyagghydro(settings::Dict)::Bool = get(settings["problems"], "onlyagghydro", false)
 has_keephydroramping_evp(settings::Dict)::Bool = get(settings["problems"]["endvalue"], "keep_hydroramping", false)
 has_keephydroramping_master(settings::Dict)::Bool = get(settings["problems"]["stochastic"]["master"], "keep_hydroramping", false)
