@@ -351,6 +351,7 @@ end
 function update_statedependent_mp(stepnr::Int, prob::TuLiPa.Prob, startstates::Dict{String, Float64}, settings::Dict)
     has_statedependentprod(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentprod!(prob, startstates, init=(stepnr==1))
     has_statedependentpump(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentpump!(prob, startstates)
+    has_statedependentleveling(settings["problems"]["stochastic"]["master"]) && TuLiPa.statedependentleveling!(prob, startstates)
     return
 end
 
