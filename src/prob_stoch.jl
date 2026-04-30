@@ -209,9 +209,9 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
                         count == 0 && TuLiPa.clearcuts!(mp.cuts)
                         count += 1
                     catch e
-                        showerror(stdout, e, catch_backtrace())
-                        count == 0 && println("Retrying first iteration without cuts from last time step")
-                        count > 0 && println("Restarting iterations without cuts from last time step")
+                        errtxt = sprint(showerror, e, catch_backtrace())
+                        count == 0 && @warn("Retrying first iteration without cuts from last time step: $errtxt")
+                        count > 0 && @warn("Restarting iterations without cuts from last time step: $errtxt")
                         TuLiPa.clearcuts!(mp.prob, mp.cuts)
                         cutreuse = false
                         count = 0
@@ -221,9 +221,11 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
                     count += 1
                 end
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, true)
-                prev_lb = lb
-                lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
-                TuLiPa.getoutgoingstates!(mp.prob, mp.states)
+                if count != 0
+                    prev_lb = lb
+                    lb = TuLiPa.getvarvalue(mp.prob, TuLiPa.getfuturecostvarid(mp.cuts), 1)
+                    TuLiPa.getoutgoingstates!(mp.prob, mp.states)
+                end
             end
         end
 
@@ -273,7 +275,7 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
         end
     end
     if count == 15
-        println("Warning: Benders did not converge within 15 iterations, reltol=$(reltol), ub=$(ub), lb=$(lb), step=$(stepnr), subix=$(subix)")
+        @warn("Warning: Benders did not converge within 15 iterations, reltol=$(reltol), ub=$(ub), lb=$(lb), step=$(stepnr), subix=$(subix)")
     end
 
     maintiming[5] = count
