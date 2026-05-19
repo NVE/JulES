@@ -118,6 +118,7 @@ function update_statedependent_cp(stepnr, t)
 
     has_statedependentprod(settings["problems"]["clearing"]) && TuLiPa.statedependentprod!(db.cp.prob, db.startstates, init=init)
     has_statedependentpump(settings["problems"]["clearing"]) && TuLiPa.statedependentpump!(db.cp.prob, db.startstates)
+    has_statedependentleveling(settings["problems"]["clearing"]) && TuLiPa.statedependentleveling!(db.cp.prob, db.startstates)
 
     # Headlosscosts
     if has_headlosscost(settings["problems"]["clearing"])
