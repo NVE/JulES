@@ -572,13 +572,13 @@ end
 
 # -----------------------------------------------------------
 mutable struct DefaultJulESOutput <: AbstractJulESOutput
-    timing_ppp::Dict
-    timing_evp::Dict
-    timing_mp::Dict
-    timing_sp::Dict
+    timing_ppp::Dict{Int, Array{Float64, 3}}
+    timing_evp::Dict{Tuple{Int,Int}, Matrix{Float64}}
+    timing_mp::Dict{Int, Matrix{Float64}}
+    timing_sp::Dict{Tuple{Int,Int}, Matrix{Float64}}
     timing_cp::Matrix{Float64}
 
-    storagevalues::Dict
+    storagevalues::Dict{Int, Array{Float64, 3}}
 
     prices_balances::Vector{TuLiPa.Id}
     prices_long::Array{Float64, 4}
@@ -599,20 +599,20 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     batterylevels::Matrix{Float64}
     othervalues::Dict{String, Dict{String, Matrix{Float64}}}
 
-    modelobjects::Dict
-    powerbalances::Vector
-    rhsterms::Vector
-    rhstermbalances::Vector
-    plants::Vector
-    plantbalances::Vector
-    plantarrows::Dict
-    demands::Vector
-    demandbalances::Vector
-    demandarrows::Dict
-    hydrostorages::Vector
-    batterystorages::Vector
-    otherobjects::Dict
-    otherbalances::Dict
+    modelobjects::Dict{TuLiPa.Id, Any}
+    powerbalances::Vector{Any}
+    rhsterms::Vector{TuLiPa.Id}
+    rhstermbalances::Vector{TuLiPa.Id}
+    plants::Vector{TuLiPa.Id}
+    plantbalances::Vector{TuLiPa.Id}
+    plantarrows::Dict{TuLiPa.Id, Any}
+    demands::Vector{TuLiPa.Id}
+    demandbalances::Vector{TuLiPa.Id}
+    demandarrows::Dict{TuLiPa.Id, Any}
+    hydrostorages::Vector{TuLiPa.Id}
+    batterystorages::Vector{TuLiPa.Id}
+    otherobjects::Dict{String, Dict{String, Vector{TuLiPa.Id}}}
+    otherbalances::Dict{String, Dict{String, Vector{TuLiPa.Id}}}
 
     statenames::Vector{String}
     statematrix::Matrix{Float64} # end states after each step
@@ -625,12 +625,13 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     actualQ::Matrix{Float64}
 
     function DefaultJulESOutput(input)
-        return new(Dict(), Dict(), Dict(), Dict(), Matrix{Float64}(undef, 0, 0),
-            Dict(),
+        return new(
+            Dict{Int, Array{Float64, 3}}(), Dict{Tuple{Int,Int}, Matrix{Float64}}(), Dict{Int, Matrix{Float64}}(), Dict{Tuple{Int,Int}, Matrix{Float64}}(), Matrix{Float64}(undef, 0, 0),
+            Dict{Int, Array{Float64, 3}}(),
             TuLiPa.Id[], Array{Float64, 4}(undef, 0, 0, 0, 0), Matrix{Float64}(undef, 0, 0), Array{Float64, 4}(undef, 0, 0, 0, 0), Matrix{Float64}(undef, 0, 0), Array{Float64, 4}(undef, 0, 0, 0, 0), Matrix{Float64}(undef, 0, 0),
             Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0),
             Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Dict{String, Dict{String, Matrix{Float64}}}(),
-            Dict(), [], [], [], [], [], Dict(), [], [], Dict(), [], [], Dict(), Dict(),
+            Dict{TuLiPa.Id, Any}(), Any[], TuLiPa.Id[], TuLiPa.Id[], TuLiPa.Id[], TuLiPa.Id[], Dict{TuLiPa.Id, Any}(), TuLiPa.Id[], TuLiPa.Id[], Dict{TuLiPa.Id, Any}(), TuLiPa.Id[], TuLiPa.Id[], Dict{String, Dict{String, Vector{TuLiPa.Id}}}(), Dict{String, Dict{String, Vector{TuLiPa.Id}}}(),
             String[], Matrix{Float64}(undef, 0, 0),
             String[], String[], Matrix{Float64}[], Matrix{Float64}(undef, 0, 0), Array{Float64, 3}(undef, 0, 0, 0), Matrix{Float64}(undef, 0, 0))
     end
@@ -1012,7 +1013,7 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
         numperiods_hydrohorizon = Int(termduration.value / periodduration_hydro.value)
 
         if stepnr == 1 # TODO: move to init
-            db.output.modelobjects = Dict(zip([TuLiPa.getid(obj) for obj in TuLiPa.getobjects(prob_results)], TuLiPa.getobjects(prob_results)))
+            db.output.modelobjects = Dict{TuLiPa.Id, Any}(TuLiPa.getid(obj) => obj for obj in TuLiPa.getobjects(prob_results))
             if settings["results"]["mainresults"] == "all"
                 resultobjects = TuLiPa.getobjects(prob_results) # collect results for all areas
             else
@@ -1021,16 +1022,16 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
 
             powerbalances, rhsterms, rhstermbalances, plants, plantbalances, plantarrows, demands, demandbalances, demandarrows, hydrostorages, batterystorages = TuLiPa.order_result_objects(resultobjects, true)
             db.output.powerbalances = powerbalances
-            db.output.rhsterms = rhsterms
-            db.output.rhstermbalances = rhstermbalances
-            db.output.plants = plants
-            db.output.plantbalances = plantbalances
-            db.output.plantarrows = plantarrows
-            db.output.demands = demands
-            db.output.demandbalances = demandbalances
-            db.output.demandarrows = demandarrows
-            db.output.hydrostorages = hydrostorages
-            db.output.batterystorages = batterystorages
+            db.output.rhsterms = Vector{TuLiPa.Id}(rhsterms)
+            db.output.rhstermbalances = Vector{TuLiPa.Id}(rhstermbalances)
+            db.output.plants = Vector{TuLiPa.Id}(plants)
+            db.output.plantbalances = Vector{TuLiPa.Id}(plantbalances)
+            db.output.plantarrows = Dict{TuLiPa.Id, Any}(plantarrows)
+            db.output.demands = Vector{TuLiPa.Id}(demands)
+            db.output.demandbalances = Vector{TuLiPa.Id}(demandbalances)
+            db.output.demandarrows = Dict{TuLiPa.Id, Any}(demandarrows)
+            db.output.hydrostorages = Vector{TuLiPa.Id}(hydrostorages)
+            db.output.batterystorages = Vector{TuLiPa.Id}(batterystorages)
 
             db.output.prices = zeros(Int(numperiods_powerhorizon * steps), length(db.output.powerbalances))
             db.output.rhstermvalues = zeros(Int(numperiods_powerhorizon * steps), length(db.output.rhsterms))
@@ -1042,8 +1043,12 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             if haskey(settings["results"], "otherterms")
                 otherinfo = settings["results"]["otherterms"]
                 otherobjects, otherbalances = TuLiPa.order_result_objects_other(resultobjects, otherinfo)
-                db.output.otherobjects = otherobjects
-                db.output.otherbalances = otherbalances
+                db.output.otherobjects = Dict{String, Dict{String, Vector{TuLiPa.Id}}}(
+                    k => Dict{String, Vector{TuLiPa.Id}}(kk => Vector{TuLiPa.Id}(vv) for (kk, vv) in v)
+                    for (k, v) in otherobjects)
+                db.output.otherbalances = Dict{String, Dict{String, Vector{TuLiPa.Id}}}(
+                    k => Dict{String, Vector{TuLiPa.Id}}(kk => Vector{TuLiPa.Id}(vv) for (kk, vv) in v)
+                    for (k, v) in otherbalances)
 
                 for key in keys(otherinfo)
                     commodities = keys(otherinfo[key])
