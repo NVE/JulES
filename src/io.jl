@@ -576,27 +576,27 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     timing_evp::Dict
     timing_mp::Dict
     timing_sp::Dict
-    timing_cp::Array
+    timing_cp::Matrix{Float64}
 
     storagevalues::Dict
 
     prices_balances::Vector{TuLiPa.Id}
-    prices_long::Array{Float64}
-    deltas_long::Array{Float64}
-    prices_med::Array{Float64}
-    deltas_med::Array{Float64}
-    prices_short::Array{Float64}
-    deltas_short::Array{Float64}
+    prices_long::Array{Float64, 4}
+    deltas_long::Matrix{Float64}
+    prices_med::Array{Float64, 4}
+    deltas_med::Matrix{Float64}
+    prices_short::Array{Float64, 4}
+    deltas_short::Matrix{Float64}
 
-    scenweights_sim::Array{Float64}
-    scenweights_stoch::Array{Float64}
+    scenweights_sim::Matrix{Float64}
+    scenweights_stoch::Matrix{Float64}
 
-    prices::Array{Float64}
-    rhstermvalues::Array{Float64}
-    production::Array{Float64}
-    consumption::Array{Float64}
-    hydrolevels::Array{Float64}
-    batterylevels::Array{Float64}
+    prices::Matrix{Float64}
+    rhstermvalues::Matrix{Float64}
+    production::Matrix{Float64}
+    consumption::Matrix{Float64}
+    hydrolevels::Matrix{Float64}
+    batterylevels::Matrix{Float64}
     othervalues::Dict{String, Dict{String, Matrix{Float64}}}
 
     modelobjects::Dict
@@ -615,24 +615,24 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     otherbalances::Dict
 
     statenames::Vector{String}
-    statematrix::Array{Float64} # end states after each step
+    statematrix::Matrix{Float64} # end states after each step
 
     ifm_stations::Vector{String}
     ifm_statenames::Vector{String}
     ifm_u0::Vector{Matrix{Float64}}
     ifm_Q::Matrix{Float64}
-    ifm_allQ::Array{Float64}
+    ifm_allQ::Array{Float64, 3}
     actualQ::Matrix{Float64}
 
     function DefaultJulESOutput(input)
-        return new(Dict(), Dict(), Dict(), Dict(), [],
+        return new(Dict(), Dict(), Dict(), Dict(), Matrix{Float64}(undef, 0, 0),
             Dict(),
-            [], [], [], [], [], [], [],
-            [], [],
-            [], [], [], [], [], [], Dict{String, Dict{String, Matrix{Float64}}}(),
+            TuLiPa.Id[], Array{Float64, 4}(undef, 0, 0, 0, 0), Matrix{Float64}(undef, 0, 0), Array{Float64, 4}(undef, 0, 0, 0, 0), Matrix{Float64}(undef, 0, 0), Array{Float64, 4}(undef, 0, 0, 0, 0), Matrix{Float64}(undef, 0, 0),
+            Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0),
+            Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Matrix{Float64}(undef, 0, 0), Dict{String, Dict{String, Matrix{Float64}}}(),
             Dict(), [], [], [], [], [], Dict(), [], [], Dict(), [], [], Dict(), Dict(),
-            [], [],
-            [], [], [], Matrix{Float64}(undef, (0, 0)), [], Matrix{Float64}(undef, (0, 0)))
+            String[], Matrix{Float64}(undef, 0, 0),
+            String[], String[], Matrix{Float64}[], Matrix{Float64}(undef, 0, 0), Array{Float64, 3}(undef, 0, 0, 0), Matrix{Float64}(undef, 0, 0))
     end
 end
 
@@ -928,8 +928,12 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     end
 
     if has_result_scenarios(settings)
-        db.output.scenweights_sim[stepnr, :] .= [get_probability(scen) for scen in get_scenarios(db.scenmod_sim)]
-        db.output.scenweights_stoch[stepnr, :] .= [get_probability(scen) for scen in get_scenarios(db.scenmod_stoch)]
+        for (i, scen) in enumerate(get_scenarios(db.scenmod_sim))
+            db.output.scenweights_sim[stepnr, i] = get_probability(scen)
+        end
+        for (i, scen) in enumerate(get_scenarios(db.scenmod_stoch))
+            db.output.scenweights_stoch[stepnr, i] = get_probability(scen)
+        end
     end
 
     if has_result_storagevalues(settings)
@@ -1080,7 +1084,9 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.statematrix = zeros(length(values(db.startstates)), Int(steps))
         end
         if stepnr != 1
-            db.output.statematrix[:, stepnr-1] .= collect(values(db.startstates))
+            for (i, v) in enumerate(values(db.startstates))
+                db.output.statematrix[i, stepnr-1] = v
+            end
         end
 
         powerrange = Int(numperiods_powerhorizon * (stepnr - 1) + 1):Int(numperiods_powerhorizon * (stepnr))
@@ -1621,9 +1627,11 @@ function get_output_main_local()
     steps = get_steps(db)
     if steps == 1
         db.output.statenames = collect(keys(db.startstates))
-        db.output.statematrix = collect(values(db.startstates))
+        db.output.statematrix = reshape(collect(values(db.startstates)), :, 1)
     else
-        db.output.statematrix[:, steps] .= collect(values(db.startstates))
+        for (i, v) in enumerate(values(db.startstates))
+            db.output.statematrix[i, steps] = v
+        end
     end
 
     if haskey(settings["results"], "mainresults")
