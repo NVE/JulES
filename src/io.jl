@@ -597,7 +597,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
     consumption::Array{Float64}
     hydrolevels::Array{Float64}
     batterylevels::Array{Float64}
-    othervalues::Dict
+    othervalues::Dict{String, Dict{String, Matrix{Float64}}}
 
     modelobjects::Dict
     powerbalances::Vector
@@ -629,7 +629,7 @@ mutable struct DefaultJulESOutput <: AbstractJulESOutput
             Dict(),
             [], [], [], [], [], [], [],
             [], [],
-            [], [], [], [], [], [], Dict(),
+            [], [], [], [], [], [], Dict{String, Dict{String, Matrix{Float64}}}(),
             Dict(), [], [], [], [], [], Dict(), [], [], Dict(), [], [], Dict(), Dict(),
             [], [],
             [], [], [], Matrix{Float64}(undef, (0, 0)), [], Matrix{Float64}(undef, (0, 0)))
@@ -1042,15 +1042,13 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 db.output.otherbalances = otherbalances
 
                 for key in keys(otherinfo)
-                    db.output.othervalues[key] = Dict()
+                    commodities = keys(otherinfo[key])
+                    db.output.othervalues[key] = Dict{String, Matrix{Float64}}()
+                    sizehint!(db.output.othervalues[key], length(commodities))
 
-                    for commodity in keys(otherinfo[key])
+                    for commodity in commodities
                         horizon = TuLiPa.get_horizon_commodity(resultobjects, commodity)
-                        if key == "RHSTerms"
-                            db.output.othervalues[key][commodity] = zeros(TuLiPa.getnumperiods(horizon) * steps, length(otherobjects[key][commodity]))
-                        elseif key == "Vars"
-                            db.output.othervalues[key][commodity] = zeros(TuLiPa.getnumperiods(horizon) * steps, length(otherobjects[key][commodity]))
-                        end
+                        db.output.othervalues[key][commodity] = zeros(TuLiPa.getnumperiods(horizon) * steps, length(otherobjects[key][commodity]))
                     end
                 end
             end
