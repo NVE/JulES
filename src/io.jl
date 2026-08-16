@@ -926,6 +926,9 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
             @spawnat core reset_maintiming_sp(scenix, subix)
         end
+
+        db.output.timing_cp[stepnr, :] .= db.cp.div[MainTiming]
+        fill!(db.cp.div[MainTiming], 0.0)
     end
 
     if has_result_scenarios(settings)

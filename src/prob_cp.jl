@@ -55,7 +55,10 @@ function create_cp()
     probmethod = parse_methods(settings["problems"]["clearing"]["solver"])
     prob = TuLiPa.buildprob(probmethod, modelobjects)
 
-    db.cp = ClearingProblem(prob, Dict{String, Float64}(), Dict())
+    div = Dict()
+    div[MainTiming] = zeros(3)
+
+    db.cp = ClearingProblem(prob, Dict{String, Float64}(), div)
 
     return
 end
@@ -64,15 +67,15 @@ function solve_cp(t, stepnr, skipmed)
     db = get_local_db()
 
     if db.core_main == db.core
-        timing = db.output.timing_cp
-        timing[stepnr, 3] = @elapsed begin
+        maintiming = db.cp.div[MainTiming]
+        maintiming[3] = @elapsed begin
             update_startstates_cp(db.cp.prob, db.startstates, stepnr, t)
             update_cuts(db.dist_mp, db.cp.prob, skipmed)
             update_nonstoragestates_cp(db.dist_ppp, db.cp.prob)
             update_statedependent_cp(stepnr, t)
-            timing[stepnr, 1] = @elapsed TuLiPa.update!(db.cp.prob, t)
+            maintiming[1] = @elapsed TuLiPa.update!(db.cp.prob, t)
             set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
-            timing[stepnr, 2] = @elapsed TuLiPa.solve!(db.cp.prob)
+            maintiming[2] = @elapsed TuLiPa.solve!(db.cp.prob)
             get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
         end
     end
