@@ -903,28 +903,29 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     end
 
     if has_result_times(settings)
+        futures = Pair{CoreId, Any}[]
+        @sync for core in get_cores(db)
+            if core != db.core
+                f = @spawnat core collect_and_reset_timings_local()
+                push!(futures, core => f)
+            end
+        end
+        all_timings = Dict{CoreId, Any}(db.core => collect_and_reset_timings_local())
+        for (core, f) in futures
+            all_timings[core] = fetch(f)
+        end
+
         for (scenix, core) in db.dist_ppp
-            f = @spawnat core get_maintiming_ppp(scenix)
-            db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
-            @spawnat core reset_maintiming_ppp(scenix)
+            db.output.timing_ppp[scenix][stepnr, :, :] .= all_timings[core][1][scenix]
         end
-
         for (scenix, subix, core) in db.dist_evp
-            f = @spawnat core get_maintiming_evp(scenix, subix)
-            db.output.timing_evp[(scenix, subix)][stepnr, :] .= fetch(f)
-            @spawnat core reset_maintiming_evp(scenix, subix)
+            db.output.timing_evp[(scenix, subix)][stepnr, :] .= all_timings[core][2][(scenix, subix)]
         end
-
         for (subix, core) in db.dist_mp
-            f = @spawnat core get_maintiming_mp(subix)
-            db.output.timing_mp[subix][stepnr, :] .= fetch(f)
-            @spawnat core reset_maintiming_mp(subix)
+            db.output.timing_mp[subix][stepnr, :] .= all_timings[core][3][subix]
         end
-
         for (scenix, subix, core) in db.dist_sp
-            f = @spawnat core get_maintiming_sp(scenix, subix)
-            db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
-            @spawnat core reset_maintiming_sp(scenix, subix)
+            db.output.timing_sp[(scenix, subix)][stepnr, :] .= all_timings[core][4][(scenix, subix)]
         end
 
         db.output.timing_cp[stepnr, :] .= db.cp.div[MainTiming]
@@ -1229,6 +1230,36 @@ reset_maintiming_ppp(scenix) = fill!(get_local_db().ppp[scenix].div[MainTiming],
 reset_maintiming_evp(scenix, subix) = fill!(get_local_db().evp[(scenix, subix)].div[MainTiming], 0.0)
 reset_maintiming_mp(subix) = fill!(get_local_db().mp[subix].div[MainTiming], 0.0)
 reset_maintiming_sp(scenix, subix) = fill!(get_local_db().sp[(scenix, subix)].div[MainTiming], 0.0)
+
+function collect_and_reset_timings_local()
+    db = get_local_db()
+
+    ppp_timings = Dict{Int, Matrix{Float64}}()
+    for (scenix, ppp) in db.ppp
+        ppp_timings[scenix] = copy(ppp.div[MainTiming])
+        fill!(ppp.div[MainTiming], 0.0)
+    end
+
+    evp_timings = Dict{Tuple{Int,Int}, Vector{Float64}}()
+    for ((scenix, subix), evp) in db.evp
+        evp_timings[(scenix, subix)] = copy(evp.div[MainTiming])
+        fill!(evp.div[MainTiming], 0.0)
+    end
+
+    mp_timings = Dict{Int, Vector{Float64}}()
+    for (subix, mp) in db.mp
+        mp_timings[subix] = copy(mp.div[MainTiming])
+        fill!(mp.div[MainTiming], 0.0)
+    end
+
+    sp_timings = Dict{Tuple{Int,Int}, Vector{Float64}}()
+    for ((scenix, subix), sp) in db.sp
+        sp_timings[(scenix, subix)] = copy(sp.div[MainTiming])
+        fill!(sp.div[MainTiming], 0.0)
+    end
+
+    return (ppp_timings, evp_timings, mp_timings, sp_timings)
+end
 
 get_storagevalues_stoch(subix) = get_local_db().mp[subix].div[StorageValues]
 
