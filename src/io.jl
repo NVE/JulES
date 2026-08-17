@@ -942,21 +942,40 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     end
 
     if has_result_storagevalues(settings)
+        need_sv = has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")
+        need_cutsids = haskey(settings["problems"], "clearing")
+
+        # Phase 1: Fetch storagevalues and cutsids, one call per unique mp core
+        sv_futures = Pair{CoreId, Any}[]
+        @sync for core in unique(last.(db.dist_mp))
+            f = @spawnat core get_mp_watervalues_and_cutsids_local(need_sv, need_cutsids)
+            push!(sv_futures, core => f)
+        end
+        all_sv = Dict{CoreId, Any}(core => fetch(f) for (core, f) in sv_futures)
+
+        # Phase 2: Process locally, resolve cuts, build enddual requests grouped by core
+        enddual_sp_reqs = Dict{CoreId, Vector{Tuple}}()
+        enddual_evp_reqs = Dict{CoreId, Vector{Tuple}}()
+        sp_output_map = Dict{Tuple, Tuple}()
+        evp_output_map = Dict{Tuple, Tuple}()
+
         for (subix, core) in db.dist_mp
             if has_headlosscost(settings["problems"]["stochastic"]["master"])
                 dim = get_numscen_stoch(db.input) * 2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
             else
                 dim = get_numscen_stoch(db.input) * 2 + 1 # scenarios + master operative 
             end
-            if has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")
-                f = @spawnat core get_storagevalues_stoch(subix)
-                storagevalues_stoch = fetch(f)
-                dim = (size(storagevalues_stoch, 1))
+
+            (sv_dict, cutsid_dict) = all_sv[core]
+
+            if (has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")) && haskey(sv_dict, subix)
+                storagevalues_stoch = sv_dict[subix]
+                dim = size(storagevalues_stoch, 1)
                 db.output.storagevalues[subix][stepnr, 1:dim, :] .= storagevalues_stoch
             end
 
             if haskey(settings["problems"], "clearing")
-                cutid = fetch(@spawnat core get_cutsid(subix))
+                cutid = cutsid_dict[subix]
                 cuts = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), cutid)
                 for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
                     obj = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
@@ -965,18 +984,19 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                     db.output.storagevalues[subix][stepnr, dim+1, j] = TuLiPa.getcondual(db.cp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
 
                     if has_result_storagevalues_all_problems(settings)
+                        objid = first(TuLiPa.getvarout(statevar))
                         if haskey(settings["problems"], "stochastic")
                             for scenix in 1:get_numscen_stoch(db.input)
-                                core_stoch = get_core_sp(db.dist_sp, scenix, subix)
-                                f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                                db.output.storagevalues[subix][stepnr, dim+3+scenix, j] = fetch(f)
+                                core_sp = get_core_sp(db.dist_sp, scenix, subix)
+                                push!(get!(() -> Tuple[], enddual_sp_reqs, core_sp), (scenix, subix, objid))
+                                sp_output_map[(scenix, subix, objid)] = (subix, dim+3+scenix, j)
                             end
                         end
                         if haskey(settings["problems"], "endvalue") && is_subsystem_evp(db.subsystems[subix])
                             for scenix in 1:get_numscen_stoch(db.input)
                                 core_evp = get_core_evp(db.dist_evp, scenix, subix)
-                                f = @spawnat core_evp get_enddual_evp(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                                db.output.storagevalues[subix][stepnr, dim+3+get_numscen_stoch(db.input)+scenix, j] = fetch(f)
+                                push!(get!(() -> Tuple[], enddual_evp_reqs, core_evp), (scenix, subix, objid))
+                                evp_output_map[(scenix, subix, objid)] = (subix, dim+3+get_numscen_stoch(db.input)+scenix, j)
                             end
                         end
                     end
@@ -985,10 +1005,35 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 statevars = db.mp[subix].cuts.statevars
                 for scenix in 1:get_numscen_stoch(db.input)
                     for (j, statevar) in enumerate(statevars)
-                        core_stoch = get_core_sp(db.dist_sp, scenix, subix)
-                        f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                        db.output.storagevalues[subix][stepnr, dim+scenix, j] = fetch(f)
+                        objid = first(TuLiPa.getvarout(statevar))
+                        core_sp = get_core_sp(db.dist_sp, scenix, subix)
+                        push!(get!(() -> Tuple[], enddual_sp_reqs, core_sp), (scenix, subix, objid))
+                        sp_output_map[(scenix, subix, objid)] = (subix, dim+scenix, j)
                     end
+                end
+            end
+        end
+
+        # Phase 3: Fetch all endduals, one call per unique core
+        all_cores_enddual = union(keys(enddual_sp_reqs), keys(enddual_evp_reqs))
+        if !isempty(all_cores_enddual)
+            enddual_futures = Pair{CoreId, Any}[]
+            @sync for core in all_cores_enddual
+                sp_reqs = get(enddual_sp_reqs, core, Tuple[])
+                evp_reqs = get(enddual_evp_reqs, core, Tuple[])
+                f = @spawnat core get_endperiod_duals_local(sp_reqs, evp_reqs)
+                push!(enddual_futures, core => f)
+            end
+
+            for (core, f) in enddual_futures
+                (sp_results, evp_results) = fetch(f)
+                for (key, val) in sp_results
+                    (subix_out, row, j) = sp_output_map[key]
+                    db.output.storagevalues[subix_out][stepnr, row, j] = val
+                end
+                for (key, val) in evp_results
+                    (subix_out, row, j) = evp_output_map[key]
+                    db.output.storagevalues[subix_out][stepnr, row, j] = val
                 end
             end
         end
@@ -1262,6 +1307,36 @@ function collect_and_reset_timings_local()
 end
 
 get_storagevalues_stoch(subix) = get_local_db().mp[subix].div[StorageValues]
+
+function get_mp_watervalues_and_cutsids_local(need_sv::Bool, need_cutsids::Bool)
+    db = get_local_db()
+    sv = Dict{Int, Any}()
+    cutsids = Dict{Int, Any}()
+    for (subix, mp) in db.mp
+        need_sv && (sv[subix] = copy(mp.div[StorageValues]))
+        need_cutsids && (cutsids[subix] = mp.cuts.id)
+    end
+    return (sv, cutsids)
+end
+
+function get_endperiod_duals_local(sp_requests, evp_requests)
+    db = get_local_db()
+    sp_results = Dict{Tuple, Float64}()
+    for (scenix, subix, objid) in sp_requests
+        sp = db.sp[(scenix, subix)]
+        obj = get_obj_from_id(TuLiPa.getobjects(sp.prob), objid)
+        balance = TuLiPa.getbalance(obj)
+        sp_results[(scenix, subix, objid)] = TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+    end
+    evp_results = Dict{Tuple, Float64}()
+    for (scenix, subix, objid) in evp_requests
+        evp = db.evp[(scenix, subix)]
+        obj = get_obj_from_id(TuLiPa.getobjects(evp.prob), objid)
+        balance = TuLiPa.getbalance(obj)
+        evp_results[(scenix, subix, objid)] = TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+    end
+    return (sp_results, evp_results)
+end
 
 function get_output_final(steplength, skipmax)
     output = get_output_main()
