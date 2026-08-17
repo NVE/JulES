@@ -1188,24 +1188,6 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     return
 end
 
-function get_enddual_stoch(scenix, subix, objid)
-    db = get_local_db()
-    sp = db.sp[(scenix, subix)]
-
-    obj = get_obj_from_id(TuLiPa.getobjects(sp.prob), objid) # TODO: OK to assume objid = varoutid?
-    balance = TuLiPa.getbalance(obj)
-    return TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-end
-
-function get_enddual_evp(scenix, subix, objid)
-    db = get_local_db()
-    evp = db.evp[(scenix, subix)]
-
-    obj = get_obj_from_id(TuLiPa.getobjects(evp.prob), objid) # TODO: OK to assume objid = varoutid?
-    balance = TuLiPa.getbalance(obj)
-    return TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-end
-
 function reset_ppp_prices(scenix)
     db = get_local_db()
     ppp = db.ppp[scenix]
@@ -1266,16 +1248,6 @@ end
 
 get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
 
-get_maintiming_ppp(scenix) = get_local_db().ppp[scenix].div[MainTiming]
-get_maintiming_evp(scenix, subix) = get_local_db().evp[(scenix, subix)].div[MainTiming]
-get_maintiming_mp(subix) = get_local_db().mp[subix].div[MainTiming]
-get_maintiming_sp(scenix, subix) = get_local_db().sp[(scenix, subix)].div[MainTiming]
-
-reset_maintiming_ppp(scenix) = fill!(get_local_db().ppp[scenix].div[MainTiming], 0.0)
-reset_maintiming_evp(scenix, subix) = fill!(get_local_db().evp[(scenix, subix)].div[MainTiming], 0.0)
-reset_maintiming_mp(subix) = fill!(get_local_db().mp[subix].div[MainTiming], 0.0)
-reset_maintiming_sp(scenix, subix) = fill!(get_local_db().sp[(scenix, subix)].div[MainTiming], 0.0)
-
 function collect_and_reset_timings_local()
     db = get_local_db()
 
@@ -1305,8 +1277,6 @@ function collect_and_reset_timings_local()
 
     return (ppp_timings, evp_timings, mp_timings, sp_timings)
 end
-
-get_storagevalues_stoch(subix) = get_local_db().mp[subix].div[StorageValues]
 
 function get_mp_watervalues_and_cutsids_local(need_sv::Bool, need_cutsids::Bool)
     db = get_local_db()
