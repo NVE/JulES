@@ -938,8 +938,10 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
             db.output.timing_sp[(scenix, subix)][stepnr, :] .= all_timings[core][4][(scenix, subix)]
         end
 
-        db.output.timing_cp[stepnr, :] .= db.cp.div[MainTiming]
-        fill!(db.cp.div[MainTiming], 0.0)
+        if haskey(settings["problems"], "clearing")
+            db.output.timing_cp[stepnr, :] .= db.cp.div[MainTiming]
+            fill!(db.cp.div[MainTiming], 0.0)
+        end
     end
 
     if has_result_scenarios(settings)
