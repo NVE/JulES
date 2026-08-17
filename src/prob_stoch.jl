@@ -516,23 +516,32 @@ function update_endconditions_sp(scenix::ScenarioIx, subix::SubsystemIx, t::TuLi
         set_endstates!(sp.prob, storages, db.startstates)
     elseif endvaluemethod_sp == "evp" # TODO: Store bid and period in sp (or subsystem?)
         core_evp = get_core_evp(db.dist_evp, parentscenix, subix)
+        term_evp = get_horizonterm_evp(subsystem)
+
+        pending = Vector{Tuple{typeof(first(storages)), Int, Future}}()
         for obj in storages
             commodityname = TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getcommodity(TuLiPa.getbalance(obj))))
             horizon_sp = TuLiPa.gethorizon(TuLiPa.getbalance(obj))
             duration_stoch = TuLiPa.getdurationtoend(horizon_sp)
-            term_evp = get_horizonterm_evp(subsystem)
             horizon_evp = db.horizons[(parentscenix, term_evp, commodityname)]
             period_evp = TuLiPa.getendperiodfromduration(horizon_evp, duration_stoch)
             bid = TuLiPa.getid(TuLiPa.getbalance(obj))
             future = @spawnat core_evp get_balancedual_evp(parentscenix, subix, bid, period_evp)
-            dual_evp = fetch(future)
-
             period_sp = TuLiPa.getnumperiods(horizon_sp)
+            push!(pending, (obj, period_sp, future))
+        end
+
+        for (obj, period_sp, future) in pending
+            dual_evp = fetch(future)
             TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), period_sp, dual_evp)
         end
     elseif endvaluemethod_sp == "ppp"
         detailedrescopl = get_dataset(db)["detailedrescopl"]
         enekvglobaldict = get_dataset(db)["enekvglobaldict"]
+        term_ppp = get_horizonterm_stoch(subsystem)
+        core_ppp = get_core_ppp(db.dist_ppp, parentscenix)
+
+        pending = Vector{Tuple{typeof(first(storages)), String, Int, Future}}()
         for obj in storages
             balance = TuLiPa.getbalance(obj)
             bid = TuLiPa.getid(balance)
@@ -547,15 +556,15 @@ function update_endconditions_sp(scenix::ScenarioIx, subix::SubsystemIx, t::TuLi
                 bid = TuLiPa.Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
             end
             endperiod = TuLiPa.getlastperiod(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
-            term_ppp = get_horizonterm_stoch(subsystem)
-            core_ppp = get_core_ppp(db.dist_ppp, parentscenix)
             future = @spawnat core_ppp get_balancedual_ppp(parentscenix, bid, endperiod, term_ppp)
-            dual_ppp = fetch(future)
-            if haskey(enekvglobaldict, instancename[2])
-                dual_ppp *= enekvglobaldict[instancename[2]]
-            end
+            push!(pending, (obj, instancename[2], TuLiPa.getnumperiods(TuLiPa.gethorizon(TuLiPa.getbalance(obj))), future))
+        end
 
-            numperiods = TuLiPa.getnumperiods(TuLiPa.gethorizon(TuLiPa.getbalance(obj)))
+        for (obj, iname, numperiods, future) in pending
+            dual_ppp = fetch(future)
+            if haskey(enekvglobaldict, iname)
+                dual_ppp *= enekvglobaldict[iname]
+            end
             TuLiPa.setobjcoeff!(sp.prob, TuLiPa.getid(obj), numperiods, dual_ppp)
         end
     end
