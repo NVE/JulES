@@ -1504,8 +1504,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_evp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "total", "core", "skipmed"]])
         for (scenix, subix, core) in db.dist_evp
             values = dropdims(mean(db.output.timing_evp[(scenix, subix)], dims=1), dims=1)
-            f = @spawnat core get_skipmed_impact(subix)
-            push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+            push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, get_skipmed_impact(db.subsystems[subix])])
         end
         df_evp[!, :other] = df_evp[!, :total] - df_evp[!, :solve] - df_evp[!, :update]
         df_evp[df_evp.skipmed.==true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed.==true, [:update, :solve, :total]] .* skipfactor
@@ -1531,8 +1530,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_mp = DataFrame([name => [] for name in ["subix", "mp_u", "mp_s", "mp_fin", "mp_o", "bend_it", "core", "skipmed"]])
         for (subix, core) in db.dist_mp
             values = dropdims(mean(db.output.timing_mp[(subix)], dims=1), dims=1)
-            f = @spawnat core get_skipmed_impact(subix)
-            push!(df_mp, [subix, values[1], values[2], values[3], values[4], values[5], core, fetch(f)])
+            push!(df_mp, [subix, values[1], values[2], values[3], values[4], values[5], core, get_skipmed_impact(db.subsystems[subix])])
         end
         df_mp[!, :mp_tot] = df_mp[!, :mp_s] + df_mp[!, :mp_u] + df_mp[!, :mp_fin] + df_mp[!, :mp_o]
         df_mp[df_mp.skipmed.==true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .= df_mp[df_mp.skipmed.==true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .* skipfactor
@@ -1552,8 +1550,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
         for (scenix, subix, core) in db.dist_sp
             values = dropdims(mean(db.output.timing_sp[(scenix, subix)], dims=1), dims=1)
-            f = @spawnat core get_skipmed_impact(subix)
-            push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+            push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, get_skipmed_impact(db.subsystems[subix])])
         end
         df_sp[!, :total] = df_sp[!, :solve] + df_sp[!, :update] + df_sp[!, :other]
         df_sp[df_sp.skipmed.==true, [:update, :solve, :other, :total]] .= df_sp[df_sp.skipmed.==true, [:update, :solve, :other, :total]] .* skipfactor
