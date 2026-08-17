@@ -769,8 +769,13 @@ end
 function collect_ifm_u0(stepnr)
     db = get_local_db()
     d = Dict{String,Vector{Float64}}()
-    for core in get_cores(db.input)
-        fetched = fetch(@spawnat core local_collect_ifm_u0(stepnr))
+    futures = Pair{CoreId, Any}[]
+    @sync for core in get_cores(db.input)
+        f = @spawnat core local_collect_ifm_u0(stepnr)
+        push!(futures, core => f)
+    end
+    for (core, f) in futures
+        fetched = fetch(f)
         if fetched isa RemoteException
             throw(fetched)
         end
@@ -798,8 +803,13 @@ end
 function collect_ifm_Q(stepnr)
     db = get_local_db()
     d = Dict{String,Float64}()
-    for core in get_cores(db.input)
-        fetched = fetch(@spawnat core local_collect_ifm_Q(stepnr))
+    futures = Pair{CoreId, Any}[]
+    @sync for core in get_cores(db.input)
+        f = @spawnat core local_collect_ifm_Q(stepnr)
+        push!(futures, core => f)
+    end
+    for (core, f) in futures
+        fetched = fetch(f)
         if fetched isa RemoteException
             throw(fetched)
         end
