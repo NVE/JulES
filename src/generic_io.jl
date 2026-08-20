@@ -189,7 +189,7 @@ function _get_core_load!(input::AbstractJulESInput, subsystems::Vector{Tuple{Sub
             core_loads[core] += num_elements
             
         else
-            println("Warning: Core $core not found in core_loads dictionary. Skipping...")
+            @warn("Warning: Core $core not found in core_loads dictionary. Skipping...")
         end
     end
     return core_loads

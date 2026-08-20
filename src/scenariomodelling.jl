@@ -4,13 +4,17 @@ Define the concrete scenario modelling methods
 See abstract_types.jl for more
 """
 
+using Random
+
+const INFLOW_CLUSTERING_SEED = 42
+
 struct NothingScenarioModellingMethod <: AbstractScenarioModellingMethod end
-mutable struct NoScenarioModellingMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
+mutable struct NoScenarioModellingMethod{T<:AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
 end
 # mutable struct ResidualLoadMethod <: ScenarioModellingMethod # choose scenario based on residual load (also energy inflow)
 # end
-mutable struct InflowClusteringMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
+mutable struct InflowClusteringMethod{T<:AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
     inflowfactors::Vector{Float64}
     objects::Vector
@@ -24,7 +28,7 @@ mutable struct InflowClusteringMethod{T <: AbstractScenario} <: AbstractScenario
 end
 get_parts(method::InflowClusteringMethod{WeatherScenario}) = method.parts
 
-mutable struct SumInflowQuantileMethod{T <: AbstractScenario} <: AbstractScenarioModellingMethod
+mutable struct SumInflowQuantileMethod{T<:AbstractScenario} <: AbstractScenarioModellingMethod
     scenarios::Vector{T}
     inflowfactors::Vector{Float64}
     objects::Vector
@@ -58,7 +62,7 @@ function set_changes(scenmod::NoScenarioModellingMethod, changes::Vector{Weather
     scenmod.scenarios = changes
     return
 end
-function set_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario}, Vector{Float64}})
+function set_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}, changes::Tuple{Vector{WeatherScenario},Vector{Float64}})
     scenarios, inflowfactors = changes
 
     scenmod.scenarios = scenarios
@@ -66,7 +70,7 @@ function set_changes(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},Inf
     return
 end
 
-get_inflowfactors(scenmod::AbstractScenarioModellingMethod) = [1/length(scenmod.scenarios) for s in 1:length(scenmod.scenarios)]
+get_inflowfactors(scenmod::AbstractScenarioModellingMethod) = [1 / length(scenmod.scenarios) for s in 1:length(scenmod.scenarios)]
 get_inflowfactors(scenmod::Union{SumInflowQuantileMethod{WeatherScenario},InflowClusteringMethod{WeatherScenario}}) = scenmod.inflowfactors
 
 """Choose scenarios from a larger set based on a method, and calculate weights and other parameters that result from the scenario modelling"""
@@ -75,7 +79,7 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     scenariooptions = get_scenarios(scenmodmethodoptions)
     weightsoptions = [get_probability(scenario) for scenario in scenariooptions]
     factoroptions = get_inflowfactors(scenmodmethodoptions)
-    
+
     # Calculate total energy inflow in the system for the scenariodelta
     totalsumenergyinflow = zeros(length(scenariooptions))
     for obj in scenmod.objects
@@ -88,7 +92,7 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
                 for rhsterm in TuLiPa.getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
                         time = get_scentnormal(simtime, scenario, input)
-                        totalsumenergyinflow[i] += TuLiPa.getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*factoroptions[i]
+                        totalsumenergyinflow[i] += TuLiPa.getparamvalue(rhsterm, time, scenmod.scendelta) * enekvglobal * factoroptions[i]
                     end
                 end
             end
@@ -99,7 +103,7 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     n = fit(Normal, totalsumenergyinflow, weightsoptions)
     quantiles = [i for i in 1-scenmod.maxquantile:(2*scenmod.maxquantile-1)/(numscen-1):scenmod.maxquantile] # get quantiles from maxquantile
     qvalues = quantile.(n, quantiles) # get quantile values from distribution
-    
+
     # Could also use probability density of the quantiles in the calculation of the weights
     if scenmod.usedensity
         d = pdf.(n, qvalues) # get probability density for each quantile
@@ -110,21 +114,21 @@ function choose_scenarios!(scenmod::SumInflowQuantileMethod{WeatherScenario}, sc
     # How much should the inflow in the scenario be adjusted so that it is similar to the quantile?
     for i in 1:numscen
         qvalue = qvalues[i]
-        idx = findmin(abs.(totalsumenergyinflow.-qvalue))[2]
+        idx = findmin(abs.(totalsumenergyinflow .- qvalue))[2]
         scenmod.scenarios[i] = deepcopy(scenariooptions[idx])
-        scenmod.inflowfactors[i] = qvalue/totalsumenergyinflow[idx]
+        scenmod.inflowfactors[i] = qvalue / totalsumenergyinflow[idx]
     end
 
     # How much should each scenario be weighted - combination of weighting function and probability density
     x = collect(-numscen+1:2:numscen-1)
     y = (scenmod.a .* x .^ 2 .+ x .* scenmod.b .+ scenmod.c) .* d
     for i in 1:numscen
-        scenmod.scenarios[i].p_weather = y[i]/sum(y)
+        scenmod.scenarios[i].p_weather = y[i] / sum(y)
     end
 
     scenariosum = sum([scenario.p_weather for scenario in scenmod.scenarios])
     if !isapprox(scenariosum, 1, atol=0.0001)
-        println([scenario.p_weather for scenario in scenmod.scenarios])
+        @error "Scenario probabilities do not sum to 1" scenarios = [scenario.p_weather for scenario in scenmod.scenarios] scenariosum = scenariosum
         error("Sum of scenarios not 1, it is $(scenariosum)")
     end
     return
@@ -138,10 +142,10 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
 
     # Calculate total energy inflow in the system for each part of the scenariodelta
     sumenergyinflow = zeros(length(scenariooptions))
-    partsumenergyinflow = zeros(scenmod.parts ,length(scenariooptions))
-    scendeltapart = scenmod.scendelta/scenmod.parts
+    partsumenergyinflow = zeros(scenmod.parts, length(scenariooptions))
+    scendeltapart = scenmod.scendelta / scenmod.parts
 
-	parts = scenmod.parts
+    parts = scenmod.parts
 
     for obj in scenmod.objects
         if obj isa TuLiPa.BaseBalance
@@ -153,9 +157,9 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
                 for rhsterm in TuLiPa.getrhsterms(obj)
                     for (i, scenario) in enumerate(scenariooptions)
                         time = get_scentnormal(simtime, scenario, input)
-                        sumenergyinflow[i] += TuLiPa.getparamvalue(rhsterm, time, scenmod.scendelta)*enekvglobal*inflowfactoroptions[i]
+                        sumenergyinflow[i] += TuLiPa.getparamvalue(rhsterm, time, scenmod.scendelta) * enekvglobal * inflowfactoroptions[i]
                         for j in 1:parts
-                            partsumenergyinflow[j,i] += TuLiPa.getparamvalue(rhsterm, time + scendeltapart*(j-1), scendeltapart)*enekvglobal*inflowfactoroptions[i]
+                            partsumenergyinflow[j, i] += TuLiPa.getparamvalue(rhsterm, time + scendeltapart * (j - 1), scendeltapart) * enekvglobal * inflowfactoroptions[i]
                         end
                     end
                 end
@@ -164,7 +168,7 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
     end
 
     # Cluster inflow scenarios together
-    r = kmeans(partsumenergyinflow, numscen)
+    r = kmeans(partsumenergyinflow, numscen; rng=MersenneTwister(INFLOW_CLUSTERING_SEED))
     assignments = r.assignments
 
     # # Take a look at the clustering
@@ -181,19 +185,19 @@ function choose_scenarios!(scenmod::InflowClusteringMethod{WeatherScenario}, sce
         # Scenario in middle of cluster
         clustersumenergyinflows = sumenergyinflow[idxs]
         meanclustersumenergyinflow = mean(clustersumenergyinflows)
-        clusteridx = findmin(x->abs(x-meanclustersumenergyinflow), clustersumenergyinflows)[2]
+        clusteridx = findmin(x -> abs(x - meanclustersumenergyinflow), clustersumenergyinflows)[2]
         totalidx = findfirst(x -> x == clustersumenergyinflows[clusteridx], sumenergyinflow)
         scenmod.scenarios[i] = deepcopy(scenariooptions[totalidx])
 
         # Adjust scenario to represent actual middle of cluster
-        scenmod.inflowfactors[i] = meanclustersumenergyinflow/sumenergyinflow[totalidx]
+        scenmod.inflowfactors[i] = meanclustersumenergyinflow / sumenergyinflow[totalidx]
 
         # Weight based on amount of scenarios in cluster and weight of options
         scenmod.scenarios[i].p_weather = sum(weightsoptions[idxs])
     end
     scenariosum = sum([scenario.p_weather for scenario in scenmod.scenarios])
     if !isapprox(scenariosum, 1, atol=0.0001)
-        println([scenario.p_weather for scenario in scenmod.scenarios])
+        @error "Scenario probabilities do not sum to 1" scenarios = [scenario.p_weather for scenario in scenmod.scenarios] scenariosum = scenariosum
         error("Sum of scenarios not 1, it is $(scenariosum)")
     end
 

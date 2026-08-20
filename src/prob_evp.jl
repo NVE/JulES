@@ -80,6 +80,10 @@ function update_endstates_evp(input, scenix::ScenarioIx, subix::SubsystemIx, evp
     elseif endvaluemethod_ev == "ppp"
         detailedrescopl = get_dataset(input)["detailedrescopl"]
         enekvglobaldict = get_dataset(input)["enekvglobaldict"]
+        term_ppp = get_horizonterm_evp(subsystem)
+        core_ppp = get_core_ppp(get_local_db().dist_ppp, scenix)
+
+        pending = Vector{Tuple{typeof(first(storages)), TuLiPa.Id, Int, Future}}()
         for obj in storages
             balance = TuLiPa.getbalance(obj)
             bid = TuLiPa.getid(balance)
@@ -94,13 +98,16 @@ function update_endstates_evp(input, scenix::ScenarioIx, subix::SubsystemIx, evp
                 bid = TuLiPa.Id(bid.conceptname, instancename[1] * "Balance_" * balancename * "_hydro_reservoir") # TODO: This should be in the dataset
             end
             endperiod = TuLiPa.gethorizon(TuLiPa.getbalance(obj)).ix_stop
-            term_ppp = get_horizonterm_evp(subsystem)
-            core_ppp = get_core_ppp(get_local_db().dist_ppp, scenix)
             future = @spawnat core_ppp get_balancedual_ppp(scenix, bid, endperiod, term_ppp)
+            push!(pending, (obj, bid, endperiod, future))
+        end
+
+        for (obj, bid, endperiod, future) in pending
             dual_ppp = fetch(future)
             if dual_ppp isa RemoteException
                 throw(dual_ppp)
             end
+            instancename = split(TuLiPa.getinstancename(TuLiPa.getid(TuLiPa.getbalance(obj))), "Balance_")
             if haskey(enekvglobaldict, instancename[2])
                 dual_ppp *= enekvglobaldict[instancename[2]]
             end
