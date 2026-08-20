@@ -769,8 +769,13 @@ end
 function collect_ifm_u0(stepnr)
     db = get_local_db()
     d = Dict{String,Vector{Float64}}()
-    for core in get_cores(db.input)
-        fetched = fetch(@spawnat core local_collect_ifm_u0(stepnr))
+    futures = Pair{CoreId, Any}[]
+    @sync for core in get_cores(db.input)
+        f = @spawnat core local_collect_ifm_u0(stepnr)
+        push!(futures, core => f)
+    end
+    for (core, f) in futures
+        fetched = fetch(f)
         if fetched isa RemoteException
             throw(fetched)
         end
@@ -798,8 +803,13 @@ end
 function collect_ifm_Q(stepnr)
     db = get_local_db()
     d = Dict{String,Float64}()
-    for core in get_cores(db.input)
-        fetched = fetch(@spawnat core local_collect_ifm_Q(stepnr))
+    futures = Pair{CoreId, Any}[]
+    @sync for core in get_cores(db.input)
+        f = @spawnat core local_collect_ifm_Q(stepnr)
+        push!(futures, core => f)
+    end
+    for (core, f) in futures
+        fetched = fetch(f)
         if fetched isa RemoteException
             throw(fetched)
         end
@@ -903,28 +913,34 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     end
 
     if has_result_times(settings)
+        futures = Pair{CoreId, Any}[]
+        @sync for core in get_cores(db)
+            if core != db.core
+                f = @spawnat core collect_and_reset_timings_local()
+                push!(futures, core => f)
+            end
+        end
+        all_timings = Dict{CoreId, Any}(db.core => collect_and_reset_timings_local())
+        for (core, f) in futures
+            all_timings[core] = fetch(f)
+        end
+
         for (scenix, core) in db.dist_ppp
-            f = @spawnat core get_maintiming_ppp(scenix)
-            db.output.timing_ppp[scenix][stepnr, :, :] .= fetch(f)
-            @spawnat core reset_maintiming_ppp(scenix)
+            db.output.timing_ppp[scenix][stepnr, :, :] .= all_timings[core][1][scenix]
         end
-
         for (scenix, subix, core) in db.dist_evp
-            f = @spawnat core get_maintiming_evp(scenix, subix)
-            db.output.timing_evp[(scenix, subix)][stepnr, :] .= fetch(f)
-            @spawnat core reset_maintiming_evp(scenix, subix)
+            db.output.timing_evp[(scenix, subix)][stepnr, :] .= all_timings[core][2][(scenix, subix)]
         end
-
         for (subix, core) in db.dist_mp
-            f = @spawnat core get_maintiming_mp(subix)
-            db.output.timing_mp[subix][stepnr, :] .= fetch(f)
-            @spawnat core reset_maintiming_mp(subix)
+            db.output.timing_mp[subix][stepnr, :] .= all_timings[core][3][subix]
+        end
+        for (scenix, subix, core) in db.dist_sp
+            db.output.timing_sp[(scenix, subix)][stepnr, :] .= all_timings[core][4][(scenix, subix)]
         end
 
-        for (scenix, subix, core) in db.dist_sp
-            f = @spawnat core get_maintiming_sp(scenix, subix)
-            db.output.timing_sp[(scenix, subix)][stepnr, :] .= fetch(f)
-            @spawnat core reset_maintiming_sp(scenix, subix)
+        if haskey(settings["problems"], "clearing")
+            db.output.timing_cp[stepnr, :] .= db.cp.div[MainTiming]
+            fill!(db.cp.div[MainTiming], 0.0)
         end
     end
 
@@ -938,21 +954,40 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     end
 
     if has_result_storagevalues(settings)
+        need_sv = has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")
+        need_cutsids = haskey(settings["problems"], "clearing")
+
+        # Phase 1: Fetch storagevalues and cutsids, one call per unique mp core
+        sv_futures = Pair{CoreId, Any}[]
+        @sync for core in unique(last.(db.dist_mp))
+            f = @spawnat core get_mp_watervalues_and_cutsids_local(need_sv, need_cutsids)
+            push!(sv_futures, core => f)
+        end
+        all_sv = Dict{CoreId, Any}(core => fetch(f) for (core, f) in sv_futures)
+
+        # Phase 2: Process locally, resolve cuts, build enddual requests grouped by core
+        enddual_sp_reqs = Dict{CoreId, Vector{Tuple}}()
+        enddual_evp_reqs = Dict{CoreId, Vector{Tuple}}()
+        sp_output_map = Dict{Tuple, Tuple}()
+        evp_output_map = Dict{Tuple, Tuple}()
+
         for (subix, core) in db.dist_mp
             if has_headlosscost(settings["problems"]["stochastic"]["master"])
                 dim = get_numscen_stoch(db.input) * 2 + 2 # scenarios + master operative + master operative after headlosscost adjustment
             else
                 dim = get_numscen_stoch(db.input) * 2 + 1 # scenarios + master operative 
             end
-            if has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")
-                f = @spawnat core get_storagevalues_stoch(subix)
-                storagevalues_stoch = fetch(f)
-                dim = (size(storagevalues_stoch, 1))
+
+            (sv_dict, cutsid_dict) = all_sv[core]
+
+            if (has_result_storagevalues_all_problems(settings) || !haskey(settings["problems"], "clearing")) && haskey(sv_dict, subix)
+                storagevalues_stoch = sv_dict[subix]
+                dim = size(storagevalues_stoch, 1)
                 db.output.storagevalues[subix][stepnr, 1:dim, :] .= storagevalues_stoch
             end
 
             if haskey(settings["problems"], "clearing")
-                cutid = fetch(@spawnat core get_cutsid(subix))
+                cutid = cutsid_dict[subix]
                 cuts = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), cutid)
                 for (j, statevar) in enumerate(cuts.statevars) # master / operative water values after headlosscost
                     obj = get_obj_from_id(TuLiPa.getobjects(db.cp.prob), first(TuLiPa.getvarout(statevar))) # TODO: OK to assume objid = varoutid?
@@ -961,18 +996,19 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                     db.output.storagevalues[subix][stepnr, dim+1, j] = TuLiPa.getcondual(db.cp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
 
                     if has_result_storagevalues_all_problems(settings)
+                        objid = first(TuLiPa.getvarout(statevar))
                         if haskey(settings["problems"], "stochastic")
                             for scenix in 1:get_numscen_stoch(db.input)
-                                core_stoch = get_core_sp(db.dist_sp, scenix, subix)
-                                f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                                db.output.storagevalues[subix][stepnr, dim+3+scenix, j] = fetch(f)
+                                core_sp = get_core_sp(db.dist_sp, scenix, subix)
+                                push!(get!(() -> Tuple[], enddual_sp_reqs, core_sp), (scenix, subix, objid))
+                                sp_output_map[(scenix, subix, objid)] = (subix, dim+3+scenix, j)
                             end
                         end
                         if haskey(settings["problems"], "endvalue") && is_subsystem_evp(db.subsystems[subix])
                             for scenix in 1:get_numscen_stoch(db.input)
                                 core_evp = get_core_evp(db.dist_evp, scenix, subix)
-                                f = @spawnat core_evp get_enddual_evp(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                                db.output.storagevalues[subix][stepnr, dim+3+get_numscen_stoch(db.input)+scenix, j] = fetch(f)
+                                push!(get!(() -> Tuple[], enddual_evp_reqs, core_evp), (scenix, subix, objid))
+                                evp_output_map[(scenix, subix, objid)] = (subix, dim+3+get_numscen_stoch(db.input)+scenix, j)
                             end
                         end
                     end
@@ -981,10 +1017,35 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
                 statevars = db.mp[subix].cuts.statevars
                 for scenix in 1:get_numscen_stoch(db.input)
                     for (j, statevar) in enumerate(statevars)
-                        core_stoch = get_core_sp(db.dist_sp, scenix, subix)
-                        f = @spawnat core_stoch get_enddual_stoch(scenix, subix, first(TuLiPa.getvarout(statevar)))
-                        db.output.storagevalues[subix][stepnr, dim+scenix, j] = fetch(f)
+                        objid = first(TuLiPa.getvarout(statevar))
+                        core_sp = get_core_sp(db.dist_sp, scenix, subix)
+                        push!(get!(() -> Tuple[], enddual_sp_reqs, core_sp), (scenix, subix, objid))
+                        sp_output_map[(scenix, subix, objid)] = (subix, dim+scenix, j)
                     end
+                end
+            end
+        end
+
+        # Phase 3: Fetch all endduals, one call per unique core
+        all_cores_enddual = union(keys(enddual_sp_reqs), keys(enddual_evp_reqs))
+        if !isempty(all_cores_enddual)
+            enddual_futures = Pair{CoreId, Any}[]
+            @sync for core in all_cores_enddual
+                sp_reqs = get(enddual_sp_reqs, core, Tuple[])
+                evp_reqs = get(enddual_evp_reqs, core, Tuple[])
+                f = @spawnat core get_endperiod_duals_local(sp_reqs, evp_reqs)
+                push!(enddual_futures, core => f)
+            end
+
+            for (core, f) in enddual_futures
+                (sp_results, evp_results) = fetch(f)
+                for (key, val) in sp_results
+                    (subix_out, row, j) = sp_output_map[key]
+                    db.output.storagevalues[subix_out][stepnr, row, j] = val
+                end
+                for (key, val) in evp_results
+                    (subix_out, row, j) = evp_output_map[key]
+                    db.output.storagevalues[subix_out][stepnr, row, j] = val
                 end
             end
         end
@@ -1139,24 +1200,6 @@ function update_output(t::TuLiPa.ProbTime, stepnr::Int)
     return
 end
 
-function get_enddual_stoch(scenix, subix, objid)
-    db = get_local_db()
-    sp = db.sp[(scenix, subix)]
-
-    obj = get_obj_from_id(TuLiPa.getobjects(sp.prob), objid) # TODO: OK to assume objid = varoutid?
-    balance = TuLiPa.getbalance(obj)
-    return TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-end
-
-function get_enddual_evp(scenix, subix, objid)
-    db = get_local_db()
-    evp = db.evp[(scenix, subix)]
-
-    obj = get_obj_from_id(TuLiPa.getobjects(evp.prob), objid) # TODO: OK to assume objid = varoutid?
-    balance = TuLiPa.getbalance(obj)
-    return TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
-end
-
 function reset_ppp_prices(scenix)
     db = get_local_db()
     ppp = db.ppp[scenix]
@@ -1217,17 +1260,65 @@ end
 
 get_output_from_input(input::DefaultJulESInput) = DefaultJulESOutput(input)
 
-get_maintiming_ppp(scenix) = get_local_db().ppp[scenix].div[MainTiming]
-get_maintiming_evp(scenix, subix) = get_local_db().evp[(scenix, subix)].div[MainTiming]
-get_maintiming_mp(subix) = get_local_db().mp[subix].div[MainTiming]
-get_maintiming_sp(scenix, subix) = get_local_db().sp[(scenix, subix)].div[MainTiming]
+function collect_and_reset_timings_local()
+    db = get_local_db()
 
-reset_maintiming_ppp(scenix) = fill!(get_local_db().ppp[scenix].div[MainTiming], 0.0)
-reset_maintiming_evp(scenix, subix) = fill!(get_local_db().evp[(scenix, subix)].div[MainTiming], 0.0)
-reset_maintiming_mp(subix) = fill!(get_local_db().mp[subix].div[MainTiming], 0.0)
-reset_maintiming_sp(scenix, subix) = fill!(get_local_db().sp[(scenix, subix)].div[MainTiming], 0.0)
+    ppp_timings = Dict{Int, Matrix{Float64}}()
+    for (scenix, ppp) in db.ppp
+        ppp_timings[scenix] = copy(ppp.div[MainTiming])
+        fill!(ppp.div[MainTiming], 0.0)
+    end
 
-get_storagevalues_stoch(subix) = get_local_db().mp[subix].div[StorageValues]
+    evp_timings = Dict{Tuple{Int,Int}, Vector{Float64}}()
+    for ((scenix, subix), evp) in db.evp
+        evp_timings[(scenix, subix)] = copy(evp.div[MainTiming])
+        fill!(evp.div[MainTiming], 0.0)
+    end
+
+    mp_timings = Dict{Int, Vector{Float64}}()
+    for (subix, mp) in db.mp
+        mp_timings[subix] = copy(mp.div[MainTiming])
+        fill!(mp.div[MainTiming], 0.0)
+    end
+
+    sp_timings = Dict{Tuple{Int,Int}, Vector{Float64}}()
+    for ((scenix, subix), sp) in db.sp
+        sp_timings[(scenix, subix)] = copy(sp.div[MainTiming])
+        fill!(sp.div[MainTiming], 0.0)
+    end
+
+    return (ppp_timings, evp_timings, mp_timings, sp_timings)
+end
+
+function get_mp_watervalues_and_cutsids_local(need_sv::Bool, need_cutsids::Bool)
+    db = get_local_db()
+    sv = Dict{Int, Any}()
+    cutsids = Dict{Int, Any}()
+    for (subix, mp) in db.mp
+        need_sv && (sv[subix] = copy(mp.div[StorageValues]))
+        need_cutsids && (cutsids[subix] = mp.cuts.id)
+    end
+    return (sv, cutsids)
+end
+
+function get_endperiod_duals_local(sp_requests, evp_requests)
+    db = get_local_db()
+    sp_results = Dict{Tuple, Float64}()
+    for (scenix, subix, objid) in sp_requests
+        sp = db.sp[(scenix, subix)]
+        obj = get_obj_from_id(TuLiPa.getobjects(sp.prob), objid)
+        balance = TuLiPa.getbalance(obj)
+        sp_results[(scenix, subix, objid)] = TuLiPa.getcondual(sp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+    end
+    evp_results = Dict{Tuple, Float64}()
+    for (scenix, subix, objid) in evp_requests
+        evp = db.evp[(scenix, subix)]
+        obj = get_obj_from_id(TuLiPa.getobjects(evp.prob), objid)
+        balance = TuLiPa.getbalance(obj)
+        evp_results[(scenix, subix, objid)] = TuLiPa.getcondual(evp.prob, TuLiPa.getid(balance), TuLiPa.getnumperiods(TuLiPa.gethorizon(balance)))
+    end
+    return (sp_results, evp_results)
+end
 
 function get_output_final(steplength, skipmax)
     output = get_output_main()
@@ -1470,8 +1561,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_evp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "total", "core", "skipmed"]])
         for (scenix, subix, core) in db.dist_evp
             values = dropdims(mean(db.output.timing_evp[(scenix, subix)], dims=1), dims=1)
-            f = @spawnat core get_skipmed_impact(subix)
-            push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+            push!(df_evp, [scenix, subix, values[1], values[2], values[3], core, get_skipmed_impact(db.subsystems[subix])])
         end
         df_evp[!, :other] = df_evp[!, :total] - df_evp[!, :solve] - df_evp[!, :update]
         df_evp[df_evp.skipmed.==true, [:update, :solve, :total]] .= df_evp[df_evp.skipmed.==true, [:update, :solve, :total]] .* skipfactor
@@ -1497,8 +1587,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_mp = DataFrame([name => [] for name in ["subix", "mp_u", "mp_s", "mp_fin", "mp_o", "bend_it", "core", "skipmed"]])
         for (subix, core) in db.dist_mp
             values = dropdims(mean(db.output.timing_mp[(subix)], dims=1), dims=1)
-            f = @spawnat core get_skipmed_impact(subix)
-            push!(df_mp, [subix, values[1], values[2], values[3], values[4], values[5], core, fetch(f)])
+            push!(df_mp, [subix, values[1], values[2], values[3], values[4], values[5], core, get_skipmed_impact(db.subsystems[subix])])
         end
         df_mp[!, :mp_tot] = df_mp[!, :mp_s] + df_mp[!, :mp_u] + df_mp[!, :mp_fin] + df_mp[!, :mp_o]
         df_mp[df_mp.skipmed.==true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .= df_mp[df_mp.skipmed.==true, [:mp_u, :mp_s, :mp_fin, :mp_o, :mp_tot, :bend_it]] .* skipfactor
@@ -1518,8 +1607,7 @@ function get_output_timing_local(data, steplength, skipmax)
         df_sp = DataFrame([name => [] for name in ["scenix", "subix", "update", "solve", "other", "core", "skipmed"]])
         for (scenix, subix, core) in db.dist_sp
             values = dropdims(mean(db.output.timing_sp[(scenix, subix)], dims=1), dims=1)
-            f = @spawnat core get_skipmed_impact(subix)
-            push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, fetch(f)])
+            push!(df_sp, [scenix, subix, values[1], values[2], values[3], core, get_skipmed_impact(db.subsystems[subix])])
         end
         df_sp[!, :total] = df_sp[!, :solve] + df_sp[!, :update] + df_sp[!, :other]
         df_sp[df_sp.skipmed.==true, [:update, :solve, :other, :total]] .= df_sp[df_sp.skipmed.==true, [:update, :solve, :other, :total]] .* skipfactor

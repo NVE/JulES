@@ -55,7 +55,10 @@ function create_cp()
     probmethod = parse_methods(settings["problems"]["clearing"]["solver"])
     prob = TuLiPa.buildprob(probmethod, modelobjects)
 
-    db.cp = ClearingProblem(prob, Dict{String, Float64}(), Dict())
+    div = Dict()
+    div[MainTiming] = zeros(3)
+
+    db.cp = ClearingProblem(prob, Dict{String, Float64}(), div)
 
     return
 end
@@ -64,15 +67,15 @@ function solve_cp(t, stepnr, skipmed)
     db = get_local_db()
 
     if db.core_main == db.core
-        timing = db.output.timing_cp
-        timing[stepnr, 3] = @elapsed begin
+        maintiming = db.cp.div[MainTiming]
+        maintiming[3] = @elapsed begin
             update_startstates_cp(db.cp.prob, db.startstates, stepnr, t)
             update_cuts(db.dist_mp, db.cp.prob, skipmed)
             update_nonstoragestates_cp(db.dist_ppp, db.cp.prob)
             update_statedependent_cp(stepnr, t)
-            timing[stepnr, 1] = @elapsed TuLiPa.update!(db.cp.prob, t)
+            maintiming[1] = @elapsed TuLiPa.update!(db.cp.prob, t)
             set_minstoragevalue!(db.cp.prob, minstoragevaluerule)
-            timing[stepnr, 2] = @elapsed TuLiPa.solve!(db.cp.prob)
+            maintiming[2] = @elapsed TuLiPa.solve!(db.cp.prob)
             get_startstates!(db.cp.prob, db.input.dataset["detailedrescopl"], db.input.dataset["enekvglobaldict"], db.cp.endstates)
         end
     end
@@ -122,19 +125,13 @@ function update_statedependent_cp(stepnr, t)
 
     # Headlosscosts
     if has_headlosscost(settings["problems"]["clearing"])
-        for (_subix, _core) in db.dist_mp
-            future = @spawnat _core get_headlosscost_data_from_mp(_subix, t)
+        all_data = fetch_per_core(db.dist_mp) do core, subixs
+            @spawnat core get_all_headlosscost_data_local(subixs, t)
+        end
 
-            ret = fetch(future)
-            if ret isa RemoteException
-                throw(ret)
-            end
-            headlosscost_data = ret
-
-            for (resid, headlosscost, T_mp) in headlosscost_data
-                obj = find_obj_by_id(TuLiPa.getobjects(db.cp.prob), resid)
-                T = TuLiPa.getnumperiods(TuLiPa.gethorizon(obj))
-                
+        for headlosscost_data in Iterators.flatten(all_data)
+            for (resid, headlosscost, _) in headlosscost_data
+                T = TuLiPa.getnumperiods(TuLiPa.gethorizon(find_obj_by_id(TuLiPa.getobjects(db.cp.prob), resid)))
                 TuLiPa.setobjcoeff!(db.cp.prob, resid, T, headlosscost)
             end
         end
@@ -142,12 +139,14 @@ function update_statedependent_cp(stepnr, t)
     return
 end
 
-function get_headlosscost_data_from_mp(subix, t) # TODO: get method from config
+function get_all_headlosscost_data_local(subixs, t)
     db = get_local_db()
-
-    mp = db.mp[subix]
-
-    return TuLiPa.get_headlosscost_data(TuLiPa.ReservoirCurveSlopeMethod(), mp.prob, t)
+    results = Vector{Any}()
+    for subix in subixs
+        mp = db.mp[subix]
+        push!(results, TuLiPa.get_headlosscost_data(TuLiPa.ReservoirCurveSlopeMethod(), mp.prob, t))
+    end
+    return results
 end
 
 function update_nonstoragestates_cp(dist_ppp, prob_cp)
@@ -176,45 +175,57 @@ function get_nonstoragestates_short(scenix)
 end
 
 function update_cuts(dist_mp, prob_cp, skipmed)
-    for (_subix, _core) in dist_mp
-        if skipmed_check(_subix, skipmed)
-            future = @spawnat _core get_cutsdata(_subix)
+    all_cutsdata = fetch_per_core(dist_mp, skipmed) do core, subixs
+        @spawnat core get_all_cutsdata_local(subixs)
+    end
 
-            ret = fetch(future)
-            if ret isa RemoteException
-                throw(ret)
-            end
-
-            (cutid, constants, slopes) = ret
-
-            cuts_cp = find_obj_by_id(TuLiPa.getobjects(prob_cp), cutid)
-            cuts_cp.constants = constants
-            cuts_cp.slopes = slopes
-
-            TuLiPa.updatecuts!(prob_cp, cuts_cp)
-        end
+    for (cutid, constants, slopes) in Iterators.flatten(all_cutsdata)
+        cuts_cp = find_obj_by_id(TuLiPa.getobjects(prob_cp), cutid)
+        cuts_cp.constants = constants
+        cuts_cp.slopes = slopes
+        TuLiPa.updatecuts!(prob_cp, cuts_cp)
     end
     return
+end
+
+"""Group dist_mp by core, spawn one call per core via spawn_fn, fetch all results.
+Optional skipmed filters subsystems via skipmed_check."""
+function fetch_per_core(spawn_fn, dist_mp, skipmed=nothing)
+    core_subixs = Dict{CoreId, Vector{Int}}()
+    for (subix, core) in dist_mp
+        if isnothing(skipmed) || skipmed_check(subix, skipmed)
+            push!(get!(() -> Int[], core_subixs, core), subix)
+        end
+    end
+
+    futures = Pair{CoreId, Any}[]
+    @sync for (core, subixs) in core_subixs
+        push!(futures, core => spawn_fn(core, subixs))
+    end
+
+    results = Any[]
+    for (_, f) in futures
+        ret = fetch(f)
+        ret isa RemoteException && throw(ret)
+        push!(results, ret)
+    end
+    return results
+end
+
+function get_all_cutsdata_local(subixs)
+    db = get_local_db()
+    results = Vector{Tuple}()
+    for subix in subixs
+        cuts = db.mp[subix].cuts
+        push!(results, (cuts.id, cuts.constants, cuts.slopes))
+    end
+    return results
 end
 
 function get_lightcuts(subix)
     db = get_local_db()
     cuts = db.mp[subix].cuts
     return TuLiPa.getlightweightself(cuts)
-end
-
-function get_cutsdata(subix)
-    db = get_local_db()
-
-    cuts = db.mp[subix].cuts
-    return (cuts.id, cuts.constants, cuts.slopes)
-end
-
-function get_cutsid(subix)
-    db = get_local_db()
-
-    cuts = db.mp[subix].cuts
-    return cuts.id
 end
 
 function update_startstates_cp(prob_cp, startstates, stepnr, t)
