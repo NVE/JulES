@@ -199,14 +199,14 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
     lb = mp.cuts.lower_bound
     prev_lb = 0
     reltol = settings["problems"]["stochastic"]["reltol"] # relative tolerance
-    while !(((abs((ub-lb)/ub)) < reltol) || abs(ub-lb) < 1) && (count < 15) # remove count, handle convergence issues
+    converged = false
+    while !converged && count < 15
         maintiming[2] += @elapsed begin
             if TuLiPa.getnumcuts(mp.cuts) != 0
                 count == 0 && TuLiPa.setwarmstart!(mp.prob, false)
                 if cutreuse
                     try
                         TuLiPa.solve!(mp.prob)
-                        count == 0 && TuLiPa.clearcuts!(mp.cuts)
                         count += 1
                     catch e
                         errtxt = sprint(showerror, e, catch_backtrace())
@@ -242,39 +242,51 @@ function solve_benders(stepnr::Int, subix::SubsystemIx)
         end
 
         maintiming[4] += @elapsed begin
+            scenresults = fetch.(futures)
             ub = 0.0
-            if TuLiPa.getcutix(mp.cuts) == TuLiPa.getmaxcuts(mp.cuts)
+            for (scenix, objectivevalue, _, _) in scenresults
+                ub += objectivevalue*mp.cuts.probabilities[scenix]
+            end
+            if ub < mp.cuts.lower_bound
+                error("Upper bound $ub is lower than lower bound $(mp.cuts.lower_bound). Decrease initial lower bound in settings.")
+            end
+            converged = count > 0 && (abs((ub - lb) / ub) < reltol || abs(ub - lb) < 1)
+        end
+
+        if converged || count >= 15
+            break
+        end
+
+        maintiming[4] += @elapsed begin
+            resetcuts = false
+            if (count == 1) && cutreuse
+                TuLiPa.clearcuts!(mp.cuts)
+                cutix = 1
+                resetcuts = true
+            elseif TuLiPa.getcutix(mp.cuts) == TuLiPa.getmaxcuts(mp.cuts)
                 cutix = 1
             elseif prev_lb == lb
                 TuLiPa.clearcuts!(mp.cuts) # no progress so clear cuts and start from the front
                 cutix = 1
                 cutreuse = false
+                resetcuts = true
             else
                 cutix = TuLiPa.getcutix(mp.cuts) + 1
             end
-            for future in futures
-                scenix, objectivevalue, scenslopes, scenconstant = fetch(future)
-
-                ub += objectivevalue*mp.cuts.probabilities[scenix]
+            for (scenix, _, scenslopes, scenconstant) in scenresults
                 mp.cuts.scenslopes[scenix, cutix, :] .= scenslopes
                 mp.cuts.scenconstants[scenix, cutix] = scenconstant
             end
-            if ub < mp.cuts.lower_bound # TODO customize the lb to each subsystem
-                error("Upper bound $ub is lower than lower bound $(mp.cuts.lower_bound). Decrease initial lower bound in settings.")
-            end
-        
             TuLiPa.updatecutparameters!(mp.prob, mp.cuts)
-        end
 
-        maintiming[4] += @elapsed begin
-            if (count == 1) && cutreuse
+            if resetcuts
                 TuLiPa.updatecuts!(mp.prob, mp.cuts)
-            elseif count != 0
+            else
                 TuLiPa.updatelastcut!(mp.prob, mp.cuts)
             end
         end
     end
-    if count == 15
+    if count == 15 && !converged
         @warn("Warning: Benders did not converge within 15 iterations, reltol=$(reltol), ub=$(ub), lb=$(lb), step=$(stepnr), subix=$(subix)")
     end
 
